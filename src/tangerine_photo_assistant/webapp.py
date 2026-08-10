@@ -87,6 +87,7 @@ class TaskState:
     eta_seconds: float | None = None
     failure_count: int = 0
     pausable: bool = False
+    result: dict[str, Any] | None = None
 
 
 class AiStartRequest(BaseModel):
@@ -138,6 +139,10 @@ class AlbumTypeUpdateRequest(BaseModel):
 
 class AlbumAssignmentRequest(BaseModel):
     capture_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class ScanStartRequest(BaseModel):
+    album_id: int = Field(ge=1)
 
 
 class MigrationStartRequest(BaseModel):
@@ -489,10 +494,18 @@ class ScanTaskManager:
                     self._migration_thread_active = False
             connection.close()
 
-    def start(self) -> dict[str, Any]:
+    def start(self, album_id: int) -> dict[str, Any]:
         with self._lock:
             if self._state.status == "running":
                 raise RuntimeError("已有扫描任务正在运行")
+            connection = connect_readonly(self.settings.database_path)
+            try:
+                if connection.execute(
+                    "SELECT 1 FROM events WHERE id=? AND status!='archived'", (album_id,)
+                ).fetchone() is None:
+                    raise ValueError("目标相册不存在")
+            finally:
+                connection.close()
             task_id = uuid4().hex
             self._state = TaskState(
                 id=task_id,
@@ -501,7 +514,7 @@ class ScanTaskManager:
                 message="正在核对文件…",
             )
             self._cancel.clear()
-        Thread(target=self._run, args=(task_id,), daemon=True).start()
+        Thread(target=self._run, args=(task_id, album_id), daemon=True).start()
         return self.snapshot()
 
     def start_visual(self) -> dict[str, Any]:
@@ -817,7 +830,7 @@ class ScanTaskManager:
                 self._ai_run_id = None
             connection.close()
 
-    def _run(self, task_id: str) -> None:
+    def _run(self, task_id: str, album_id: int) -> None:
         connection = connect(self.settings.database_path)
         try:
             run_id = scan_library(
@@ -853,6 +866,18 @@ class ScanTaskManager:
             rebuild_captures(connection)
             self._update(stage="structure", message="正在更新相册建议与连拍候选…")
             rebuild_structure(connection, self.settings.burst_time_gap_seconds)
+            self._update(stage="album", message="正在把新增照片归入目标相册…")
+            capture_ids = [
+                row[0] for row in connection.execute(
+                    """SELECT DISTINCT cf.capture_id FROM capture_files cf
+                       JOIN files f ON f.id=cf.file_id
+                       WHERE f.first_seen_run_id=? AND f.present=1""",
+                    (run_id,),
+                )
+            ]
+            assigned_count = _assign_captures_to_album(
+                connection, album_id, capture_ids
+            ) if capture_ids else 0
             self._update(stage="reporting", message="正在更新审计报告…")
             write_report(build_report(connection), self.settings.reports_path)
             self._update(stage="archive-check", message="正在核对原片保护基线…")
@@ -860,7 +885,12 @@ class ScanTaskManager:
             self._update(
                 status="complete",
                 stage="complete",
-                message=f"增量扫描完成（批次 {run_id}）",
+                message=f"图库更新完成：{assigned_count:,} 张新增照片已归入相册",
+                result={
+                    "scan_run_id": run_id,
+                    "album_id": album_id,
+                    "assigned_count": assigned_count,
+                },
             )
         except TaskCancelled:
             self._update(status="cancelled", stage="cancelled", message="扫描已取消")
@@ -1010,6 +1040,8 @@ def _query_library_captures(
             LEFT JOIN event_captures ec ON ec.capture_id = c.id
             LEFT JOIN events e ON e.id = ec.event_id
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
+            LEFT JOIN similarity_group_captures sgc ON sgc.capture_id = c.id
+            LEFT JOIN similarity_groups sg ON sg.id = sgc.group_id
         """
         total = connection.execute(
             f"SELECT COUNT(DISTINCT c.id) {from_sql} WHERE {where_sql}",
@@ -1025,7 +1057,9 @@ def _query_library_captures(
             SELECT c.id, c.stem, c.captured_at, c.pairing_status,
                    f.camera_model, f.lens_model, e.id AS album_id,
                    e.proposed_name AS album_name, e.category,
-                   cr.user_rating, cr.user_pick, cr.user_reject
+                   cr.user_rating, cr.user_pick, cr.user_reject,
+                   MAX(sg.id) AS similarity_group_id,
+                   MAX(sg.capture_count) AS similarity_group_size
             {from_sql}
             WHERE {where_sql}
             GROUP BY c.id
@@ -1073,6 +1107,70 @@ def _query_library_filters(settings: Settings) -> dict[str, Any]:
         }
     finally:
         connection.close()
+
+
+def _assign_captures_to_album(
+    connection: sqlite3.Connection, album_id: int, capture_ids: list[int]
+) -> int:
+    capture_ids = sorted(set(capture_ids))
+    if not capture_ids:
+        return 0
+    if connection.execute(
+        "SELECT 1 FROM events WHERE id=? AND status!='archived'", (album_id,)
+    ).fetchone() is None:
+        raise ValueError("目标相册不存在")
+    placeholders = ",".join("?" for _ in capture_ids)
+    existing_ids = {
+        row[0] for row in connection.execute(
+            f"SELECT id FROM captures WHERE id IN ({placeholders})", capture_ids
+        )
+    }
+    if len(existing_ids) != len(capture_ids):
+        raise ValueError("选择中包含不存在的照片")
+    affected = {
+        row[0] for row in connection.execute(
+            f"SELECT DISTINCT event_id FROM event_captures WHERE capture_id IN ({placeholders})",
+            capture_ids,
+        )
+    }
+    connection.execute(
+        f"DELETE FROM event_captures WHERE capture_id IN ({placeholders})", capture_ids
+    )
+    next_sequence = connection.execute(
+        "SELECT COALESCE(MAX(sequence_index), -1) + 1 FROM event_captures WHERE event_id=?",
+        (album_id,),
+    ).fetchone()[0]
+    connection.executemany(
+        "INSERT INTO event_captures(event_id, capture_id, sequence_index) VALUES (?, ?, ?)",
+        (
+            (album_id, capture_id, next_sequence + index)
+            for index, capture_id in enumerate(capture_ids)
+        ),
+    )
+    affected.add(album_id)
+    for affected_id in affected:
+        connection.execute("DELETE FROM event_sources WHERE event_id=?", (affected_id,))
+        connection.execute(
+            """INSERT INTO event_sources(event_id, parent_relative)
+               SELECT ?, c.parent_relative FROM event_captures ec
+               JOIN captures c ON c.id=ec.capture_id
+               WHERE ec.event_id=? GROUP BY c.parent_relative""",
+            (affected_id, affected_id),
+        )
+        connection.execute(
+            """UPDATE events SET
+                   capture_count=(SELECT COUNT(*) FROM event_captures WHERE event_id=?),
+                   start_at=(SELECT MIN(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
+                   end_at=(SELECT MAX(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
+                   status=CASE WHEN id=? THEN 'confirmed' ELSE status END,
+                   updated_at=? WHERE id=?""",
+            (
+                affected_id, affected_id, affected_id, album_id,
+                utc_now(), affected_id,
+            ),
+        )
+    connection.commit()
+    return len(capture_ids)
 
 
 def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
@@ -1986,66 +2084,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def assign_album_captures(
         album_id: int, request: AlbumAssignmentRequest
     ) -> dict[str, Any]:
-        capture_ids = sorted(set(request.capture_ids))
         connection = connect(settings.database_path)
         try:
-            album = connection.execute(
-                "SELECT id FROM events WHERE id=?", (album_id,)
-            ).fetchone()
-            if album is None:
-                raise HTTPException(status_code=404, detail="相册不存在")
-            placeholders = ",".join("?" for _ in capture_ids)
-            existing_ids = {
-                row[0] for row in connection.execute(
-                    f"SELECT id FROM captures WHERE id IN ({placeholders})", capture_ids
+            try:
+                assigned = _assign_captures_to_album(
+                    connection, album_id, request.capture_ids
                 )
-            }
-            if len(existing_ids) != len(capture_ids):
-                raise HTTPException(status_code=422, detail="选择中包含不存在的照片")
-            affected = {
-                row[0] for row in connection.execute(
-                    f"SELECT DISTINCT event_id FROM event_captures WHERE capture_id IN ({placeholders})",
-                    capture_ids,
-                )
-            }
-            connection.execute(
-                f"DELETE FROM event_captures WHERE capture_id IN ({placeholders})",
-                capture_ids,
-            )
-            next_sequence = connection.execute(
-                "SELECT COALESCE(MAX(sequence_index), -1) + 1 FROM event_captures WHERE event_id=?",
-                (album_id,),
-            ).fetchone()[0]
-            connection.executemany(
-                "INSERT INTO event_captures(event_id, capture_id, sequence_index) VALUES (?, ?, ?)",
-                ((album_id, capture_id, next_sequence + index) for index, capture_id in enumerate(capture_ids)),
-            )
-            affected.add(album_id)
-            for affected_id in affected:
-                connection.execute(
-                    "DELETE FROM event_sources WHERE event_id=?", (affected_id,)
-                )
-                connection.execute(
-                    """INSERT INTO event_sources(event_id, parent_relative)
-                       SELECT ?, c.parent_relative FROM event_captures ec
-                       JOIN captures c ON c.id=ec.capture_id
-                       WHERE ec.event_id=? GROUP BY c.parent_relative""",
-                    (affected_id, affected_id),
-                )
-                connection.execute(
-                    """UPDATE events SET
-                           capture_count=(SELECT COUNT(*) FROM event_captures WHERE event_id=?),
-                           start_at=(SELECT MIN(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
-                           end_at=(SELECT MAX(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
-                           status=CASE WHEN id=? THEN 'confirmed' ELSE status END,
-                           updated_at=? WHERE id=?""",
-                    (
-                        affected_id, affected_id, affected_id, album_id,
-                        utc_now(), affected_id,
-                    ),
-                )
-            connection.commit()
-            return {"album_id": album_id, "assigned_count": len(capture_ids)}
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            return {"album_id": album_id, "assigned_count": assigned}
         finally:
             connection.close()
 
@@ -2061,10 +2108,10 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/scan", status_code=202)
-    def start_scan() -> dict[str, Any]:
+    def start_scan(request: ScanStartRequest) -> dict[str, Any]:
         try:
-            return manager.start()
-        except RuntimeError as exc:
+            return manager.start(request.album_id)
+        except (RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/visual/analyze", status_code=202)

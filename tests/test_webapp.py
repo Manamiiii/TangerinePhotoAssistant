@@ -1,7 +1,9 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import sleep
 import unittest
 
+from PIL import Image
 from pydantic import ValidationError
 
 from tangerine_photo_assistant.database import connect
@@ -11,6 +13,9 @@ from tangerine_photo_assistant.settings import Settings
 from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.webapp import (
     AiStartRequest,
+    ScanTaskManager,
+    ScanStartRequest,
+    _assign_captures_to_album,
     _query_analysis_overview,
     _query_bursts,
     _query_duplicates,
@@ -53,6 +58,8 @@ class WebAppQueryTests(unittest.TestCase):
             AiStartRequest(mode="benchmark", limit=5001)
         with self.assertRaises(ValidationError):
             AiStartRequest(mode="unsupported", limit=10)
+        with self.assertRaises(ValidationError):
+            ScanStartRequest(album_id=0)
 
     def test_overview_and_inbox_use_real_catalog_data(self) -> None:
         with TemporaryDirectory() as directory:
@@ -102,6 +109,84 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(analysis["quality"]["analyzed"], 0)
             self.assertFalse(analysis["runtime"]["ready"])
             self.assertEqual(quality["count"], 0)
+
+    def test_capture_assignment_uses_album_as_the_working_dimension(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            source = settings.originals / "待整理" / "2026-08-10_测试"
+            source.mkdir(parents=True)
+            (source / "DSCF0001.JPG").write_bytes(b"jpeg")
+            connection = connect(settings.database_path)
+            scan_library(connection, settings)
+            rebuild_captures(connection)
+            rebuild_structure(connection, settings.burst_time_gap_seconds)
+            connection.execute(
+                """INSERT INTO events(
+                       event_key, proposed_name, category, capture_count, status,
+                       confidence, reason_json, created_at, updated_at
+                   ) VALUES ('manual:test', '测试相册', '日常', 0, 'confirmed',
+                             1.0, '{}', '2026-08-10', '2026-08-10')"""
+            )
+            album_id = connection.execute(
+                "SELECT id FROM events WHERE event_key='manual:test'"
+            ).fetchone()[0]
+            assigned = _assign_captures_to_album(connection, album_id, [1])
+            membership = connection.execute(
+                "SELECT event_id FROM event_captures WHERE capture_id=1"
+            ).fetchone()[0]
+            album_count = connection.execute(
+                "SELECT capture_count FROM events WHERE id=?", (album_id,)
+            ).fetchone()[0]
+            connection.close()
+            self.assertEqual(assigned, 1)
+            self.assertEqual(membership, album_id)
+            self.assertEqual(album_count, 1)
+
+    def test_scan_assigns_only_new_photos_to_the_selected_album(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            source = settings.originals / "待整理"
+            source.mkdir(parents=True)
+            Image.new("RGB", (32, 24), "orange").save(source / "existing.JPG")
+            connection = connect(settings.database_path)
+            scan_library(connection, settings)
+            rebuild_captures(connection)
+            rebuild_structure(connection, settings.burst_time_gap_seconds)
+            connection.execute(
+                """INSERT INTO events(
+                       event_key, proposed_name, category, capture_count, status,
+                       confidence, reason_json, created_at, updated_at
+                   ) VALUES ('manual:scan-target', '本次相册', '日常', 0, 'confirmed',
+                             1.0, '{}', '2026-08-10', '2026-08-10')"""
+            )
+            album_id = connection.execute(
+                "SELECT id FROM events WHERE event_key='manual:scan-target'"
+            ).fetchone()[0]
+            connection.commit()
+            connection.close()
+
+            Image.new("RGB", (32, 24), "green").save(source / "new.JPG")
+            manager = ScanTaskManager(settings)
+            manager.start(album_id)
+            for _ in range(200):
+                state = manager.snapshot()
+                if state["status"] != "running":
+                    break
+                sleep(0.02)
+            self.assertEqual(state["status"], "complete", state)
+            self.assertEqual(state["result"]["assigned_count"], 1)
+
+            connection = connect(settings.database_path)
+            members = connection.execute(
+                """SELECT c.stem FROM event_captures ec
+                   JOIN captures c ON c.id=ec.capture_id
+                   WHERE ec.event_id=? ORDER BY c.stem""",
+                (album_id,),
+            ).fetchall()
+            connection.close()
+            self.assertEqual([row[0] for row in members], ["new"])
 
 
 if __name__ == "__main__":
