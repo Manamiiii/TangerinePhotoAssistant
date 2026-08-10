@@ -2,7 +2,7 @@ import { StrictMode, useCallback, useEffect, useMemo, useState, type ReactNode }
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "migration";
+type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive";
 type LibrarySection = "photos" | "albums";
 type Theme = "light" | "dark";
 type CountRow = { count: number } & Record<string, string | number | null>;
@@ -465,6 +465,7 @@ type ArchiveStatus = {
     new: number;
     healthy: boolean;
     samples: Array<{ relative_path: string; status: string }>;
+    checked_at?: string;
   } | null;
 };
 
@@ -1477,29 +1478,38 @@ function EquipmentView({ equipment }: { equipment: EquipmentCatalog | null }) {
   );
 }
 
-function ArchiveView({ archive, activeLibrary, createBaseline, createActiveBaseline }: {
+function ArchiveView({ archive, activeLibrary, createBaseline, createActiveBaseline, checkIntegrity }: {
   archive: ArchiveStatus | null;
   activeLibrary: ArchiveStatus | null;
   createBaseline: () => void;
   createActiveBaseline: () => void;
+  checkIntegrity: (scope: "archive" | "active") => Promise<void>;
 }) {
-  const baselineCard = (title: string, status: ArchiveStatus | null, create: () => void, historical: boolean) => (
+  const [checking, setChecking] = useState<"archive" | "active" | null>(null);
+  const runCheck = async (scope: "archive" | "active") => {
+    setChecking(scope);
+    try { await checkIntegrity(scope); } finally { setChecking(null); }
+  };
+  const baselineCard = (title: string, status: ArchiveStatus | null, create: () => void, scope: "archive" | "active") => (
     <section className="panel archive-panel">
-      <div className="panel-heading"><div><span className="section-kicker">{historical ? "历史档案" : "活动图库"}</span><h3>{title}</h3></div></div>
+      <div className="panel-heading"><div><span className="section-kicker">{scope === "archive" ? "历史存档" : "当前使用"}</span><h3>{title}</h3></div><button className="toolbar-button" disabled={checking !== null} onClick={() => void runCheck(scope)}>{checking === scope ? "正在检查" : "立即检查"}</button></div>
       {status?.baseline ? <div className="archive-status">
-        <span className={`archive-health ${status.comparison?.healthy ? "healthy" : "warning"}`}>{status.comparison?.healthy ? "当前图库与基线一致" : "发现需要复核的差异"}</span>
+        <span className={`archive-health ${status.comparison?.healthy ? "healthy" : "warning"}`}>{status.comparison?.healthy ? "上次检查正常" : status.comparison ? "上次检查发现差异" : "尚未检查"}</span>
         <strong>{status.baseline.name}</strong>
-        <small>{formatDate(status.baseline.created_at)} · {numberFormat.format(status.baseline.file_count)} 个文件 · {formatBytes(status.baseline.total_bytes)}</small>
-        <div className="archive-counts"><div><b>{status.comparison?.missing ?? 0}</b><span>缺失</span></div><div><b>{status.comparison?.changed ?? 0}</b><span>变化</span></div><div><b>{status.comparison?.new ?? 0}</b><span>新增</span></div></div>
+        <small>基线 {formatDate(status.baseline.created_at)} · {numberFormat.format(status.baseline.file_count)} 个文件 · {formatBytes(status.baseline.total_bytes)}</small>
+        <small>上次检查 {status.comparison?.checked_at ? formatDate(status.comparison.checked_at) : "尚未执行"}</small>
+        <div className="archive-counts"><div><b>{status.comparison?.missing ?? "—"}</b><span>缺失</span></div><div><b>{status.comparison?.changed ?? "—"}</b><span>变化</span></div><div><b>{status.comparison?.new ?? "—"}</b><span>新增</span></div></div>
+        {!!status.comparison?.samples.length && <div className="integrity-samples">{status.comparison.samples.slice(0, 8).map((sample) => <div key={`${sample.status}-${sample.relative_path}`}><span>{sample.status}</span><strong>{sample.relative_path}</strong></div>)}</div>}
       </div> : <div className="archive-status"><p>尚未建立完整性基线。基线只记录路径、大小和修改时间，不复制或修改照片。</p><button className="primary-action" onClick={create}><span>建立基线</span><b>→</b></button></div>}
     </section>
   );
   return <>
-    <section className="compact-summary"><div><span className="section-kicker">系统安全</span><h2>原片保护</h2><p>独立核对历史档案与活动图库，所有差异只报告、不自动修复。</p></div></section>
+    <section className="compact-summary"><div><span className="section-kicker">系统维护</span><h2>图库完整性</h2><p>需要时手动核对磁盘文件；日常浏览只读取上次结果，不扫描照片目录。</p></div></section>
     <section className="statistics-grid">
-      {baselineCard("历史原片完整性", archive, createBaseline, true)}
-      {baselineCard("活动图库完整性", activeLibrary, createActiveBaseline, false)}
+      {baselineCard("历史存档", archive, createBaseline, "archive")}
+      {baselineCard("活动图库", activeLibrary, createActiveBaseline, "active")}
     </section>
+    <section className="integrity-guidance"><strong>适合什么时候检查</strong><span>更换硬盘、恢复备份、手动整理目录、异常断电或每隔一至三个月例行检查时使用。检查只报告差异，不会修改或修复照片。</span></section>
   </>;
 }
 
@@ -1701,7 +1711,7 @@ function App() {
     if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
-    const [overviewData, libraryData, filterData, eventData, burstData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
+    const [overviewData, libraryData, filterData, eventData, burstData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = await Promise.all([
       getJson<Overview>("/api/overview"),
       getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
       getJson<LibraryFilters>("/api/library/filters"),
@@ -1716,7 +1726,6 @@ function App() {
       getJson<ArchiveStatus>("/api/archive/status"),
       getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
-      getJson<MigrationStatus>("/api/migration/status"),
     ]);
     setOverview(overviewData);
     setLibraryCaptures(libraryData);
@@ -1732,7 +1741,6 @@ function App() {
     setArchive(archiveData);
     setActiveLibraryBaseline(activeBaselineData);
     setLightroomStatus(lightroomData);
-    setMigration(migrationData);
   }, [albumOffset, albumPageSize, burstOffset, burstPageSize, groupOffset, groupPageSize, libraryOffset, libraryQuery, qualityOffset, qualityPageSize]);
 
   useEffect(() => {
@@ -1935,6 +1943,18 @@ function App() {
     }
   };
 
+  const checkIntegrity = async (scope: "archive" | "active") => {
+    setError(null);
+    try {
+      const result = await getJson<ArchiveStatus>(`/api/integrity/check/${scope}`, { method: "POST" });
+      if (scope === "archive") setArchive(result);
+      else setActiveLibraryBaseline(result);
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const updateEvent = async (event: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => {
     setError(null);
     const next = { ...event, ...changes };
@@ -2115,8 +2135,7 @@ function App() {
     statistics: ["STATISTICS", "摄影统计", "从器材、参数和选片结果理解拍摄习惯"],
     equipment: ["EQUIPMENT", "设备管理", "器材档案与实际使用统计"],
     lightroom: ["OUTPUT", "后期输出", "检查评分与相册后生成 Lightroom 只读准备清单"],
-    archive: ["SYSTEM / SAFETY", "原片保护", "核对历史档案与活动图库完整性"],
-    migration: ["SYSTEM / MIGRATION", "图库迁移", "查看迁移记录、校验和活动图库状态"],
+    archive: ["SYSTEM / MAINTENANCE", "系统维护", "按需检查活动图库与历史存档完整性"],
   }[view];
 
   return (
@@ -2135,8 +2154,7 @@ function App() {
           <button className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
           <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
-          <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>护</span>原片保护</button>
-          <button className={`nav-item ${view === "migration" ? "active" : ""}`} onClick={() => setView("migration")}><span>迁</span>图库迁移</button>
+          <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>维</span>系统维护</button>
         </nav>
         <div className="privacy-note"><span className="status-dot" /><div><strong>本地离线</strong><small>照片与人脸数据不离开电脑</small></div></div>
       </aside>
@@ -2167,8 +2185,7 @@ function App() {
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
-        {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} />}
-        {view === "migration" && <MigrationView status={migration} task={task} generatePlan={generateMigrationPlan} startMigration={startMigration} pauseMigration={pauseMigration} cancelMigration={cancelTask} resumeMigration={resumeMigration} switchLibrary={switchLibrary} />}
+        {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} generateManifest={generateManifest} />}
         {captureDetail && <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} />}
       </main>

@@ -201,54 +201,22 @@ def compare_archive_baseline_on_disk(
     }
 
 
-def recorded_archive_status(connection: sqlite3.Connection) -> dict[str, Any]:
-    baseline = latest_baseline(connection, "archive")
+def _recorded_integrity_status(
+    connection: sqlite3.Connection, scope: str
+) -> dict[str, Any]:
+    baseline = latest_baseline(connection, scope)
     if baseline is None:
         return {"baseline": None, "comparison": None}
-    library_state = connection.execute(
-        "SELECT status FROM library_state WHERE id=1"
-    ).fetchone()
-    if library_state and library_state["status"] == "active":
-        return {
-            "baseline": baseline,
-            "comparison": compare_archive_baseline_on_disk(connection, baseline["id"]),
-        }
-    latest_run = connection.execute(
-        "SELECT id FROM scan_runs WHERE status='complete' ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    scan_run_id = latest_run["id"] if latest_run else None
     check = connection.execute(
         """
         SELECT * FROM archive_checks
-        WHERE baseline_id=? AND scan_run_id IS ?
+        WHERE baseline_id=?
         ORDER BY id DESC LIMIT 1
         """,
-        (baseline["id"], scan_run_id),
+        (baseline["id"],),
     ).fetchone()
     if check is None:
-        result = compare_archive_baseline(connection, baseline["id"])
-        connection.execute(
-            """
-            INSERT INTO archive_checks(
-                baseline_id, scan_run_id, checked_at, missing_count,
-                changed_count, new_count, healthy, sample_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(baseline_id, scan_run_id) DO UPDATE SET
-                checked_at=excluded.checked_at,
-                missing_count=excluded.missing_count,
-                changed_count=excluded.changed_count,
-                new_count=excluded.new_count,
-                healthy=excluded.healthy,
-                sample_json=excluded.sample_json
-            """,
-            (
-                baseline["id"], scan_run_id, utc_now(), result["missing"],
-                result["changed"], result["new"], int(result["healthy"]),
-                json.dumps(result["samples"], ensure_ascii=False),
-            ),
-        )
-        connection.commit()
-        return {"baseline": baseline, "comparison": result}
+        return {"baseline": baseline, "comparison": None}
     return {
         "baseline": baseline,
         "comparison": {
@@ -263,11 +231,47 @@ def recorded_archive_status(connection: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def recorded_active_library_status(connection: sqlite3.Connection) -> dict[str, Any]:
-    baseline = latest_baseline(connection, "active")
+def run_integrity_check(
+    connection: sqlite3.Connection, scope: str
+) -> dict[str, Any]:
+    if scope not in {"archive", "active"}:
+        raise ValueError("Integrity scope must be archive or active")
+    baseline = latest_baseline(connection, scope)
     if baseline is None:
-        return {"baseline": None, "comparison": None}
-    return {
-        "baseline": baseline,
-        "comparison": compare_archive_baseline_on_disk(connection, baseline["id"]),
-    }
+        raise ValueError("No integrity baseline exists")
+    result = compare_archive_baseline_on_disk(connection, baseline["id"])
+    checked_at = utc_now()
+    connection.execute(
+        """
+        INSERT INTO archive_checks(
+            baseline_id, scan_run_id, checked_at, missing_count,
+            changed_count, new_count, healthy, sample_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(baseline_id, scan_run_id) DO UPDATE SET
+            checked_at=excluded.checked_at,
+            missing_count=excluded.missing_count,
+            changed_count=excluded.changed_count,
+            new_count=excluded.new_count,
+            healthy=excluded.healthy,
+            sample_json=excluded.sample_json
+        """,
+        (
+            baseline["id"], baseline["scan_run_id"], checked_at,
+            result["missing"], result["changed"], result["new"],
+            int(result["healthy"]),
+            json.dumps(result["samples"], ensure_ascii=False),
+        ),
+    )
+    connection.commit()
+    result["checked_at"] = checked_at
+    return {"baseline": baseline, "comparison": result}
+
+
+def recorded_archive_status(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Return the latest saved result without walking the archive directory."""
+    return _recorded_integrity_status(connection, "archive")
+
+
+def recorded_active_library_status(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Return the latest saved result without walking the active library."""
+    return _recorded_integrity_status(connection, "active")

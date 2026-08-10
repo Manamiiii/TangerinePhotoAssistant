@@ -45,6 +45,7 @@ from .archive import (
     create_archive_baseline,
     recorded_active_library_status,
     recorded_archive_status,
+    run_integrity_check,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .equipment import build_equipment_catalog
@@ -880,8 +881,6 @@ class ScanTaskManager:
             ) if capture_ids else 0
             self._update(stage="reporting", message="正在更新审计报告…")
             write_report(build_report(connection), self.settings.reports_path)
-            self._update(stage="archive-check", message="正在核对原片保护基线…")
-            recorded_archive_status(connection)
             self._update(
                 status="complete",
                 stage="complete",
@@ -1914,6 +1913,19 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         connection = connect(settings.database_path)
         try:
             return recorded_active_library_status(connection)
+        finally:
+            connection.close()
+
+    @app.post("/api/integrity/check/{scope}")
+    def check_library_integrity(scope: Literal["archive", "active"]) -> dict[str, Any]:
+        if manager.snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="后台任务运行时不能执行完整性检查")
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return run_integrity_check(connection, scope)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 

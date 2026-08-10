@@ -15,8 +15,7 @@ from .database import connect, connect_readonly
 from .ai_analysis import create_ai_run, write_ai_run_report
 from .archive import (
     create_archive_baseline,
-    recorded_active_library_status,
-    recorded_archive_status,
+    run_integrity_check,
 )
 from .inventory import enrich_metadata, scan_library
 from .lightroom import write_lightroom_manifest
@@ -275,7 +274,7 @@ def archive_check(config_path: Path) -> int:
     settings = _settings(config_path)
     connection = connect(settings.database_path)
     try:
-        result = recorded_archive_status(connection)
+        result = run_integrity_check(connection, "archive")
         baseline = result["baseline"]
         if baseline is None:
             raise ValueError("No archive baseline exists")
@@ -309,7 +308,7 @@ def active_check(config_path: Path) -> int:
     settings = _settings(config_path)
     connection = connect(settings.database_path)
     try:
-        result = recorded_active_library_status(connection)
+        result = run_integrity_check(connection, "active")
         baseline = result["baseline"]
         if baseline is None:
             raise ValueError("No active library baseline exists")

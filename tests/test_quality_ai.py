@@ -27,6 +27,7 @@ from tangerine_photo_assistant.archive import (
     compare_archive_baseline,
     create_archive_baseline,
     recorded_archive_status,
+    run_integrity_check,
 )
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
@@ -318,7 +319,9 @@ class QualityAndAiTests(unittest.TestCase):
             comparison = compare_archive_baseline(connection, baseline["id"])
             self.assertEqual(comparison["missing"], 1)
             self.assertFalse(comparison["healthy"])
-            recorded = recorded_archive_status(connection)
+            cached = recorded_archive_status(connection)
+            self.assertEqual(cached["comparison"]["missing"], 0)
+            recorded = run_integrity_check(connection, "archive")
             self.assertEqual(recorded["comparison"]["missing"], 1)
             connection.close()
 

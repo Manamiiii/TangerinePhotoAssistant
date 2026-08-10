@@ -746,14 +746,21 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .bar-row i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--orange), #eaa267); }
 .bar-row strong { text-align: right; font-size: 11px; font-weight: 500; }
 .bar-row small { color: #736d65; font-size: 9px; text-align: right; }
-.archive-status { min-height: 300px; padding: 4px 24px 24px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; }
+.archive-status { min-height: 240px; padding: 6px 24px 24px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 9px; }
 .archive-status > p { color: var(--muted); font-size: 11px; line-height: 1.7; }
 .archive-status > strong { font-size: 17px; }.archive-status > small { color: var(--muted); font-size: 9px; }
 .archive-health { padding: 5px 9px; border-radius: 8px; font-size: 9px; }
-.archive-health.healthy { color: #bff1cc; background: #17271c; }.archive-health.warning { color: #ffc2b7; background: #2b1714; }
+.archive-health.healthy { color: #477c56; background: rgba(119, 170, 133, .14); }.archive-health.warning { color: #b95f51; background: rgba(215, 136, 123, .14); }
 .archive-counts { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .archive-counts div { padding: 13px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--line); }.archive-counts div:last-child { border: 0; }
 .archive-counts b { font-size: 20px; font-weight: 500; }.archive-counts span { color: var(--muted); font-size: 8px; }
+.integrity-samples { width: 100%; max-height: 150px; overflow: auto; border-top: 1px solid var(--line); }
+.integrity-samples div { padding: 7px 0; display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--line); }
+.integrity-samples span { color: #b95f51; font-size: 8px; text-transform: uppercase; }
+.integrity-samples strong { overflow: hidden; font-size: 8px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.integrity-guidance { margin-top: 14px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: baseline; }
+.integrity-guidance strong { font-size: 10px; }
+.integrity-guidance span { color: var(--muted); font-size: 9px; line-height: 1.6; }
 .month-panel { margin-top: 20px; overflow: hidden; }
 .month-strip { height: 240px; padding: 20px 24px 24px; display: flex; align-items: flex-end; gap: 8px; overflow-x: auto; }
 .month-strip > div { flex: 1 0 42px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 5px; }
