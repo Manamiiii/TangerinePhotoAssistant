@@ -1,7 +1,7 @@
 [library]
 # This is a tiny, repository-contained test library. The production Windows
 # library and database are never referenced by this configuration.
-originals = "sample-library/photos"
+originals = "runtime/mac-test/sample-library/photos"
 workspace = "runtime/mac-test/workspace"
 read_only = true
 

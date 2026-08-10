@@ -1,11 +1,14 @@
 # Mac test sample library
 
-`photos/` contains four reduced-size JPEG derivatives for local interface and
-pipeline testing. They are not production originals and contain no GPS,
-camera serial number, owner name, comments, or embedded thumbnails.
+`photos/` contains four reduced-size JPEG derivatives used as private seed
+material for local interface and pipeline testing. They are not production
+originals and contain no GPS, camera serial number, owner name, comments, or
+embedded thumbnails.
 
-The sample set deliberately includes two adjacent action frames so pairing,
-burst, visual similarity, thumbnail, technical quality, statistics, and review
-screens can be exercised on a very small catalog.
+On macOS, `start-mac-test.sh` expands these seeds locally into 28 deterministic
+JPEG fixtures under the ignored `runtime/mac-test` directory. The generated
+set contains fictional events, short similar bursts, varied exposure metadata,
+all four registered lenses, and two exact duplicates. Generated files are not
+committed.
 
 Do not place production RAW files or private catalogs in this directory.

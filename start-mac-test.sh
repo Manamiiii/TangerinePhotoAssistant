@@ -40,18 +40,25 @@ fi
 
 mkdir -p runtime/mac-test/workspace runtime/mac-test/cache
 
+echo "Preparing the expanded Mac demo library..."
+.venv-mac/bin/python -m tangerine_photo_assistant.sample_data \
+  --source sample-library/photos/mac-test-event \
+  --target runtime/mac-test/sample-library/photos
+
 APP=".venv-mac/bin/tangerine-photo"
 CONFIG="config.mac-test.toml"
 "$APP" doctor --config "$CONFIG"
 
 DATABASE="runtime/mac-test/workspace/AnalysisDatabase/catalog.sqlite3"
-if [[ ! -f "$DATABASE" ]]; then
+if [[ -f "$DATABASE" ]]; then
+  echo "Refreshing the isolated sample catalog..."
+else
   echo "Preparing the isolated sample catalog..."
-  "$APP" scan --config "$CONFIG" --metadata auto
-  "$APP" structure --config "$CONFIG"
-  "$APP" visual --config "$CONFIG"
-  "$APP" quality --config "$CONFIG"
 fi
+"$APP" scan --config "$CONFIG" --metadata auto
+"$APP" structure --config "$CONFIG"
+"$APP" visual --config "$CONFIG"
+"$APP" quality --config "$CONFIG"
 
 echo "Opening TangerinePhotoAssistant Mac test at http://127.0.0.1:8765"
 exec "$APP" serve --config "$CONFIG" --host 127.0.0.1 --port 8765

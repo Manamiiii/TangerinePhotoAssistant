@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import tomllib
 from threading import Event, Lock, Thread
 import time
 from typing import Any, Literal
@@ -46,6 +47,7 @@ from .archive import (
     recorded_archive_status,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
+from .equipment import build_equipment_catalog
 from .inventory import enrich_metadata, scan_library, utc_now
 from .lightroom import lightroom_status, write_lightroom_manifest
 from .metadata import ExifToolMetadataReader, PillowMetadataReader
@@ -1441,6 +1443,20 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         connection = connect_readonly(settings.database_path)
         try:
             return build_statistics(connection)
+        finally:
+            connection.close()
+
+    @app.get("/api/equipment")
+    def equipment() -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            project_root = Path(__file__).resolve().parents[2]
+            return build_equipment_catalog(
+                connection,
+                project_root / "equipment" / "profile.toml",
+            )
+        except (FileNotFoundError, tomllib.TOMLDecodeError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             connection.close()
 

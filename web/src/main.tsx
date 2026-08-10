@@ -2,7 +2,8 @@ import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-type View = "inbox" | "events" | "bursts" | "duplicates" | "analysis" | "statistics" | "migration" | "lightroom";
+type View = "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "migration";
+type LibrarySection = "inbox" | "events" | "duplicates";
 type CountRow = { count: number } & Record<string, string | number | null>;
 
 type StructureSummary = {
@@ -376,6 +377,40 @@ type Statistics = {
   aperture_ranges: Array<StatisticRow & { bucket: string }>;
   ratings: Array<{ rating: number; count: number; user_rated: number }>;
   issues: Array<{ code: string; message: string; count: number }>;
+};
+
+type EquipmentItem = {
+  brand?: string;
+  model?: string;
+  display_name?: string;
+  kind?: string;
+  section?: string;
+  filter_thread_mm?: number;
+  thread_mm?: number;
+  system_mm?: number;
+  lens_thread_mm?: number;
+  stops?: number;
+  capture_count?: number;
+  status: string;
+};
+type EquipmentCatalog = {
+  schema_version: number;
+  profile_file: string;
+  summary: {
+    camera_count: number;
+    lens_count: number;
+    accessory_count: number;
+    detected_camera_count: number;
+    detected_lens_count: number;
+  };
+  cameras: EquipmentItem[];
+  lenses: EquipmentItem[];
+  accessories: EquipmentItem[];
+  detected: {
+    cameras: Array<{ model: string; capture_count: number }>;
+    lenses: Array<{ model: string; capture_count: number }>;
+  };
+  filter_system: { compatibility?: string; infer_usage_from_thread_size?: boolean };
 };
 
 type ArchiveStatus = {
@@ -865,6 +900,31 @@ function DuplicatesView({ overview, duplicates }: {
   );
 }
 
+function LibraryView({ overview, inbox, events, duplicates, task, startScan, cancelTask, updateEvent }: {
+  overview: Overview | null;
+  inbox: Inbox | null;
+  events: EventsResponse | null;
+  duplicates: DuplicatesResponse | null;
+  task: Task | null;
+  startScan: () => void;
+  cancelTask: () => void;
+  updateEvent: (event: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+}) {
+  const [section, setSection] = useState<LibrarySection>("inbox");
+  return (
+    <>
+      <div className="section-tabs" role="tablist" aria-label="图库功能">
+        <button className={section === "inbox" ? "active" : ""} onClick={() => setSection("inbox")}>照片与入库</button>
+        <button className={section === "events" ? "active" : ""} onClick={() => setSection("events")}>事件</button>
+        <button className={section === "duplicates" ? "active" : ""} onClick={() => setSection("duplicates")}>精确重复</button>
+      </div>
+      {section === "inbox" && <InboxView overview={overview} inbox={inbox} task={task} startScan={startScan} cancelTask={cancelTask} />}
+      {section === "events" && <EventsView overview={overview} events={events} updateEvent={updateEvent} />}
+      {section === "duplicates" && <DuplicatesView overview={overview} duplicates={duplicates} />}
+    </>
+  );
+}
+
 function AnalysisView({ analysis, preflight, quality, task, startQuality, startAi, saveReview, cancelTask, pauseAi, resumeAi, retryAiFailures, openCapture }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
@@ -1072,15 +1132,91 @@ function Distribution({ title, rows, labelKey }: {
   );
 }
 
-function StatisticsView({ statistics, archive, activeLibrary, createBaseline, createActiveBaseline }: {
-  statistics: Statistics | null;
+function EquipmentView({ equipment }: { equipment: EquipmentCatalog | null }) {
+  const accessoryLabels: Record<string, string> = {
+    supports: "支撑设备",
+    remotes: "快门控制",
+    lighting: "闪光与引闪",
+    filters: "滤镜",
+    adapters: "转接环",
+    accessories: "其他配件",
+  };
+  return (
+    <>
+      <section className="compact-summary">
+        <div><span className="section-kicker">器材档案</span><h2>设备管理</h2><p>统一查看已拥有器材、滤镜兼容关系和图库中的实际使用量。</p></div>
+        <div className="compact-actions"><span>档案来源</span><strong>{equipment?.profile_file ?? "读取中"}</strong></div>
+      </section>
+      <section className="metric-grid">
+        <article><span>相机</span><strong>{equipment?.summary.camera_count ?? "—"}</strong><small>已登记机身</small></article>
+        <article><span>镜头</span><strong>{equipment?.summary.lens_count ?? "—"}</strong><small>{equipment?.summary.detected_lens_count ?? "—"} 种出现在 EXIF</small></article>
+        <article><span>附件</span><strong>{equipment?.summary.accessory_count ?? "—"}</strong><small>灯光、滤镜与支撑设备</small></article>
+        <article><span>滤镜系统</span><strong className="text-value">全镜头兼容</strong><small>通过转接环使用</small></article>
+      </section>
+      <section className="equipment-layout">
+        <section className="panel equipment-panel">
+          <div className="panel-heading"><div><span className="section-kicker">相机系统</span><h3>机身与镜头</h3></div><span className="batch-count">拍摄量按拍摄单元计算</span></div>
+          <div className="equipment-list">
+            {[...(equipment?.cameras ?? []), ...(equipment?.lenses ?? [])].map((item) => (
+              <article className="equipment-row" key={`${item.model}-${item.filter_thread_mm ?? "body"}`}>
+                <div className="equipment-icon">{item.filter_thread_mm ? "L" : "C"}</div>
+                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm 滤镜口径` : " · 相机机身"}</span></div>
+                <div className="equipment-usage"><strong>{numberFormat.format(item.capture_count ?? 0)}</strong><span>拍摄单元</span></div>
+              </article>
+            ))}
+          </div>
+        </section>
+        <section className="panel equipment-panel">
+          <div className="panel-heading"><div><span className="section-kicker">附件清单</span><h3>灯光、滤镜与辅助设备</h3></div></div>
+          <div className="equipment-list accessory-list">
+            {(equipment?.accessories ?? []).map((item, index) => (
+              <article className="equipment-row" key={`${item.section}-${item.model ?? index}`}>
+                <div className="equipment-icon accessory">{String(accessoryLabels[item.section ?? ""] ?? "附件").slice(0, 1)}</div>
+                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}</span></div>
+                <span className="owned-badge">在用</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
+      <section className="panel equipment-note">
+        <strong>这一版先把器材档案与照片使用统计放到同一个界面。</strong>
+        <span>下一步可加入购买日期、序列号、保修、借出状态、维护记录和自定义备注；这些信息只进入本地数据库。</span>
+      </section>
+    </>
+  );
+}
+
+function ArchiveView({ archive, activeLibrary, createBaseline, createActiveBaseline }: {
   archive: ArchiveStatus | null;
   activeLibrary: ArchiveStatus | null;
   createBaseline: () => void;
   createActiveBaseline: () => void;
 }) {
+  const baselineCard = (title: string, status: ArchiveStatus | null, create: () => void, historical: boolean) => (
+    <section className="panel archive-panel">
+      <div className="panel-heading"><div><span className="section-kicker">{historical ? "历史档案" : "活动图库"}</span><h3>{title}</h3></div></div>
+      {status?.baseline ? <div className="archive-status">
+        <span className={`archive-health ${status.comparison?.healthy ? "healthy" : "warning"}`}>{status.comparison?.healthy ? "当前图库与基线一致" : "发现需要复核的差异"}</span>
+        <strong>{status.baseline.name}</strong>
+        <small>{formatDate(status.baseline.created_at)} · {numberFormat.format(status.baseline.file_count)} 个文件 · {formatBytes(status.baseline.total_bytes)}</small>
+        <div className="archive-counts"><div><b>{status.comparison?.missing ?? 0}</b><span>缺失</span></div><div><b>{status.comparison?.changed ?? 0}</b><span>变化</span></div><div><b>{status.comparison?.new ?? 0}</b><span>新增</span></div></div>
+      </div> : <div className="archive-status"><p>尚未建立完整性基线。基线只记录路径、大小和修改时间，不复制或修改照片。</p><button className="primary-action" onClick={create}><span>建立基线</span><b>→</b></button></div>}
+    </section>
+  );
+  return <>
+    <section className="compact-summary"><div><span className="section-kicker">系统安全</span><h2>原片保护</h2><p>独立核对历史档案与活动图库，所有差异只报告、不自动修复。</p></div></section>
+    <section className="statistics-grid">
+      {baselineCard("历史原片完整性", archive, createBaseline, true)}
+      {baselineCard("活动图库完整性", activeLibrary, createActiveBaseline, false)}
+    </section>
+  </>;
+}
+
+function StatisticsView({ statistics }: {
+  statistics: Statistics | null;
+}) {
   const summary = statistics?.summary;
-  const comparison = archive?.comparison;
   return (
     <>
       <section className="structure-hero statistics-hero">
@@ -1099,33 +1235,6 @@ function StatisticsView({ statistics, archive, activeLibrary, createBaseline, cr
         <Distribution title="焦段习惯" rows={statistics?.focal_ranges ?? []} labelKey="bucket" />
         <Distribution title="ISO分布" rows={statistics?.iso_ranges ?? []} labelKey="bucket" />
         <Distribution title="光圈分布" rows={statistics?.aperture_ranges ?? []} labelKey="bucket" />
-        <section className="panel archive-panel">
-          <div className="panel-heading"><div><span className="section-kicker">原片保护</span><h3>档案完整性基线</h3></div></div>
-          {archive?.baseline ? (
-            <div className="archive-status">
-              <span className={`archive-health ${comparison?.healthy ? "healthy" : "warning"}`}>{comparison?.healthy ? "当前索引与基线一致" : "发现需要复核的差异"}</span>
-              <strong>{archive.baseline.name}</strong>
-              <small>{formatDate(archive.baseline.created_at)} · {numberFormat.format(archive.baseline.file_count)} 个文件 · {formatBytes(archive.baseline.total_bytes)}</small>
-              <div className="archive-counts"><div><b>{comparison?.missing ?? 0}</b><span>缺失</span></div><div><b>{comparison?.changed ?? 0}</b><span>变化</span></div><div><b>{comparison?.new ?? 0}</b><span>新增</span></div></div>
-              <small>历史原片基线已冻结，只继续核对 D:\Photo。</small>
-            </div>
-          ) : (
-            <div className="archive-status"><p>尚未建立逻辑基线。它会记录当前25,000余个文件的路径、大小和修改时间，不读取或复制照片。</p><button className="primary-action" onClick={createBaseline}><span>建立原片基线</span><b>→</b></button></div>
-          )}
-        </section>
-        <section className="panel archive-panel">
-          <div className="panel-heading"><div><span className="section-kicker">活动图库保护</span><h3>新图库完整性基线</h3></div></div>
-          {activeLibrary?.baseline ? (
-            <div className="archive-status">
-              <span className={`archive-health ${activeLibrary.comparison?.healthy ? "healthy" : "warning"}`}>{activeLibrary.comparison?.healthy ? "活动图库与基线一致" : "活动图库发现需要复核的差异"}</span>
-              <strong>{activeLibrary.baseline.name}</strong>
-              <small>{formatDate(activeLibrary.baseline.created_at)} · {numberFormat.format(activeLibrary.baseline.file_count)} 个文件 · {formatBytes(activeLibrary.baseline.total_bytes)}</small>
-              <div className="archive-counts"><div><b>{activeLibrary.comparison?.missing ?? 0}</b><span>缺失</span></div><div><b>{activeLibrary.comparison?.changed ?? 0}</b><span>变化</span></div><div><b>{activeLibrary.comparison?.new ?? 0}</b><span>新增</span></div></div>
-            </div>
-          ) : (
-            <div className="archive-status"><p>尚未建立活动图库基线。首次迁移和增量扫描确认后再建立。</p><button className="primary-action" onClick={createActiveBaseline}><span>建立活动图库基线</span><b>→</b></button></div>
-          )}
-        </section>
       </section>
       <section className="panel month-panel">
         <div className="panel-heading"><div><span className="section-kicker">时间趋势</span><h3>最近拍摄月份</h3></div><span className="batch-count">质量分析后显示月度均分</span></div>
@@ -1244,7 +1353,7 @@ function MigrationView({ status, task, generatePlan, startMigration, pauseMigrat
 }
 
 function App() {
-  const [view, setView] = useState<View>("inbox");
+  const [view, setView] = useState<View>("library");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [events, setEvents] = useState<EventsResponse | null>(null);
@@ -1257,6 +1366,7 @@ function App() {
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
+  const [equipment, setEquipment] = useState<EquipmentCatalog | null>(null);
   const [archive, setArchive] = useState<ArchiveStatus | null>(null);
   const [activeLibraryBaseline, setActiveLibraryBaseline] = useState<ArchiveStatus | null>(null);
   const [lightroomStatus, setLightroomStatus] = useState<LightroomStatus | null>(null);
@@ -1266,7 +1376,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   const refreshLibrary = useCallback(async () => {
-    const [overviewData, inboxData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
+    const [overviewData, inboxData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
       getJson<Overview>("/api/overview"),
       getJson<Inbox>("/api/inbox?limit=12"),
       getJson<EventsResponse>("/api/events?limit=100"),
@@ -1277,6 +1387,7 @@ function App() {
       getJson<QualityResponse>("/api/quality?limit=50"),
       getJson<SimilarityGroupsResponse>("/api/similarity-groups?limit=60"),
       getJson<Statistics>("/api/statistics"),
+      getJson<EquipmentCatalog>("/api/equipment"),
       getJson<ArchiveStatus>("/api/archive/status"),
       getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
@@ -1292,6 +1403,7 @@ function App() {
     setQuality(qualityData);
     setSimilarityGroups(groupData);
     setStatistics(statisticsData);
+    setEquipment(equipmentData);
     setArchive(archiveData);
     setActiveLibraryBaseline(activeBaselineData);
     setLightroomStatus(lightroomData);
@@ -1582,14 +1694,14 @@ function App() {
   };
 
   const pageMeta = {
-    inbox: ["LIBRARY / INBOX", "照片收件箱"],
-    events: ["LIBRARY / EVENTS", "事件与目录"],
-    bursts: ["LIBRARY / BURSTS", "连拍候选"],
-    duplicates: ["LIBRARY / DUPLICATES", "精确重复"],
-    analysis: ["ANALYSIS / REVIEW", "质量与拍摄复盘"],
-    statistics: ["INSIGHTS / ARCHIVE", "摄影统计与原片保护"],
-    migration: ["WORKFLOW / MIGRATION", "新图库迁移"],
-    lightroom: ["WORKFLOW / LIGHTROOM", "Lightroom准备"],
+    library: ["LIBRARY", "图库", "浏览、整理并管理全部拍摄单元"],
+    bursts: ["REVIEW", "选片", "比较连拍与相似画面，留下真正需要的版本"],
+    analysis: ["ANALYSIS / REVIEW", "分析与复盘", "批量运行技术检测与本地模型，在单张详情中复核结果"],
+    statistics: ["INSIGHTS", "摄影洞察", "从器材、参数和选片结果理解拍摄习惯"],
+    equipment: ["EQUIPMENT", "设备管理", "器材档案与实际使用统计"],
+    lightroom: ["OUTPUT", "Lightroom 输出", "检查评分与事件后生成只读准备清单"],
+    archive: ["SYSTEM / SAFETY", "原片保护", "核对历史档案与活动图库完整性"],
+    migration: ["SYSTEM / MIGRATION", "图库迁移", "查看迁移记录、校验和活动图库状态"],
   }[view];
 
   return (
@@ -1597,30 +1709,32 @@ function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
-          <button className={`nav-item ${view === "inbox" ? "active" : ""}`} onClick={() => setView("inbox")}><span>01</span>照片收件箱</button>
-          <button className={`nav-item ${view === "events" ? "active" : ""}`} onClick={() => setView("events")}><span>02</span>事件与目录</button>
-          <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>03</span>连拍候选</button>
-          <button className={`nav-item ${view === "duplicates" ? "active" : ""}`} onClick={() => setView("duplicates")}><span>04</span>精确重复</button>
-          <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>05</span>质量与复盘</button>
-          <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>06</span>统计与保护</button>
-          <button className={`nav-item ${view === "migration" ? "active" : ""}`} onClick={() => setView("migration")}><span>07</span>新图库迁移</button>
-          <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>08</span>Lightroom准备</button>
+          <span className="nav-group-label">日常工作</span>
+          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span>图</span>图库</button>
+          <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>选片</button>
+          <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>分析与复盘</button>
+          <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>察</span>洞察</button>
+          <button className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
+          <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>Lightroom 输出</button>
+          <span className="nav-group-label system-label">系统</span>
+          <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>护</span>原片保护</button>
+          <button className={`nav-item ${view === "migration" ? "active" : ""}`} onClick={() => setView("migration")}><span>迁</span>图库迁移</button>
         </nav>
         <div className="privacy-note"><span className="status-dot" /><div><strong>本地离线</strong><small>照片与人脸数据不离开电脑</small></div></div>
       </aside>
 
       <main>
         <header className="topbar">
-          <div><span className="eyebrow">{pageMeta[0]}</span><h1>{pageMeta[1]}</h1></div>
+          <div><span className="eyebrow">{pageMeta[0]}</span><h1>{pageMeta[1]}</h1><p>{pageMeta[2]}</p></div>
           <div className="scan-meta"><span>上次扫描</span><strong>{formatDate(overview?.latest_scan?.finished_at)}</strong></div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "inbox" && <InboxView overview={overview} inbox={inbox} task={task} startScan={startScan} cancelTask={cancelTask} />}
-        {view === "events" && <EventsView overview={overview} events={events} updateEvent={updateEvent} />}
+        {view === "library" && <LibraryView overview={overview} inbox={inbox} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} />}
         {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} />}
-        {view === "duplicates" && <DuplicatesView overview={overview} duplicates={duplicates} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} />}
-        {view === "statistics" && <StatisticsView statistics={statistics} archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} />}
+        {view === "statistics" && <StatisticsView statistics={statistics} />}
+        {view === "equipment" && <EquipmentView equipment={equipment} />}
+        {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} />}
         {view === "migration" && <MigrationView status={migration} task={task} generatePlan={generateMigrationPlan} startMigration={startMigration} pauseMigration={pauseMigration} cancelMigration={cancelTask} resumeMigration={resumeMigration} switchLibrary={switchLibrary} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} generateManifest={generateManifest} />}
         {captureDetail && <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} />}

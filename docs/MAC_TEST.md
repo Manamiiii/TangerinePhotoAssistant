@@ -27,8 +27,9 @@ bash start-mac-test.sh
 ```
 
 The first start creates `.venv-mac`, installs dependencies, builds the React
-frontend, creates an isolated SQLite catalog under `runtime/mac-test`, scans
-the four reduced-size sample JPEGs, and opens:
+frontend, expands the four privacy-cleaned source samples into a deterministic
+28-file demo library, creates an isolated SQLite catalog under
+`runtime/mac-test`, scans the demo library, and opens:
 
 ```text
 http://127.0.0.1:8765
@@ -50,7 +51,9 @@ ignored Mac test runtime inside the cloned project.
 
 ## Intentional limits
 
-- The bundled samples are JPEG-only reduced derivatives, not originals.
+- The demo library contains four fictional events, short similar bursts and
+  two exact duplicate fixtures. All timestamps and event names are fictional.
+- The bundled source samples are JPEG-only reduced derivatives, not originals.
 - The Windows Qwen3-VL model is not included or downloaded.
 - AI inference therefore remains unavailable on the Mac test clone.
 - Lightroom and XMP writes remain disabled.
