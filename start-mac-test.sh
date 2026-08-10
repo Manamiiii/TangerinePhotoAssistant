@@ -4,6 +4,19 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+MODE="${1:-serve}"
+if [[ "$MODE" != "serve" && "$MODE" != "--prepare-only" ]]; then
+  echo "Usage: bash start-mac-test.sh [--prepare-only]"
+  exit 1
+fi
+
+if [[ "$MODE" == "serve" ]] && command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port 8765 is already in use by an older TangerinePhotoAssistant service."
+  echo "Return to its Terminal window and press Control-C, then run this script again."
+  echo "To inspect the process: lsof -nP -iTCP:8765 -sTCP:LISTEN"
+  exit 1
+fi
+
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   echo "Python 3.12 or newer is required. Install it, then run this script again."
@@ -57,6 +70,11 @@ fi
 "$APP" structure --config "$CONFIG"
 "$APP" visual --config "$CONFIG"
 "$APP" quality --config "$CONFIG"
+
+if [[ "$MODE" == "--prepare-only" ]]; then
+  echo "Mac test data is ready."
+  exit 0
+fi
 
 echo "Opening TangerinePhotoAssistant Mac test at http://127.0.0.1:8765"
 exec "$APP" serve --config "$CONFIG" --host 127.0.0.1 --port 8765

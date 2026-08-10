@@ -38,6 +38,24 @@ http://127.0.0.1:8765
 Later starts reuse the environment and catalog. Stop the server with
 `Control-C` in Terminal.
 
+## Hot-reload development mode
+
+Stop the normal service first, then run:
+
+```bash
+bash start-mac-dev.sh
+```
+
+Open `http://127.0.0.1:5173`. React and CSS changes update through Vite HMR;
+Python files under `src/` restart the FastAPI backend automatically. Keeping
+this Terminal open also means a later `git pull` normally refreshes the UI and
+backend without rerunning the script. Dependency or configuration changes still
+require stopping the process and starting it again.
+
+Both launchers now refuse to start when their ports are already occupied. This
+prevents a newly pulled build from appearing to start while the browser is
+actually connected to an older process.
+
 ## Reset only the Mac test data
 
 Stop the service, then remove the generated test runtime:
