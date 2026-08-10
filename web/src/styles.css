@@ -352,6 +352,47 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .equipment-note { padding: 18px 22px; display: flex; flex-direction: column; gap: 6px; }
 .equipment-note strong { font-size: 12px; }
 .equipment-note span { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.home-welcome { min-height: 174px; padding: 30px 34px; border: 1px solid #3b3027; border-radius: 20px; background: linear-gradient(125deg, #2a2119, #171512 72%); display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.home-welcome h2 { margin: 7px 0 8px; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.05em; }
+.home-welcome p { margin: 0; color: var(--muted); font-size: 12px; }
+.home-task-status { min-width: 250px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: rgba(0, 0, 0, .14); display: flex; flex-direction: column; gap: 5px; }
+.home-task-status > span, .home-task-status small { color: var(--muted); font-size: 9px; }
+.home-task-status strong { font-size: 12px; }
+.home-task-status.running { border-color: #744728; }
+.home-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0 28px; }
+.home-metrics article { min-height: 108px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; box-shadow: 0 8px 24px rgba(0, 0, 0, .035); }
+.home-metrics span, .home-metrics small { color: var(--muted); font-size: 9px; }
+.home-metrics strong { margin-top: auto; font-size: 27px; font-weight: 500; letter-spacing: -.04em; }
+.home-section-heading { margin: 0 2px 12px; display: flex; align-items: flex-end; justify-content: space-between; }
+.home-section-heading h3 { margin: 5px 0 0; font-size: 20px; }
+.home-section-heading small { color: var(--muted); font-size: 9px; }
+.workflow-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.workflow-card { position: relative; min-height: 178px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; color: inherit; background: var(--surface); display: flex; flex-direction: column; align-items: flex-start; text-align: left; cursor: pointer; transition: transform .18s, border-color .18s; }
+.workflow-card:hover { transform: translateY(-3px); border-color: var(--orange); }
+.workflow-card > span { color: var(--orange-soft); font-size: 11px; font-weight: 700; }
+.workflow-card > strong { margin-top: 18px; font-size: 34px; font-weight: 500; letter-spacing: -.05em; }
+.workflow-card > small, .workflow-card p { color: var(--muted); font-size: 9px; }
+.workflow-card p { margin: auto 24px 0 0; line-height: 1.5; }
+.workflow-card b { position: absolute; right: 18px; bottom: 17px; color: var(--orange); font-size: 18px; }
+.home-bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
+.home-progress-list, .home-safety-list { padding: 0 22px 22px; }
+.home-progress-list > div { padding: 11px 2px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.home-progress-list span, .home-safety-list span { color: var(--muted); font-size: 10px; }
+.home-progress-list strong { font-size: 11px; font-weight: 500; }
+.home-safety-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.home-safety-list span { padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: #9fd5ae; background: rgba(55, 108, 70, .08); }
+
+@media (max-width: 980px) {
+  .home-metrics, .workflow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-bottom-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .home-welcome { align-items: stretch; flex-direction: column; padding: 24px; }
+  .home-task-status { min-width: 0; }
+  .home-metrics, .workflow-grid { grid-template-columns: 1fr; }
+  .home-section-heading small { display: none; }
+  .home-safety-list { grid-template-columns: 1fr; }
+}
 .burst-hero { background: linear-gradient(125deg, #201d1a, #151718 72%); }
 .category-strip { display: grid; grid-template-columns: repeat(6, 1fr); margin: 20px 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #171613; }
 .category-strip > div { padding: 16px 18px; border-right: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 5px; align-items: baseline; }
@@ -662,7 +703,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 
 :root[data-theme="light"] .hero-card,
 :root[data-theme="light"] .structure-hero,
-:root[data-theme="light"] .compact-summary {
+:root[data-theme="light"] .compact-summary,
+:root[data-theme="light"] .home-welcome {
   border-color: #e5d5c6;
   background: linear-gradient(125deg, #fff8ef, #fffdf9 72%);
   box-shadow: 0 14px 38px rgba(104, 74, 43, .055);
@@ -677,6 +719,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 
 :root[data-theme="light"] .panel,
 :root[data-theme="light"] .metric-grid,
+:root[data-theme="light"] .home-metrics article,
+:root[data-theme="light"] .workflow-card,
 :root[data-theme="light"] .category-strip,
 :root[data-theme="light"] .task-card,
 :root[data-theme="light"] .section-tabs,
@@ -700,6 +744,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 :root[data-theme="light"] .candidate-badge { color: #6f6257; border-color: #e5d8cb; background: #faf4ed; }
 :root[data-theme="light"] .next-step,
 :root[data-theme="light"] .runtime-card,
+:root[data-theme="light"] .home-task-status,
 :root[data-theme="light"] .migration-summary > div,
 :root[data-theme="light"] .migration-run-status { border-color: #e4ddd3; background: #faf7f2; }
 
@@ -735,6 +780,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 :root[data-theme="light"] .manifest-result a { color: #a84713; }
 :root[data-theme="light"] .manifest-result a { border-color: #e3b88f; background: #fff4e9; }
 :root[data-theme="light"] .empty-state { color: #8a8177; }
+:root[data-theme="light"] .home-safety-list span { color: #39754b; border-color: #d2e4d6; background: #f1f8f2; }
 
 @media (max-width: 760px) {
   .topbar-tools { align-items: flex-end; flex-direction: column-reverse; gap: 8px; }

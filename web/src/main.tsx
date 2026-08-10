@@ -2,7 +2,7 @@ import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-type View = "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "migration";
+type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "migration";
 type LibrarySection = "inbox" | "events" | "duplicates";
 type Theme = "light" | "dark";
 type CountRow = { count: number } & Record<string, string | number | null>;
@@ -926,6 +926,53 @@ function LibraryView({ overview, inbox, events, duplicates, task, startScan, can
   );
 }
 
+function HomeView({ overview, events, groups, analysis, statistics, task, navigate }: {
+  overview: Overview | null;
+  events: EventsResponse | null;
+  groups: SimilarityGroupsResponse | null;
+  analysis: AnalysisOverview | null;
+  statistics: Statistics | null;
+  task: Task | null;
+  navigate: (view: View) => void;
+}) {
+  const pendingEvents = (events?.items ?? []).filter((event) => event.status !== "confirmed").length;
+  const quality = analysis?.quality;
+  const ai = analysis?.ai;
+  const workflow = [
+    { view: "library" as View, label: "整理图库", detail: `${pendingEvents} 个事件待确认`, value: overview?.capture_total ?? 0, unit: "拍摄单元" },
+    { view: "bursts" as View, label: "开始选片", detail: "比较相似画面并评分", value: groups?.count ?? 0, unit: "相似组" },
+    { view: "analysis" as View, label: "检查质量", detail: "技术检测与拍摄复盘", value: quality?.analyzed ?? 0, unit: "已分析" },
+    { view: "lightroom" as View, label: "准备后期", detail: "汇总保留照片与评级", value: statistics?.summary.user_picks ?? 0, unit: "人工保留" },
+  ];
+  return <>
+    <section className="home-welcome">
+      <div><span className="section-kicker">本地摄影工作台</span><h2>今天从哪里继续？</h2><p>扫描、整理、选片和分析都在本机完成，照片不会离开这台电脑。</p></div>
+      <div className={`home-task-status ${task?.status ?? "idle"}`}><span>{task?.status === "running" ? "任务进行中" : "当前状态"}</span><strong>{task?.message ?? "等待开始"}</strong><small>{task?.status === "running" && task.total ? `${numberFormat.format(task.current)} / ${numberFormat.format(task.total)}` : "没有需要处理的后台任务"}</small></div>
+    </section>
+    <section className="home-metrics">
+      <article><span>图库规模</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : "读取中"}</small></article>
+      <article><span>事件建议</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个尚未确认</small></article>
+      <article><span>待选片组</span><strong>{groups?.count ?? "—"}</strong><small>{overview?.visual.captures_in_similarity_groups ?? 0} 个拍摄单元</small></article>
+      <article><span>模型完成</span><strong>{ai?.analyzed_capture_count ?? "—"}</strong><small>{ai?.latest_run ? `最近任务 ${ai.latest_run.status}` : "尚无模型任务"}</small></article>
+    </section>
+    <section className="home-section-heading"><div><span className="section-kicker">日常流程</span><h3>继续工作</h3></div><small>这些入口不是强制顺序，可以随时返回</small></section>
+    <section className="workflow-grid">
+      {workflow.map((item) => <button key={item.view} className="workflow-card" onClick={() => navigate(item.view)}>
+        <span>{item.label}</span><strong>{numberFormat.format(item.value)}</strong><small>{item.unit}</small><p>{item.detail}</p><b aria-hidden="true">→</b>
+      </button>)}
+    </section>
+    <section className="home-bottom-grid">
+      <section className="panel home-summary-panel"><div className="panel-heading"><div><span className="section-kicker">分析进度</span><h3>图库覆盖情况</h3></div></div><div className="home-progress-list">
+        <div><span>技术质量</span><strong>{quality ? `${numberFormat.format(quality.analyzed)} / ${numberFormat.format(overview?.capture_total ?? 0)}` : "读取中"}</strong></div>
+        <div><span>人工保留</span><strong>{numberFormat.format(statistics?.summary.user_picks ?? 0)}</strong></div>
+        <div><span>待淘汰</span><strong>{numberFormat.format(statistics?.summary.user_rejects ?? 0)}</strong></div>
+        <div><span>精确重复</span><strong>{numberFormat.format(overview?.visual.duplicate_group_count ?? 0)} 组</strong></div>
+      </div></section>
+      <section className="panel home-summary-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本地与只读边界</h3></div></div><div className="home-safety-list"><span>✓ 照片分析完全离线</span><span>✓ 原片不会自动删除或改写</span><span>✓ XMP 与 Lightroom 写入关闭</span><span>✓ 人工评分始终优先</span></div></section>
+    </section>
+  </>;
+}
+
 function AnalysisView({ analysis, preflight, quality, task, startQuality, startAi, saveReview, cancelTask, pauseAi, resumeAi, retryAiFailures, openCapture }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
@@ -1354,7 +1401,7 @@ function MigrationView({ status, task, generatePlan, startMigration, pauseMigrat
 }
 
 function App() {
-  const [view, setView] = useState<View>("library");
+  const [view, setView] = useState<View>("home");
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = window.localStorage.getItem("tangerine-theme");
     return saved === "dark" ? "dark" : "light";
@@ -1705,12 +1752,13 @@ function App() {
   };
 
   const pageMeta = {
-    library: ["LIBRARY", "图库", "浏览、整理并管理全部拍摄单元"],
-    bursts: ["REVIEW", "选片", "比较连拍与相似画面，留下真正需要的版本"],
-    analysis: ["ANALYSIS / REVIEW", "分析与复盘", "批量运行技术检测与本地模型，在单张详情中复核结果"],
-    statistics: ["INSIGHTS", "摄影洞察", "从器材、参数和选片结果理解拍摄习惯"],
+    home: ["OVERVIEW", "首页概览", "查看当前进度并快速继续日常工作"],
+    library: ["LIBRARY", "照片图库", "浏览、整理并管理全部拍摄单元"],
+    bursts: ["REVIEW", "连拍选片", "比较连拍与相似画面，留下真正需要的版本"],
+    analysis: ["ANALYSIS / REVIEW", "质量分析", "批量运行技术检测与本地模型，在单张详情中复核结果"],
+    statistics: ["STATISTICS", "摄影统计", "从器材、参数和选片结果理解拍摄习惯"],
     equipment: ["EQUIPMENT", "设备管理", "器材档案与实际使用统计"],
-    lightroom: ["OUTPUT", "Lightroom 输出", "检查评分与事件后生成只读准备清单"],
+    lightroom: ["OUTPUT", "后期输出", "检查评分与事件后生成 Lightroom 只读准备清单"],
     archive: ["SYSTEM / SAFETY", "原片保护", "核对历史档案与活动图库完整性"],
     migration: ["SYSTEM / MIGRATION", "图库迁移", "查看迁移记录、校验和活动图库状态"],
   }[view];
@@ -1721,12 +1769,13 @@ function App() {
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
           <span className="nav-group-label">日常工作</span>
-          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span>图</span>图库</button>
-          <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>选片</button>
-          <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>分析与复盘</button>
-          <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>察</span>洞察</button>
+          <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
+          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span>图</span>照片图库</button>
+          <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>连拍选片</button>
+          <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
+          <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>统</span>摄影统计</button>
           <button className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
-          <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>Lightroom 输出</button>
+          <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
           <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>护</span>原片保护</button>
           <button className={`nav-item ${view === "migration" ? "active" : ""}`} onClick={() => setView("migration")}><span>迁</span>图库迁移</button>
@@ -1746,6 +1795,7 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
+        {view === "home" && <HomeView overview={overview} events={events} groups={similarityGroups} analysis={analysis} statistics={statistics} task={task} navigate={setView} />}
         {view === "library" && <LibraryView overview={overview} inbox={inbox} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} />}
         {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} />}
