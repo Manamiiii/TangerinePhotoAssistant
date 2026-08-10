@@ -4,6 +4,7 @@ import "./styles.css";
 
 type View = "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "migration";
 type LibrarySection = "inbox" | "events" | "duplicates";
+type Theme = "light" | "dark";
 type CountRow = { count: number } & Record<string, string | number | null>;
 
 type StructureSummary = {
@@ -1354,6 +1355,10 @@ function MigrationView({ status, task, generatePlan, startMigration, pauseMigrat
 
 function App() {
   const [view, setView] = useState<View>("library");
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = window.localStorage.getItem("tangerine-theme");
+    return saved === "dark" ? "dark" : "light";
+  });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [events, setEvents] = useState<EventsResponse | null>(null);
@@ -1374,6 +1379,12 @@ function App() {
   const [migration, setMigration] = useState<MigrationStatus | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem("tangerine-theme", theme);
+  }, [theme]);
 
   const refreshLibrary = useCallback(async () => {
     const [overviewData, inboxData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
@@ -1726,7 +1737,13 @@ function App() {
       <main>
         <header className="topbar">
           <div><span className="eyebrow">{pageMeta[0]}</span><h1>{pageMeta[1]}</h1><p>{pageMeta[2]}</p></div>
-          <div className="scan-meta"><span>上次扫描</span><strong>{formatDate(overview?.latest_scan?.finished_at)}</strong></div>
+          <div className="topbar-tools">
+            <button className="theme-toggle" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={`切换到${theme === "light" ? "深色" : "浅色"}主题`}>
+              <span aria-hidden="true">{theme === "light" ? "☀" : "◐"}</span>
+              {theme === "light" ? "浅色" : "深色"}
+            </button>
+            <div className="scan-meta"><span>上次扫描</span><strong>{formatDate(overview?.latest_scan?.finished_at)}</strong></div>
+          </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
         {view === "library" && <LibraryView overview={overview} inbox={inbox} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} />}

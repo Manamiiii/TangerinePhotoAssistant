@@ -263,6 +263,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .scan-meta { display: flex; flex-direction: column; text-align: right; gap: 4px; }
 .scan-meta span { color: var(--muted); font-size: 11px; }
 .scan-meta strong { font-size: 13px; font-weight: 500; }
+.topbar-tools { display: flex; align-items: center; gap: 14px; }
+.theme-toggle { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: inherit; background: var(--surface); display: inline-flex; align-items: center; gap: 7px; font-size: 11px; cursor: pointer; }
+.theme-toggle span { color: var(--orange); font-size: 15px; }
 .error-banner { margin-bottom: 16px; padding: 12px 16px; border: 1px solid #85483d; border-radius: 10px; background: #2b1714; color: #ffb3a6; font-size: 13px; }
 .hero-card { min-height: 190px; padding: 28px 32px; position: relative; overflow: hidden; border: 1px solid #3b3027; border-radius: 18px; background: linear-gradient(120deg, #272019 0%, #171512 70%); display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(230px, .7fr); align-items: center; }
 .hero-card::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255,122,26,.05), transparent 45%); pointer-events: none; }
@@ -625,4 +628,114 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .lightroom-grid, .migration-grid { grid-template-columns: 1fr; }
   .migration-summary { grid-template-columns: 1fr; }
   .batch-config { grid-template-columns: 1fr; }
+}
+
+/* The light theme is the default for new browsers. Dark mode remains available
+   from the header and uses the original palette above. */
+:root[data-theme="light"] {
+  color: #2f2a24;
+  background: #f7f3ed;
+  --orange: #f27122;
+  --orange-soft: #bd5518;
+  --surface: #fffdf9;
+  --surface-raised: #ffffff;
+  --line: #e4ddd3;
+  --muted: #766f66;
+}
+
+:root[data-theme="light"] body {
+  background: radial-gradient(circle at 72% 0%, #fff1df 0, #f7f3ed 34rem);
+}
+
+:root[data-theme="light"] .sidebar {
+  border-color: #e6ded3;
+  background: rgba(255, 252, 247, .96);
+  box-shadow: 8px 0 28px rgba(79, 60, 39, .035);
+}
+:root[data-theme="light"] .brand strong { color: #2d2822; }
+:root[data-theme="light"] .brand span:last-child,
+:root[data-theme="light"] .nav-item { color: #756e65; }
+:root[data-theme="light"] .nav-item span { color: #aaa096; }
+:root[data-theme="light"] .nav-item.active { color: #3a2b20; background: #fff0df; }
+:root[data-theme="light"] .nav-group-label.system-label { border-color: #e9e1d7; }
+:root[data-theme="light"] .privacy-note { border-color: #e3dbd0; background: #fffefa; }
+
+:root[data-theme="light"] .hero-card,
+:root[data-theme="light"] .structure-hero,
+:root[data-theme="light"] .compact-summary {
+  border-color: #e5d5c6;
+  background: linear-gradient(125deg, #fff8ef, #fffdf9 72%);
+  box-shadow: 0 14px 38px rgba(104, 74, 43, .055);
+}
+:root[data-theme="light"] .hero-card::before { background: linear-gradient(90deg, rgba(242, 113, 34, .08), transparent 48%); }
+:root[data-theme="light"] .hero-copy p,
+:root[data-theme="light"] .structure-hero p { color: #746c63; }
+:root[data-theme="light"] .library-number strong { color: #342c25; }
+:root[data-theme="light"] .library-number span,
+:root[data-theme="light"] .library-number small,
+:root[data-theme="light"] .structure-stat span { color: #81786f; }
+
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .metric-grid,
+:root[data-theme="light"] .category-strip,
+:root[data-theme="light"] .task-card,
+:root[data-theme="light"] .section-tabs,
+:root[data-theme="light"] .theme-toggle {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 8px 24px rgba(77, 57, 36, .04);
+}
+:root[data-theme="light"] .section-tabs button.active { color: #402d20; background: #ffead5; box-shadow: inset 0 0 0 1px #f0ceb0; }
+:root[data-theme="light"] .metric-grid article,
+:root[data-theme="light"] .capture-row,
+:root[data-theme="light"] .lens-row,
+:root[data-theme="light"] .event-row,
+:root[data-theme="light"] .burst-row,
+:root[data-theme="light"] .equipment-row,
+:root[data-theme="light"] .safety-list > div,
+:root[data-theme="light"] .migration-issue { border-color: #ece5dc; }
+:root[data-theme="light"] .file-avatar,
+:root[data-theme="light"] .pair-badge,
+:root[data-theme="light"] .category-chip,
+:root[data-theme="light"] .candidate-badge { color: #6f6257; border-color: #e5d8cb; background: #faf4ed; }
+:root[data-theme="light"] .next-step,
+:root[data-theme="light"] .runtime-card,
+:root[data-theme="light"] .migration-summary > div,
+:root[data-theme="light"] .migration-run-status { border-color: #e4ddd3; background: #faf7f2; }
+
+:root[data-theme="light"] .secondary-action,
+:root[data-theme="light"] .review-controls select,
+:root[data-theme="light"] .review-controls button,
+:root[data-theme="light"] .event-actions select,
+:root[data-theme="light"] .event-actions button,
+:root[data-theme="light"] .analysis-batch-control,
+:root[data-theme="light"] .analysis-batch-control select,
+:root[data-theme="light"] .ai-results-toolbar select {
+  color: #463d35;
+  border-color: #dcd2c7;
+  background: #fffefa;
+}
+:root[data-theme="light"] .ai-version-row,
+:root[data-theme="light"] .ai-result-card { color: #352f29; border-color: #e5ddd4; background: #fffdfa; }
+:root[data-theme="light"] .ai-version-header { background: transparent; }
+:root[data-theme="light"] .progress-track,
+:root[data-theme="light"] .bar-row > div { background: #e8e0d7; }
+
+:root[data-theme="light"] .detail-backdrop { background: rgba(74, 62, 49, .32); }
+:root[data-theme="light"] .detail-panel { color: #332d27; border-color: #ded5cb; background: #fffdfa; }
+:root[data-theme="light"] .detail-copy,
+:root[data-theme="light"] .detail-section { border-color: #e8e0d7; }
+:root[data-theme="light"] .detail-close { color: #3b342d; border-color: #ddd3c7; background: rgba(255, 253, 249, .92); }
+:root[data-theme="light"] .ai-review-controls textarea,
+:root[data-theme="light"] .danger-confirmation input,
+:root[data-theme="light"] .batch-config input { color: #382f28; border-color: #d7c9bc; background: #fffefa; }
+
+:root[data-theme="light"] .danger-confirmation { border-color: #e5b184; background: #fff4e8; }
+:root[data-theme="light"] .danger-confirmation code,
+:root[data-theme="light"] .manifest-result a { color: #a84713; }
+:root[data-theme="light"] .manifest-result a { border-color: #e3b88f; background: #fff4e9; }
+:root[data-theme="light"] .empty-state { color: #8a8177; }
+
+@media (max-width: 760px) {
+  .topbar-tools { align-items: flex-end; flex-direction: column-reverse; gap: 8px; }
 }
