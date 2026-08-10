@@ -132,6 +132,10 @@ class AlbumTypeCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
+class AlbumTypeUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
 class AlbumAssignmentRequest(BaseModel):
     capture_ids: list[int] = Field(min_length=1, max_length=500)
 
@@ -1924,6 +1928,36 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(status_code=409, detail="同名相册类型已经存在") from exc
             return {"name": name, "built_in": 0}
+        finally:
+            connection.close()
+
+    @app.put("/api/album-types/{name}")
+    def update_album_type(name: str, request: AlbumTypeUpdateRequest) -> dict[str, Any]:
+        next_name = request.name.strip()
+        if not next_name:
+            raise HTTPException(status_code=422, detail="相册类型名称不能为空")
+        connection = connect(settings.database_path)
+        try:
+            row = connection.execute(
+                "SELECT built_in FROM album_types WHERE name=?", (name,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="相册类型不存在")
+            if row["built_in"]:
+                raise HTTPException(status_code=409, detail="内置相册类型不能改名")
+            if connection.execute(
+                "SELECT 1 FROM album_types WHERE name=?", (next_name,)
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="同名相册类型已经存在")
+            connection.execute(
+                "UPDATE events SET category=?, updated_at=? WHERE category=?",
+                (next_name, utc_now(), name),
+            )
+            connection.execute(
+                "UPDATE album_types SET name=? WHERE name=?", (next_name, name)
+            )
+            connection.commit()
+            return {"name": next_name, "previous_name": name, "built_in": 0}
         finally:
             connection.close()
 

@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
+import { StrictMode, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -763,37 +763,54 @@ function InboxView({
   );
 }
 
-function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
+function ModalShell({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
+  return <div className="editor-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={close}>
+    <section className="editor-modal" onClick={(event) => event.stopPropagation()}>
+      <header><h3>{title}</h3><button onClick={close} aria-label="关闭">×</button></header>
+      {children}
+    </section>
+  </div>;
+}
+
+function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
   updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
   createAlbum: (name: string, category: string) => void;
   createAlbumType: (name: string) => void;
+  renameAlbumType: (name: string, nextName: string) => void;
   deleteAlbumType: (name: string) => void;
   openAlbum: (albumId: number) => void;
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
 }) {
-  const addAlbum = () => {
-    const name = window.prompt("新相册名称");
-    if (!name?.trim()) return;
-    const available = (filters?.album_types ?? []).map((item) => item.name);
-    const category = window.prompt(`相册类型（${available.join("、")}）`, available[0] ?? "日常");
-    if (category?.trim()) createAlbum(name.trim(), category.trim());
+  const [albumEditor, setAlbumEditor] = useState<EventItem | "new" | null>(null);
+  const [albumName, setAlbumName] = useState("");
+  const [albumCategory, setAlbumCategory] = useState("");
+  const [typeManagerOpen, setTypeManagerOpen] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [editingType, setEditingType] = useState<string | null>(null);
+  const [editedTypeName, setEditedTypeName] = useState("");
+  const openAlbumEditor = (album: EventItem | "new") => {
+    setAlbumEditor(album);
+    setAlbumName(album === "new" ? "" : album.proposed_name);
+    setAlbumCategory(album === "new" ? (filters?.album_types[0]?.name ?? "日常") : album.category);
   };
-  const addType = () => {
-    const name = window.prompt("新相册类型名称");
-    if (name?.trim()) createAlbumType(name.trim());
+  const saveAlbum = () => {
+    if (!albumName.trim() || !albumCategory) return;
+    if (albumEditor === "new") createAlbum(albumName.trim(), albumCategory);
+    else if (albumEditor) updateAlbum(albumEditor, { proposed_name: albumName.trim(), category: albumCategory });
+    setAlbumEditor(null);
   };
   return (
     <>
       <section className="album-management-header">
         <div><strong>{numberFormat.format(albums?.count ?? 0)}</strong><span>个相册</span></div>
-        <div className="album-management-actions"><button className="secondary-action compact" onClick={addType}>新增类型</button><button className="primary-action compact" onClick={addAlbum}><span>新建相册</span><b>＋</b></button></div>
+        <div className="album-management-actions"><button className="toolbar-button" onClick={() => setTypeManagerOpen(true)}>类型管理</button><button className="toolbar-button primary" onClick={() => openAlbumEditor("new")}>新建相册</button></div>
       </section>
       <section className="album-type-strip" aria-label="相册类型">
         {(filters?.album_types ?? []).map((item) => (
-          <span key={item.name}>{item.name}{item.built_in ? "" : " · 自定义"}{!item.built_in && <button aria-label={`删除类型 ${item.name}`} onClick={() => { if (window.confirm(`删除未使用的相册类型“${item.name}”？`)) deleteAlbumType(item.name); }}>×</button>}</span>
+          <span key={item.name}>{item.name}{item.built_in ? "" : " · 自定义"}</span>
         ))}
       </section>
       <section className="panel event-panel album-panel">
@@ -802,16 +819,33 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
           {(albums?.items ?? []).map((album) => (
             <article className="event-row album-row" key={album.id}>
               <div className={`category-chip category-${album.category}`}>{album.category}</div>
-              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.start_at?.slice(0, 10) ?? "空相册"}{album.source_count ? ` · ${album.source_count} 个来源目录` : ""}</span><div className="event-actions"><select value={album.category} onChange={(change) => updateAlbum(album, { category: change.target.value })}>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select><button onClick={() => { const name = window.prompt("修改相册名称", album.proposed_name); if (name) updateAlbum(album, { proposed_name: name }); }}>改名</button><button className={album.status === "confirmed" ? "confirmed" : ""} onClick={() => updateAlbum(album, { status: album.status === "confirmed" ? "proposed" : "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认名称"}</button><button onClick={() => openAlbum(album.id)}>查看照片</button></div></div>
+              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.source_count ? `${album.source_count} 个来源目录` : "手动创建"}</span></div>
               <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
-              <div className="event-measure"><strong>{numberFormat.format(album.burst_count)}</strong><span>连拍组</span></div>
-              <div className="album-state">{album.status === "confirmed" ? "已整理" : "待确认"}</div>
+              <div className="album-date"><strong>{album.start_at?.slice(0, 10) ?? "—"}</strong><span>拍摄日期</span></div>
+              <button className="album-open-action" onClick={() => openAlbum(album.id)}>查看照片</button>
+              <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button><button className={album.status === "confirmed" ? "confirmed" : ""} disabled={album.status === "confirmed"} onClick={() => updateAlbum(album, { status: "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认"}</button></div>
             </article>
           ))}
           {!albums?.items.length && <div className="empty-state">还没有相册，可以新建一个空相册。</div>}
         </div>
       </section>
       {albums && <Pagination count={albums.count} limit={albums.limit} offset={albums.offset} onChange={changePage} onLimitChange={changePageSize} />}
+      {albumEditor && <ModalShell title={albumEditor === "new" ? "新建相册" : "编辑相册"} close={() => setAlbumEditor(null)}>
+        <form className="editor-form" onSubmit={(event) => { event.preventDefault(); saveAlbum(); }}>
+          <label><span>相册名称</span><input autoFocus value={albumName} onChange={(event) => setAlbumName(event.target.value)} maxLength={180} /></label>
+          <label><span>相册类型</span><select value={albumCategory} onChange={(event) => setAlbumCategory(event.target.value)}>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label>
+          <footer><button type="button" className="toolbar-button" onClick={() => setAlbumEditor(null)}>取消</button><button className="toolbar-button primary" disabled={!albumName.trim() || !albumCategory}>保存</button></footer>
+        </form>
+      </ModalShell>}
+      {typeManagerOpen && <ModalShell title="相册类型管理" close={() => setTypeManagerOpen(false)}>
+        <div className="type-manager-list">
+          {(filters?.album_types ?? []).map((type) => <div className="type-manager-row" key={type.name}>
+            {editingType === type.name ? <input autoFocus value={editedTypeName} onChange={(event) => setEditedTypeName(event.target.value)} /> : <div><strong>{type.name}</strong><span>{type.built_in ? "内置类型" : "自定义类型"}</span></div>}
+            <div>{!type.built_in && (editingType === type.name ? <><button onClick={() => { if (editedTypeName.trim()) renameAlbumType(type.name, editedTypeName.trim()); setEditingType(null); }}>保存</button><button onClick={() => setEditingType(null)}>取消</button></> : <><button onClick={() => { setEditingType(type.name); setEditedTypeName(type.name); }}>编辑</button><button className="danger-text" onClick={() => deleteAlbumType(type.name)}>删除</button></>)}</div>
+          </div>)}
+        </div>
+        <form className="type-create-row" onSubmit={(event) => { event.preventDefault(); if (newTypeName.trim()) { createAlbumType(newTypeName.trim()); setNewTypeName(""); } }}><input value={newTypeName} onChange={(event) => setNewTypeName(event.target.value)} placeholder="新的类型名称" maxLength={40} /><button className="toolbar-button primary" disabled={!newTypeName.trim()}>新增类型</button></form>
+      </ModalShell>}
     </>
   );
 }
@@ -1003,7 +1037,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, e
   return <>
     <section className="library-toolbar">
       <div><strong>{library ? numberFormat.format(library.count) : "—"}</strong><span>张符合条件的照片</span></div>
-      <div className="library-toolbar-actions"><button className="secondary-action compact" onClick={() => setSelected((current) => new Set([...current, ...items.map((item) => item.id)]))} disabled={!items.length}>选择本页</button></div>
+      <div className="library-toolbar-actions"><button className="toolbar-button" onClick={() => setSelected((current) => new Set([...current, ...items.map((item) => item.id)]))} disabled={!items.length}>选择本页</button></div>
     </section>
     <section className="library-filters">
       <label className="search-filter"><span>搜索</span><input value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="文件名、相册或目录" /></label>
@@ -1016,7 +1050,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, e
       <label><span>开始日期</span><input type="date" value={query.dateFrom} onChange={(event) => updateQuery({ dateFrom: event.target.value })} /></label>
       <label><span>结束日期</span><input type="date" value={query.dateTo} onChange={(event) => updateQuery({ dateTo: event.target.value })} /></label>
       <label><span>排序</span><select value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
-      <button className="filter-reset" onClick={() => updateQuery({ albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest" })}>清除筛选</button>
+      <button className="toolbar-button filter-reset" onClick={() => updateQuery({ albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest" })}>清除筛选</button>
     </section>
     <section className={`selection-toolbar ${selected.size ? "visible" : ""}`}>
       <div><strong>已选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !items.some((item) => item.id === id))) : new Set([...selected, ...items.map((item) => item.id)]))}>{allSelected ? "取消本页全选" : "选择本页全部"}</button><button onClick={() => setSelected(new Set())}>清除</button></div>
@@ -1035,7 +1069,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, e
   </>;
 }
 
-function LibraryView({ library, albums, filters, query, updateQuery, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, deleteAlbumType, assignToAlbum, openCapture, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbum }: {
+function LibraryView({ library, albums, filters, query, updateQuery, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbum }: {
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
@@ -1047,6 +1081,7 @@ function LibraryView({ library, albums, filters, query, updateQuery, task, start
   updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
   createAlbum: (name: string, category: string) => void;
   createAlbumType: (name: string) => void;
+  renameAlbumType: (name: string, nextName: string) => void;
   deleteAlbumType: (name: string) => void;
   assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
   openCapture: (captureId: number) => void;
@@ -1065,8 +1100,8 @@ function LibraryView({ library, albums, filters, query, updateQuery, task, start
         <button className={section === "albums" ? "active" : ""} onClick={() => setSection("albums")}>相册管理</button>
       </div>
       {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
-      {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={(albumId) => { openAlbum(albumId); setSection("photos"); }} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
-      <section className="library-maintenance"><div><strong>图库维护</strong><span>只在加入新照片后运行增量扫描。</span></div><button className="secondary-action compact" onClick={startScan} disabled={task?.status === "running"}>{task?.status === "running" ? "扫描进行中" : "扫描新照片"}</button></section>
+      {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={(albumId) => { openAlbum(albumId); setSection("photos"); }} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
+      <section className="library-maintenance"><div><strong>图库维护</strong><span>只在加入新照片后运行增量扫描。</span></div><button className="toolbar-button" onClick={startScan} disabled={task?.status === "running"}>{task?.status === "running" ? "扫描进行中" : "扫描新照片"}</button></section>
       <TaskCard task={task} cancel={cancelTask} />
     </>
   );
@@ -1878,6 +1913,20 @@ function App() {
     }
   };
 
+  const renameAlbumType = async (name: string, nextName: string) => {
+    setError(null);
+    try {
+      await getJson(`/api/album-types/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nextName }),
+      });
+      await refreshLibrary();
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
   const assignToAlbum = async (albumId: number, captureIds: number[]) => {
     setError(null);
     try {
@@ -2030,7 +2079,7 @@ function App() {
           library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
-          createAlbum={createAlbum} createAlbumType={createAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
+          createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
           openCapture={openCapture} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
