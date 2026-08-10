@@ -1,0 +1,33 @@
+{
+  "purpose": "isolated-macos-functional-test",
+  "photos_mutated": false,
+  "sample_count": 4,
+  "privacy": {
+    "gps_removed": true,
+    "serial_numbers_removed": true,
+    "owner_fields_removed": true,
+    "maximum_edge_pixels": 1280
+  },
+  "samples": [
+    {
+      "file": "photos/mac-test-event/MAC_TEST_0001.JPG",
+      "sha256": "532670e0e7f062e09a82bdb45c600cb28cf9cd1ffe19711a35700c81f9430b32",
+      "role": "scenic-test"
+    },
+    {
+      "file": "photos/mac-test-event/MAC_TEST_0002.JPG",
+      "sha256": "5c9a8b8d1a5cdd9feb6f62871f04821370813b9bc4b286f035986f3aa1933bd6",
+      "role": "texture-and-exposure-test"
+    },
+    {
+      "file": "photos/mac-test-event/MAC_TEST_0003.JPG",
+      "sha256": "1b289966daf3c61c198e91df7906a8eb6fd282be3657831b179946dd2116db57",
+      "role": "action-burst-test"
+    },
+    {
+      "file": "photos/mac-test-event/MAC_TEST_0004.JPG",
+      "sha256": "3077639ce52a21112124004cbf2f4ba3634ddaee975db8af2fd9599fa4619e6e",
+      "role": "action-burst-test"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tangerine-photo-assistant"
+version = "0.1.0"
+description = "Local-first photo curation and Lightroom workflow assistant"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Manamiiii" }]
+dependencies = [
+    "fastapi>=0.116,<1",
+    "pillow>=11.3,<12",
+    "uvicorn>=0.35,<1",
+]
+
+[project.scripts]
+tangerine-photo = "tangerine_photo_assistant.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tangerine_photo_assistant"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100

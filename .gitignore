@@ -1,0 +1,22 @@
+.idea/
+.vscode/
+.venv/
+.venv-mac/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+dist/
+build/
+*.egg-info/
+
+# Local configuration and runtime data
+config.toml
+*.log
+runtime/
+
+# Frontend dependencies and generated artifacts
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo

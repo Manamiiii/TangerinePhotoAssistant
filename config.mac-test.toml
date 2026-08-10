@@ -1,0 +1,45 @@
+[library]
+# This is a tiny, repository-contained test library. The production Windows
+# library and database are never referenced by this configuration.
+originals = "sample-library/photos"
+workspace = "runtime/mac-test/workspace"
+read_only = true
+
+[cache]
+root = "runtime/mac-test/cache"
+max_size_gb = 2
+thumbnail_max_size_gb = 1
+
+[lightroom]
+catalog_root = "runtime/mac-test/lightroom"
+catalog_backup_root = "runtime/mac-test/lightroom-backups"
+write_xmp = false
+
+[analysis]
+offline_only = true
+pair_jpeg_raw = true
+raw_extensions = [".raf", ".dng", ".cr2", ".cr3", ".nef", ".arw"]
+burst_time_gap_seconds = 3.0
+generate_full_resolution_previews = false
+metadata_batch_size = 16
+
+[tools]
+# Leave empty to discover an optional Homebrew ExifTool from PATH.
+exiftool = ""
+
+[models]
+# The Mac test environment intentionally does not copy or download the
+# production Qwen checkpoint. Model pages remain visible but inference is off.
+python = ""
+vision_language_model = ""
+quantization = "none"
+gpu_memory_limit_gb = 8
+max_new_tokens = 512
+image_max_edge = 960
+json_retry_count = 1
+
+[safety]
+allow_move = false
+allow_delete = false
+allow_original_metadata_write = false
+require_reviewed_manifest = true

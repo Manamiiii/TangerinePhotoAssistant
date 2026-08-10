@@ -1,0 +1,50 @@
+[library]
+# The existing photo library is read-only until a reviewed move plan is approved.
+originals = "D:/Photos"
+workspace = "D:/TangerinePhotoLibrary"
+read_only = true
+
+[cache]
+# Disposable data only. The application must enforce this size ceiling.
+root = "C:/TangerinePhotoCache"
+max_size_gb = 40
+# On-demand browser thumbnails get their own smaller budget inside the total ceiling.
+thumbnail_max_size_gb = 8
+
+[lightroom]
+# Lightroom Classic catalog and previews benefit from NVMe storage.
+catalog_root = "C:/TangerineLightroomCatalog"
+catalog_backup_root = "D:/TangerinePhotoLibrary/Backups/Lightroom"
+write_xmp = false
+
+[analysis]
+offline_only = true
+pair_jpeg_raw = true
+raw_extensions = [".raf", ".dng", ".cr2", ".cr3", ".nef", ".arw"]
+burst_time_gap_seconds = 3.0
+generate_full_resolution_previews = false
+metadata_batch_size = 96
+
+[tools]
+# Portable official build stored outside the source repository.
+exiftool = ""
+
+[models]
+# Reuse the existing ComfyUI environment and weights. Nothing is copied or downloaded.
+python = ""
+vision_language_model = ""
+# The BF16 8B checkpoint needs more than 16 GB VRAM. Runtime INT8 keeps the
+# complete model on the RTX 5080 while leaving headroom for image tensors.
+quantization = "int8"
+gpu_memory_limit_gb = 14
+max_new_tokens = 768
+# 960px keeps composition and subject detail while reducing Qwen visual tokens
+# by roughly 40% compared with the previous 1280px input.
+image_max_edge = 960
+json_retry_count = 1
+
+[safety]
+allow_move = false
+allow_delete = false
+allow_original_metadata_write = false
+require_reviewed_manifest = true
