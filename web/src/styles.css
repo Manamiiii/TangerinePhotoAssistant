@@ -411,6 +411,10 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .photo-card-copy p { margin: 7px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .photo-card-status b { padding: 3px 5px; border-radius: 5px; color: #bfe6c9; background: #1d3524; font-size: 7px; }
 .photo-card-status b.rejected { color: #efb7ad; background: #3b1d19; }
+.library-pagination { margin-top: 18px; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.library-pagination button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; color: inherit; background: var(--surface); cursor: pointer; }
+.library-pagination button:disabled { cursor: not-allowed; opacity: .4; }
+.library-pagination span { color: var(--muted); font-size: 9px; }
 .home-management-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, .8fr); gap: 16px; }
 .recent-photo-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0 16px 16px; }
 .recent-photo-grid button { padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; color: inherit; background: var(--surface); text-align: left; cursor: pointer; }

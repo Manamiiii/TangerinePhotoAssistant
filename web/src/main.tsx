@@ -926,18 +926,20 @@ function DuplicatesView({ overview, duplicates }: {
   );
 }
 
-function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, exportPhotos }: {
+function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, exportPhotos, changePage }: {
   library: LibraryCapturesResponse | null;
   task: Task | null;
   startScan: () => void;
   cancelTask: () => void;
   openCapture: (captureId: number) => void;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
+  changePage: (offset: number) => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [maxEdge, setMaxEdge] = useState(2048);
   const [exporting, setExporting] = useState(false);
   const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
+  useEffect(() => setSelected(new Set()), [library?.offset]);
   const toggle = (captureId: number) => setSelected((current) => {
     const next = new Set(current);
     if (next.has(captureId)) next.delete(captureId); else next.add(captureId);
@@ -980,10 +982,11 @@ function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, e
       </article>)}
       {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
     </section>
+    {library && library.count > library.limit && <div className="library-pagination"><button disabled={library.offset === 0} onClick={() => changePage(Math.max(0, library.offset - library.limit))}>上一页</button><span>{library.offset + 1}–{Math.min(library.offset + library.limit, library.count)} / {numberFormat.format(library.count)}</span><button disabled={library.offset + library.limit >= library.count} onClick={() => changePage(library.offset + library.limit)}>下一页</button></div>}
   </>;
 }
 
-function LibraryView({ library, overview, events, duplicates, task, startScan, cancelTask, updateEvent, openCapture, exportPhotos }: {
+function LibraryView({ library, overview, events, duplicates, task, startScan, cancelTask, updateEvent, openCapture, exportPhotos, changePage }: {
   library: LibraryCapturesResponse | null;
   overview: Overview | null;
   events: EventsResponse | null;
@@ -994,6 +997,7 @@ function LibraryView({ library, overview, events, duplicates, task, startScan, c
   updateEvent: (event: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
   openCapture: (captureId: number) => void;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
+  changePage: (offset: number) => void;
 }) {
   const [section, setSection] = useState<LibrarySection>("inbox");
   return (
@@ -1003,7 +1007,7 @@ function LibraryView({ library, overview, events, duplicates, task, startScan, c
         <button className={section === "events" ? "active" : ""} onClick={() => setSection("events")}>相册分类</button>
         <button className={section === "duplicates" ? "active" : ""} onClick={() => setSection("duplicates")}>重复文件</button>
       </div>
-      {section === "inbox" && <PhotoLibraryView library={library} task={task} startScan={startScan} cancelTask={cancelTask} openCapture={openCapture} exportPhotos={exportPhotos} />}
+      {section === "inbox" && <PhotoLibraryView library={library} task={task} startScan={startScan} cancelTask={cancelTask} openCapture={openCapture} exportPhotos={exportPhotos} changePage={changePage} />}
       {section === "events" && <EventsView overview={overview} events={events} updateEvent={updateEvent} />}
       {section === "duplicates" && <DuplicatesView overview={overview} duplicates={duplicates} />}
     </>
@@ -1481,6 +1485,7 @@ function App() {
   });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
+  const [libraryOffset, setLibraryOffset] = useState(0);
   const [events, setEvents] = useState<EventsResponse | null>(null);
   const [bursts, setBursts] = useState<BurstsResponse | null>(null);
   const [duplicates, setDuplicates] = useState<DuplicatesResponse | null>(null);
@@ -1509,7 +1514,7 @@ function App() {
   const refreshLibrary = useCallback(async () => {
     const [overviewData, libraryData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
       getJson<Overview>("/api/overview"),
-      getJson<LibraryCapturesResponse>("/api/library/captures?limit=80"),
+      getJson<LibraryCapturesResponse>(`/api/library/captures?limit=80&offset=${libraryOffset}`),
       getJson<EventsResponse>("/api/events?limit=100"),
       getJson<BurstsResponse>("/api/bursts?limit=50"),
       getJson<DuplicatesResponse>("/api/duplicates?limit=50"),
@@ -1539,7 +1544,7 @@ function App() {
     setActiveLibraryBaseline(activeBaselineData);
     setLightroomStatus(lightroomData);
     setMigration(migrationData);
-  }, []);
+  }, [libraryOffset]);
 
   useEffect(() => {
     Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then(setTask)]).catch(
@@ -1885,7 +1890,7 @@ function App() {
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
         {view === "home" && <HomeView overview={overview} events={events} groups={similarityGroups} analysis={analysis} statistics={statistics} library={libraryCaptures} task={task} navigate={setView} openCapture={openCapture} />}
-        {view === "library" && <LibraryView library={libraryCaptures} overview={overview} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} openCapture={openCapture} exportPhotos={exportPhoneShare} />}
+        {view === "library" && <LibraryView library={libraryCaptures} overview={overview} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} openCapture={openCapture} exportPhotos={exportPhoneShare} changePage={setLibraryOffset} />}
         {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} />}
         {view === "statistics" && <StatisticsView statistics={statistics} />}
