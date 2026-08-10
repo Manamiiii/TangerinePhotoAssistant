@@ -69,8 +69,8 @@ ignored Mac test runtime inside the cloned project.
 
 ## Intentional limits
 
-- The demo library contains four fictional events, short similar bursts and
-  two exact duplicate fixtures. All timestamps and event names are fictional.
+- The demo library contains four fictional albums and short similar bursts.
+  All timestamps and album names are fictional; integrity fixtures stay in the background.
 - The bundled source samples are JPEG-only reduced derivatives, not originals.
 - The Windows Qwen3-VL model is not included or downloaded.
 - AI inference therefore remains unavailable on the Mac test clone.

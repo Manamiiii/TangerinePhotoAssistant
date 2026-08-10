@@ -17,6 +17,7 @@ from tangerine_photo_assistant.webapp import (
     _query_events,
     _query_inbox,
     _query_library_captures,
+    _query_library_filters,
     _query_overview,
     _query_quality,
 )
@@ -70,6 +71,13 @@ class WebAppQueryTests(unittest.TestCase):
             overview = _query_overview(settings)
             inbox = _query_inbox(settings, 10)
             library = _query_library_captures(settings, 10, 0)
+            filtered_library = _query_library_captures(
+                settings, 10, 0, category="旅行", search="DSCF0001"
+            )
+            empty_library = _query_library_captures(
+                settings, 10, 0, category="宠物"
+            )
+            library_filters = _query_library_filters(settings)
             events = _query_events(settings, 10, 0)
             bursts = _query_bursts(settings, 10, 0)
             duplicates = _query_duplicates(settings, 10, 0)
@@ -82,6 +90,10 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(inbox["items"][0]["pairing_status"], "paired")
             self.assertEqual(library["count"], 1)
             self.assertEqual(library["items"][0]["thumbnail_url"], "/api/thumbnails/1?size=640")
+            self.assertEqual(filtered_library["count"], 1)
+            self.assertEqual(empty_library["count"], 0)
+            self.assertIn("旅行", {item["name"] for item in library_filters["album_types"]})
+            self.assertEqual(library_filters["albums"][0]["capture_count"], 1)
             self.assertEqual(events["count"], 1)
             self.assertEqual(events["items"][0]["category"], "旅行")
             self.assertEqual(bursts["count"], 0)

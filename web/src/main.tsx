@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "migration";
-type LibrarySection = "inbox" | "events" | "duplicates";
+type LibrarySection = "photos" | "albums";
 type Theme = "light" | "dark";
 type CountRow = { count: number } & Record<string, string | number | null>;
 
@@ -64,6 +64,7 @@ type LibraryCapture = {
   pairing_status: string;
   camera_model: string | null;
   lens_model: string | null;
+  album_id: number | null;
   album_name: string | null;
   category: string | null;
   user_rating: number | null;
@@ -72,6 +73,25 @@ type LibraryCapture = {
   thumbnail_url: string;
 };
 type LibraryCapturesResponse = { count: number; limit: number; offset: number; items: LibraryCapture[] };
+type LibraryFilters = {
+  albums: Array<{ id: number; name: string; category: string; capture_count: number; status: string }>;
+  album_types: Array<{ name: string; built_in: number }>;
+  cameras: string[];
+  lenses: string[];
+};
+type LibraryQuery = {
+  pageSize: number;
+  albumId: string;
+  category: string;
+  camera: string;
+  lens: string;
+  rating: string;
+  selection: string;
+  dateFrom: string;
+  dateTo: string;
+  search: string;
+  sort: string;
+};
 type PhoneShareExport = {
   filename: string;
   photo_count: number;
@@ -98,7 +118,7 @@ type EventItem = {
   sources: string[];
   reason: { method: string; legacy_buckets: string[] };
 };
-type EventsResponse = { count: number; items: EventItem[] };
+type EventsResponse = { count: number; limit: number; offset: number; items: EventItem[] };
 
 type BurstItem = {
   id: number;
@@ -114,7 +134,7 @@ type BurstItem = {
   similarity_group_count: number;
   largest_similarity_group: number;
 };
-type BurstsResponse = { count: number; items: BurstItem[] };
+type BurstsResponse = { count: number; limit: number; offset: number; items: BurstItem[] };
 
 type SimilarityGroupItem = {
   id: number;
@@ -131,7 +151,7 @@ type SimilarityGroupItem = {
   cover_capture_id: number;
   thumbnail_url: string;
 };
-type SimilarityGroupsResponse = { count: number; items: SimilarityGroupItem[] };
+type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[] };
 
 type GroupCapture = {
   capture_id: number;
@@ -212,16 +232,6 @@ type CaptureDetail = {
   }>;
   thumbnail_url: string;
 };
-
-type DuplicateItem = {
-  id: number;
-  file_count: number;
-  total_bytes: number;
-  status: string;
-  file_name: string;
-  paths: string[];
-};
-type DuplicatesResponse = { count: number; items: DuplicateItem[] };
 
 type AiRun = {
   id: number;
@@ -376,7 +386,7 @@ type QualityItem = {
     photoshop_needed?: boolean;
   } | null;
 };
-type QualityResponse = { count: number; items: QualityItem[] };
+type QualityResponse = { count: number; limit: number; offset: number; items: QualityItem[] };
 type ReviewPayload = {
   user_rating: number | null;
   user_pick: boolean;
@@ -581,6 +591,15 @@ function pairingLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function technicalGrade(score: number | null | undefined) {
+  if (score == null) return "—";
+  if (score >= 85) return "A+";
+  if (score >= 75) return "A";
+  if (score >= 60) return "B";
+  if (score >= 45) return "C";
+  return "D";
+}
+
 async function getJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   if (!response.ok) {
@@ -588,6 +607,32 @@ async function getJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(body.detail ?? `请求失败：${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+function Pagination({ count, limit, offset, onChange, onLimitChange }: {
+  count: number;
+  limit: number;
+  offset: number;
+  onChange: (offset: number) => void;
+  onLimitChange: (limit: number) => void;
+}) {
+  const pageCount = Math.max(1, Math.ceil(count / limit));
+  const currentPage = Math.min(pageCount, Math.floor(offset / limit) + 1);
+  const goToPage = (page: number) => onChange((Math.max(1, Math.min(pageCount, page)) - 1) * limit);
+  return <div className="pagination-controls" aria-label="分页">
+    <label>每页<select value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}>
+      {[20, 40, 80, 120, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+    </select></label>
+    <div className="pagination-buttons">
+      <button disabled={currentPage === 1} onClick={() => goToPage(1)} aria-label="第一页">«</button>
+      <button disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)} aria-label="上一页">‹</button>
+      <label>第<input type="number" min="1" max={pageCount} value={currentPage} onChange={(event) => goToPage(Number(event.target.value) || 1)} />页</label>
+      <span>/ {numberFormat.format(pageCount)} 页</span>
+      <button disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)} aria-label="下一页">›</button>
+      <button disabled={currentPage === pageCount} onClick={() => goToPage(pageCount)} aria-label="最后一页">»</button>
+    </div>
+    <span>{count ? `${numberFormat.format(offset + 1)}–${numberFormat.format(Math.min(offset + limit, count))}` : "0"} / {numberFormat.format(count)}</span>
+  </div>;
 }
 
 function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => void; pause?: () => void }) {
@@ -677,7 +722,7 @@ function InboxView({
         <article>
           <span>拍摄日期可用</span>
           <strong>{overview ? `${Math.round((overview.dated_captures / Math.max(overview.capture_total, 1)) * 100)}%` : "—"}</strong>
-          <small>用于事件划分</small>
+          <small>用于相册整理</small>
         </article>
       </section>
 
@@ -711,48 +756,67 @@ function InboxView({
               </div>
             ))}
           </div>
-          <div className="next-step"><span>结构已生成</span><strong>{overview?.structure.event_count ?? 0} 个事件建议</strong><p>已将相同日期地点的“宝贝”和“风光”目录重新关联。</p></div>
+          <div className="next-step"><span>相册已整理</span><strong>{overview?.structure.event_count ?? 0} 个拍摄相册</strong><p>可在相册管理中调整名称、类型和照片归属。</p></div>
         </div>
       </section>
     </>
   );
 }
 
-function EventsView({ overview, events, updateEvent }: {
-  overview: Overview | null;
-  events: EventsResponse | null;
-  updateEvent: (event: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
+  albums: EventsResponse | null;
+  filters: LibraryFilters | null;
+  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+  createAlbum: (name: string, category: string) => void;
+  createAlbumType: (name: string) => void;
+  deleteAlbumType: (name: string) => void;
+  openAlbum: (albumId: number) => void;
+  changePage: (offset: number) => void;
+  changePageSize: (limit: number) => void;
 }) {
+  const addAlbum = () => {
+    const name = window.prompt("新相册名称");
+    if (!name?.trim()) return;
+    const available = (filters?.album_types ?? []).map((item) => item.name);
+    const category = window.prompt(`相册类型（${available.join("、")}）`, available[0] ?? "日常");
+    if (category?.trim()) createAlbum(name.trim(), category.trim());
+  };
+  const addType = () => {
+    const name = window.prompt("新相册类型名称");
+    if (name?.trim()) createAlbumType(name.trim());
+  };
   return (
     <>
-      <section className="structure-hero">
-        <div><span className="section-kicker">相册分类</span><h2>拍摄相册</h2><p>按拍摄日期和目录整理照片。</p></div>
-        <div className="structure-stat"><strong>{events?.count ?? "—"}</strong><span>个事件建议</span></div>
+      <section className="album-management-header">
+        <div><strong>{numberFormat.format(albums?.count ?? 0)}</strong><span>个相册</span></div>
+        <div className="album-management-actions"><button className="secondary-action compact" onClick={addType}>新增类型</button><button className="primary-action compact" onClick={addAlbum}><span>新建相册</span><b>＋</b></button></div>
       </section>
-      <section className="category-strip">
-        {(overview?.structure.categories ?? []).map((item) => (
-          <div key={item.category}><span>{item.category}</span><strong>{item.event_count}</strong><small>{numberFormat.format(item.capture_count)} 张</small></div>
+      <section className="album-type-strip" aria-label="相册类型">
+        {(filters?.album_types ?? []).map((item) => (
+          <span key={item.name}>{item.name}{item.built_in ? "" : " · 自定义"}{!item.built_in && <button aria-label={`删除类型 ${item.name}`} onClick={() => { if (window.confirm(`删除未使用的相册类型“${item.name}”？`)) deleteAlbumType(item.name); }}>×</button>}</span>
         ))}
       </section>
-      <section className="panel event-panel">
-        <div className="panel-heading"><div><span className="section-kicker">待复核</span><h3>事件时间线</h3></div><span className="batch-count">按拍摄时间倒序</span></div>
+      <section className="panel event-panel album-panel">
+        <div className="panel-heading"><div><span className="section-kicker">相册管理</span><h3>全部相册</h3></div><span className="batch-count">按最近拍摄时间排列</span></div>
         <div className="event-list">
-          {(events?.items ?? []).map((event) => (
-            <article className="event-row" key={event.id}>
-              <div className={`category-chip category-${event.category}`}>{event.category}</div>
-              <div className="event-main"><strong>{event.proposed_name}</strong><span title={event.sources.join("\n")}>{event.source_count} 个来源目录 · {event.reason.legacy_buckets.join(" + ")}</span><div className="event-actions"><select value={event.category} onChange={(change) => updateEvent(event, { category: change.target.value })}><option>旅行</option><option>纪念</option><option>宠物</option><option>家人</option><option>回家</option><option>专题</option><option>日常</option></select><button onClick={() => { const name = window.prompt("修改事件名称", event.proposed_name); if (name) updateEvent(event, { proposed_name: name }); }}>改名</button><button className={event.status === "confirmed" ? "confirmed" : ""} onClick={() => updateEvent(event, { status: event.status === "confirmed" ? "proposed" : "confirmed" })}>{event.status === "confirmed" ? "已确认" : "确认事件"}</button></div></div>
-              <div className="event-measure"><strong>{numberFormat.format(event.capture_count)}</strong><span>拍摄单元</span></div>
-              <div className="event-measure"><strong>{numberFormat.format(event.burst_count)}</strong><span>连拍候选</span></div>
-              <div className="confidence"><span style={{ width: `${event.confidence * 100}%` }} /><small>{Math.round(event.confidence * 100)}%</small></div>
+          {(albums?.items ?? []).map((album) => (
+            <article className="event-row album-row" key={album.id}>
+              <div className={`category-chip category-${album.category}`}>{album.category}</div>
+              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.start_at?.slice(0, 10) ?? "空相册"}{album.source_count ? ` · ${album.source_count} 个来源目录` : ""}</span><div className="event-actions"><select value={album.category} onChange={(change) => updateAlbum(album, { category: change.target.value })}>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select><button onClick={() => { const name = window.prompt("修改相册名称", album.proposed_name); if (name) updateAlbum(album, { proposed_name: name }); }}>改名</button><button className={album.status === "confirmed" ? "confirmed" : ""} onClick={() => updateAlbum(album, { status: album.status === "confirmed" ? "proposed" : "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认名称"}</button><button onClick={() => openAlbum(album.id)}>查看照片</button></div></div>
+              <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
+              <div className="event-measure"><strong>{numberFormat.format(album.burst_count)}</strong><span>连拍组</span></div>
+              <div className="album-state">{album.status === "confirmed" ? "已整理" : "待确认"}</div>
             </article>
           ))}
+          {!albums?.items.length && <div className="empty-state">还没有相册，可以新建一个空相册。</div>}
         </div>
       </section>
+      {albums && <Pagination count={albums.count} limit={albums.limit} offset={albums.offset} onChange={changePage} onLimitChange={changePageSize} />}
     </>
   );
 }
 
-function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, cancelTask }: {
+function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, cancelTask, changeGroupPage, changeGroupPageSize, changeBurstPage, changeBurstPageSize }: {
   overview: Overview | null;
   bursts: BurstsResponse | null;
   groups: SimilarityGroupsResponse | null;
@@ -764,6 +828,10 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
   openCapture: (captureId: number) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   cancelTask: () => void;
+  changeGroupPage: (offset: number) => void;
+  changeGroupPageSize: (limit: number) => void;
+  changeBurstPage: (offset: number) => void;
+  changeBurstPageSize: (limit: number) => void;
 }) {
   const summary = overview?.structure;
   const visual = overview?.visual;
@@ -812,6 +880,7 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
               </button>
             ))}
           </div>
+          {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
         </section>
       )}
       <section className="metric-grid burst-metrics">
@@ -833,6 +902,7 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
             </article>
           ))}
         </div>
+        {bursts && <Pagination count={bursts.count} limit={bursts.limit} offset={bursts.offset} onChange={changeBurstPage} onLimitChange={changeBurstPageSize} />}
       </section>
     </>
   );
@@ -891,55 +961,22 @@ function CaptureDetailPanel({ detail, close, saveAiReview }: {
   );
 }
 
-function DuplicatesView({ overview, duplicates }: {
-  overview: Overview | null;
-  duplicates: DuplicatesResponse | null;
-}) {
-  const visual = overview?.visual;
-  return (
-    <>
-      <section className="structure-hero">
-        <div><span className="section-kicker">图库检查</span><h2>重复文件</h2><p>查看内容完全一致的文件。</p></div>
-        <div className="structure-stat"><strong>{visual ? numberFormat.format(visual.duplicate_group_count) : "—"}</strong><span>组精确重复</span></div>
-      </section>
-      <section className="metric-grid">
-        <article><span>涉及文件</span><strong>{visual ? numberFormat.format(visual.duplicate_file_count) : "—"}</strong><small>均保留在原位置</small></article>
-        <article><span>重复文件总量</span><strong>{visual ? formatBytes(visual.duplicate_total_bytes) : "—"}</strong><small>不是可直接释放空间估算</small></article>
-        <article><span>确认方式</span><strong className="text-value">SHA-256</strong><small>内容完全一致才会出现</small></article>
-        <article><span>操作策略</span><strong className="text-value">仅复核</strong><small>不移动，不删除</small></article>
-      </section>
-      <section className="panel event-panel">
-        <div className="panel-heading"><div><span className="section-kicker">精确重复</span><h3>重复文件位置</h3></div><span className="batch-count">按占用空间排序</span></div>
-        <div className="event-list">
-          {(duplicates?.items ?? []).map((item) => (
-            <article className="event-row" key={item.id}>
-              <div className="category-chip">重复</div>
-              <div className="event-main"><strong>{item.file_name}</strong><span title={item.paths.join("\n")}>{item.paths.join(" · ")}</span></div>
-              <div className="event-measure"><strong>{item.file_count}</strong><span>个文件</span></div>
-              <div className="event-measure"><strong>{formatBytes(item.total_bytes)}</strong><span>合计大小</span></div>
-            </article>
-          ))}
-          {!duplicates?.items.length && <div className="empty-state">尚未运行视觉预筛，或没有发现精确重复。</div>}
-        </div>
-      </section>
-    </>
-  );
-}
-
-function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, exportPhotos, changePage }: {
+function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, exportPhotos, assignToAlbum, changePage, changePageSize }: {
   library: LibraryCapturesResponse | null;
-  task: Task | null;
-  startScan: () => void;
-  cancelTask: () => void;
+  filters: LibraryFilters | null;
+  query: LibraryQuery;
+  updateQuery: (changes: Partial<LibraryQuery>) => void;
   openCapture: (captureId: number) => void;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
+  assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
   changePage: (offset: number) => void;
+  changePageSize: (limit: number) => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [targetAlbum, setTargetAlbum] = useState("");
   const [maxEdge, setMaxEdge] = useState(2048);
   const [exporting, setExporting] = useState(false);
   const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
-  useEffect(() => setSelected(new Set()), [library?.offset]);
   const toggle = (captureId: number) => setSelected((current) => {
     const next = new Set(current);
     if (next.has(captureId)) next.delete(captureId); else next.add(captureId);
@@ -965,13 +1002,25 @@ function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, e
   const allSelected = items.length > 0 && items.every((item) => selected.has(item.id));
   return <>
     <section className="library-toolbar">
-      <div><strong>{library ? numberFormat.format(library.count) : "—"}</strong><span>张可查看照片</span></div>
-      <div className="library-toolbar-actions"><button className="secondary-action compact" onClick={() => setSelected(new Set(items.map((item) => item.id)))} disabled={!items.length}>选择本页</button><button className="secondary-action compact" onClick={startScan} disabled={task?.status === "running"}>扫描新照片</button></div>
+      <div><strong>{library ? numberFormat.format(library.count) : "—"}</strong><span>张符合条件的照片</span></div>
+      <div className="library-toolbar-actions"><button className="secondary-action compact" onClick={() => setSelected((current) => new Set([...current, ...items.map((item) => item.id)]))} disabled={!items.length}>选择本页</button></div>
     </section>
-    <TaskCard task={task} cancel={cancelTask} />
+    <section className="library-filters">
+      <label className="search-filter"><span>搜索</span><input value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="文件名、相册或目录" /></label>
+      <label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label>
+      <label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label>
+      <label><span>相机</span><select value={query.camera} onChange={(event) => updateQuery({ camera: event.target.value })}><option value="">全部相机</option>{(filters?.cameras ?? []).map((camera) => <option key={camera}>{camera}</option>)}</select></label>
+      <label><span>镜头</span><select value={query.lens} onChange={(event) => updateQuery({ lens: event.target.value })}><option value="">全部镜头</option>{(filters?.lenses ?? []).map((lens) => <option key={lens}>{lens}</option>)}</select></label>
+      <label><span>人工星级</span><select value={query.rating} onChange={(event) => updateQuery({ rating: event.target.value })}><option value="">全部星级</option>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} 星</option>)}</select></label>
+      <label><span>选片状态</span><select value={query.selection} onChange={(event) => updateQuery({ selection: event.target.value })}><option value="">全部状态</option><option value="picked">已保留</option><option value="rejected">待淘汰</option><option value="unreviewed">未处理</option></select></label>
+      <label><span>开始日期</span><input type="date" value={query.dateFrom} onChange={(event) => updateQuery({ dateFrom: event.target.value })} /></label>
+      <label><span>结束日期</span><input type="date" value={query.dateTo} onChange={(event) => updateQuery({ dateTo: event.target.value })} /></label>
+      <label><span>排序</span><select value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
+      <button className="filter-reset" onClick={() => updateQuery({ albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest" })}>清除筛选</button>
+    </section>
     <section className={`selection-toolbar ${selected.size ? "visible" : ""}`}>
-      <div><strong>已选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))}>{allSelected ? "取消本页全选" : "选择本页全部"}</button><button onClick={() => setSelected(new Set())}>清除</button></div>
-      <div><label>手机图片长边<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出手机分享包"}</span><b>↓</b></button></div>
+      <div><strong>已选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !items.some((item) => item.id === id))) : new Set([...selected, ...items.map((item) => item.id)]))}>{allSelected ? "取消本页全选" : "选择本页全部"}</button><button onClick={() => setSelected(new Set())}>清除</button></div>
+      <div className="selection-actions"><label>归入相册<select value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>应用</button><label>分享尺寸<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出分享包"}</span><b>↓</b></button></div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张照片 · {formatBytes(latestExport.size_bytes)} · EXIF 已移除</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
     <section className="photo-library-grid">
@@ -982,34 +1031,43 @@ function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, e
       </article>)}
       {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
     </section>
-    {library && library.count > library.limit && <div className="library-pagination"><button disabled={library.offset === 0} onClick={() => changePage(Math.max(0, library.offset - library.limit))}>上一页</button><span>{library.offset + 1}–{Math.min(library.offset + library.limit, library.count)} / {numberFormat.format(library.count)}</span><button disabled={library.offset + library.limit >= library.count} onClick={() => changePage(library.offset + library.limit)}>下一页</button></div>}
+    {library && <Pagination count={library.count} limit={library.limit} offset={library.offset} onChange={changePage} onLimitChange={changePageSize} />}
   </>;
 }
 
-function LibraryView({ library, overview, events, duplicates, task, startScan, cancelTask, updateEvent, openCapture, exportPhotos, changePage }: {
+function LibraryView({ library, albums, filters, query, updateQuery, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, deleteAlbumType, assignToAlbum, openCapture, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbum }: {
   library: LibraryCapturesResponse | null;
-  overview: Overview | null;
-  events: EventsResponse | null;
-  duplicates: DuplicatesResponse | null;
+  albums: EventsResponse | null;
+  filters: LibraryFilters | null;
+  query: LibraryQuery;
+  updateQuery: (changes: Partial<LibraryQuery>) => void;
   task: Task | null;
   startScan: () => void;
   cancelTask: () => void;
-  updateEvent: (event: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+  createAlbum: (name: string, category: string) => void;
+  createAlbumType: (name: string) => void;
+  deleteAlbumType: (name: string) => void;
+  assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
   openCapture: (captureId: number) => void;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   changePage: (offset: number) => void;
+  changePageSize: (limit: number) => void;
+  changeAlbumPage: (offset: number) => void;
+  changeAlbumPageSize: (limit: number) => void;
+  openAlbum: (albumId: number) => void;
 }) {
-  const [section, setSection] = useState<LibrarySection>("inbox");
+  const [section, setSection] = useState<LibrarySection>("photos");
   return (
     <>
       <div className="section-tabs" role="tablist" aria-label="图库功能">
-        <button className={section === "inbox" ? "active" : ""} onClick={() => setSection("inbox")}>全部照片</button>
-        <button className={section === "events" ? "active" : ""} onClick={() => setSection("events")}>相册分类</button>
-        <button className={section === "duplicates" ? "active" : ""} onClick={() => setSection("duplicates")}>重复文件</button>
+        <button className={section === "photos" ? "active" : ""} onClick={() => setSection("photos")}>全部照片</button>
+        <button className={section === "albums" ? "active" : ""} onClick={() => setSection("albums")}>相册管理</button>
       </div>
-      {section === "inbox" && <PhotoLibraryView library={library} task={task} startScan={startScan} cancelTask={cancelTask} openCapture={openCapture} exportPhotos={exportPhotos} changePage={changePage} />}
-      {section === "events" && <EventsView overview={overview} events={events} updateEvent={updateEvent} />}
-      {section === "duplicates" && <DuplicatesView overview={overview} duplicates={duplicates} />}
+      {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
+      {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={(albumId) => { openAlbum(albumId); setSection("photos"); }} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
+      <section className="library-maintenance"><div><strong>图库维护</strong><span>只在加入新照片后运行增量扫描。</span></div><button className="secondary-action compact" onClick={startScan} disabled={task?.status === "running"}>{task?.status === "running" ? "扫描进行中" : "扫描新照片"}</button></section>
+      <TaskCard task={task} cancel={cancelTask} />
     </>
   );
 }
@@ -1050,7 +1108,7 @@ function HomeView({ overview, events, groups, analysis, statistics, library, tas
   </>;
 }
 
-function AnalysisView({ analysis, preflight, quality, task, startQuality, startAi, saveReview, cancelTask, pauseAi, resumeAi, retryAiFailures, openCapture }: {
+function AnalysisView({ analysis, preflight, quality, task, startQuality, startAi, saveReview, cancelTask, pauseAi, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
   quality: QualityResponse | null;
@@ -1063,12 +1121,15 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
   resumeAi: (runId: number) => void;
   retryAiFailures: (runId: number) => void;
   openCapture: (captureId: number) => void;
+  changeQualityPage: (offset: number) => void;
+  changeQualityPageSize: (limit: number) => void;
 }) {
   const summary = analysis?.quality;
   const ai = analysis?.ai;
   const running = task?.status === "running";
   const [batchSize, setBatchSize] = useState(100);
   const [resultOffset, setResultOffset] = useState(0);
+  const [resultLimit, setResultLimit] = useState(40);
   const [resultVersion, setResultVersion] = useState("photo-critique-v4");
   const [resultVerdict, setResultVerdict] = useState("all");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
@@ -1078,14 +1139,14 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
     : null;
   useEffect(() => {
     let active = true;
-    const parameters = new URLSearchParams({ limit: "48", offset: String(resultOffset) });
+    const parameters = new URLSearchParams({ limit: String(resultLimit), offset: String(resultOffset) });
     if (resultVersion !== "all") parameters.set("prompt_version", resultVersion);
     if (resultVerdict !== "all") parameters.set("verdict", resultVerdict);
     getJson<AiResultsResponse>(`/api/ai/results?${parameters.toString()}`)
       .then((page) => { if (active) setResultPage(page); })
       .catch(() => { if (active) setResultPage(null); });
     return () => { active = false; };
-  }, [resultOffset, resultVersion, resultVerdict, ai?.completed_analysis_count]);
+  }, [resultLimit, resultOffset, resultVersion, resultVerdict, ai?.completed_analysis_count]);
   useEffect(() => {
     let active = true;
     const refresh = () => getJson<GpuStatus>("/api/system/gpu")
@@ -1179,11 +1240,7 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
           </button>)}
         </div>}
         {resultPage && !resultPage.items.length && <div className="empty-state">当前筛选条件没有模型结果。</div>}
-        {resultPage && <div className="ai-results-pagination">
-          <button className="secondary-action" disabled={resultOffset === 0} onClick={() => setResultOffset(Math.max(0, resultOffset - resultPage.limit))}>上一页</button>
-          <span>第 {Math.floor(resultOffset / resultPage.limit) + 1} / {Math.max(1, Math.ceil(resultPage.count / resultPage.limit))} 页</span>
-          <button className="secondary-action" disabled={resultOffset + resultPage.limit >= resultPage.count} onClick={() => setResultOffset(resultOffset + resultPage.limit)}>下一页</button>
-        </div>}
+        {resultPage && <Pagination count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
       </section>
       {!!ai?.recent_runs.length && (
         <section className="panel ai-history-panel">
@@ -1217,7 +1274,7 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
               <div className={`category-chip category-${item.category}`}>{item.category}</div>
               <div className="event-main"><strong>{item.stem}{item.auto_pick ? " · 组内推荐" : ""}</strong><span>{item.ai_result?.quality_summary ?? (item.issues.map((issue) => issue.message).join("；") || "未发现明确技术问题")}</span></div>
               <div className="event-measure"><strong>{Math.round(item.technical_score)}</strong><span>技术分</span></div>
-              <div className="event-measure"><strong>{"★".repeat(item.auto_rating ?? 0)}{"☆".repeat(5 - (item.auto_rating ?? 0))}</strong><span>自动星级</span></div>
+              <div className="event-measure"><strong>{technicalGrade(item.technical_score)}</strong><span>技术评级</span></div>
               <div className="review-controls">
                 <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                   <option value="">人工星级</option><option value="1">1 星</option><option value="2">2 星</option><option value="3">3 星</option><option value="4">4 星</option><option value="5">5 星</option>
@@ -1229,6 +1286,7 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
           ))}
           {!quality?.items.length && <div className="empty-state">代码已就绪。先运行技术质量分析，模型按钮随后会启用。</div>}
         </div>
+        {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
       </section>
     </>
   );
@@ -1381,8 +1439,8 @@ function LightroomView({ status, manifest, generateManifest }: {
         <div className="structure-stat"><strong>{status ? numberFormat.format(status.capture_count) : "—"}</strong><span>个待准备拍摄单元</span></div>
       </section>
       <section className="metric-grid">
-        <article><span>事件已确认</span><strong>{status ? `${status.confirmed_events}/${status.event_count}` : "—"}</strong><small>未确认事件仍会标注为建议</small></article>
-        <article><span>已有评级</span><strong>{status ? numberFormat.format(status.rated_captures) : "—"}</strong><small>人工星级优先于自动星级</small></article>
+        <article><span>相册已确认</span><strong>{status ? `${status.confirmed_events}/${status.event_count}` : "—"}</strong><small>未确认名称仍会标注为建议</small></article>
+        <article><span>已有评级</span><strong>{status ? numberFormat.format(status.rated_captures) : "—"}</strong><small>人工星级与技术评级分别保存</small></article>
         <article><span>人工保留</span><strong>{status ? numberFormat.format(status.user_picks) : "—"}</strong><small>准备清单中的pick字段</small></article>
         <article><span>人工待淘汰</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>只标记，不删除</small></article>
       </section>
@@ -1486,13 +1544,25 @@ function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
   const [libraryOffset, setLibraryOffset] = useState(0);
+  const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
+    pageSize: 80, albumId: "", category: "", camera: "", lens: "",
+    rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest",
+  });
+  const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
+  const [albumOffset, setAlbumOffset] = useState(0);
+  const [albumPageSize, setAlbumPageSize] = useState(40);
   const [events, setEvents] = useState<EventsResponse | null>(null);
   const [bursts, setBursts] = useState<BurstsResponse | null>(null);
-  const [duplicates, setDuplicates] = useState<DuplicatesResponse | null>(null);
+  const [burstOffset, setBurstOffset] = useState(0);
+  const [burstPageSize, setBurstPageSize] = useState(40);
   const [analysis, setAnalysis] = useState<AnalysisOverview | null>(null);
   const [aiPreflight, setAiPreflight] = useState<AiPreflight | null>(null);
   const [quality, setQuality] = useState<QualityResponse | null>(null);
+  const [qualityOffset, setQualityOffset] = useState(0);
+  const [qualityPageSize, setQualityPageSize] = useState(40);
   const [similarityGroups, setSimilarityGroups] = useState<SimilarityGroupsResponse | null>(null);
+  const [groupOffset, setGroupOffset] = useState(0);
+  const [groupPageSize, setGroupPageSize] = useState(40);
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
@@ -1512,16 +1582,28 @@ function App() {
   }, [theme]);
 
   const refreshLibrary = useCallback(async () => {
-    const [overviewData, libraryData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
+    const libraryParameters = new URLSearchParams({
+      limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
+    });
+    if (libraryQuery.albumId) libraryParameters.set("album_id", libraryQuery.albumId);
+    if (libraryQuery.category) libraryParameters.set("category", libraryQuery.category);
+    if (libraryQuery.camera) libraryParameters.set("camera_model", libraryQuery.camera);
+    if (libraryQuery.lens) libraryParameters.set("lens_model", libraryQuery.lens);
+    if (libraryQuery.rating) libraryParameters.set("rating", libraryQuery.rating);
+    if (libraryQuery.selection) libraryParameters.set("selection", libraryQuery.selection);
+    if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
+    if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
+    if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
+    const [overviewData, libraryData, filterData, eventData, burstData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
       getJson<Overview>("/api/overview"),
-      getJson<LibraryCapturesResponse>(`/api/library/captures?limit=80&offset=${libraryOffset}`),
-      getJson<EventsResponse>("/api/events?limit=100"),
-      getJson<BurstsResponse>("/api/bursts?limit=50"),
-      getJson<DuplicatesResponse>("/api/duplicates?limit=50"),
+      getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
+      getJson<LibraryFilters>("/api/library/filters"),
+      getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`),
+      getJson<BurstsResponse>(`/api/bursts?limit=${burstPageSize}&offset=${burstOffset}`),
       getJson<AnalysisOverview>("/api/analysis/overview"),
       getJson<AiPreflight>("/api/ai/preflight"),
-      getJson<QualityResponse>("/api/quality?limit=50"),
-      getJson<SimilarityGroupsResponse>("/api/similarity-groups?limit=60"),
+      getJson<QualityResponse>(`/api/quality?limit=${qualityPageSize}&offset=${qualityOffset}`),
+      getJson<SimilarityGroupsResponse>(`/api/similarity-groups?limit=${groupPageSize}&offset=${groupOffset}`),
       getJson<Statistics>("/api/statistics"),
       getJson<EquipmentCatalog>("/api/equipment"),
       getJson<ArchiveStatus>("/api/archive/status"),
@@ -1531,9 +1613,9 @@ function App() {
     ]);
     setOverview(overviewData);
     setLibraryCaptures(libraryData);
+    setLibraryFilters(filterData);
     setEvents(eventData);
     setBursts(burstData);
-    setDuplicates(duplicateData);
     setAnalysis(analysisData);
     setAiPreflight(preflightData);
     setQuality(qualityData);
@@ -1544,7 +1626,7 @@ function App() {
     setActiveLibraryBaseline(activeBaselineData);
     setLightroomStatus(lightroomData);
     setMigration(migrationData);
-  }, [libraryOffset]);
+  }, [albumOffset, albumPageSize, burstOffset, burstPageSize, groupOffset, groupPageSize, libraryOffset, libraryQuery, qualityOffset, qualityPageSize]);
 
   useEffect(() => {
     Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then(setTask)]).catch(
@@ -1745,7 +1827,7 @@ function App() {
     setError(null);
     const next = { ...event, ...changes };
     try {
-      await getJson(`/api/events/${event.id}`, {
+      await getJson(`/api/albums/${event.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ proposed_name: next.proposed_name, category: next.category, status: next.status }),
@@ -1754,6 +1836,60 @@ function App() {
       setLightroomStatus((current) => current ? { ...current, confirmed_events: current.confirmed_events + (event.status !== "confirmed" && next.status === "confirmed" ? 1 : event.status === "confirmed" && next.status !== "confirmed" ? -1 : 0) } : current);
     } catch (reason) {
       setError((reason as Error).message);
+    }
+  };
+
+  const createAlbum = async (name: string, category: string) => {
+    setError(null);
+    try {
+      await getJson("/api/albums", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, category }),
+      });
+      setAlbumOffset(0);
+      await refreshLibrary();
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
+  const createAlbumType = async (name: string) => {
+    setError(null);
+    try {
+      await getJson("/api/album-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      await refreshLibrary();
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
+  const deleteAlbumType = async (name: string) => {
+    setError(null);
+    try {
+      await getJson(`/api/album-types/${encodeURIComponent(name)}`, { method: "DELETE" });
+      await refreshLibrary();
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
+  const assignToAlbum = async (albumId: number, captureIds: number[]) => {
+    setError(null);
+    try {
+      await getJson(`/api/albums/${albumId}/captures`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capture_ids: captureIds }),
+      });
+      await refreshLibrary();
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
     }
   };
 
@@ -1850,7 +1986,7 @@ function App() {
     analysis: ["ANALYSIS / REVIEW", "质量分析", "批量运行技术检测与本地模型，在单张详情中复核结果"],
     statistics: ["STATISTICS", "摄影统计", "从器材、参数和选片结果理解拍摄习惯"],
     equipment: ["EQUIPMENT", "设备管理", "器材档案与实际使用统计"],
-    lightroom: ["OUTPUT", "后期输出", "检查评分与事件后生成 Lightroom 只读准备清单"],
+    lightroom: ["OUTPUT", "后期输出", "检查评分与相册后生成 Lightroom 只读准备清单"],
     archive: ["SYSTEM / SAFETY", "原片保护", "核对历史档案与活动图库完整性"],
     migration: ["SYSTEM / MIGRATION", "图库迁移", "查看迁移记录、校验和活动图库状态"],
   }[view];
@@ -1890,9 +2026,18 @@ function App() {
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
         {view === "home" && <HomeView overview={overview} events={events} groups={similarityGroups} analysis={analysis} statistics={statistics} library={libraryCaptures} task={task} navigate={setView} openCapture={openCapture} />}
-        {view === "library" && <LibraryView library={libraryCaptures} overview={overview} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} openCapture={openCapture} exportPhotos={exportPhoneShare} changePage={setLibraryOffset} />}
-        {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} />}
-        {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} />}
+        {view === "library" && <LibraryView
+          library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
+          updateQuery={(changes) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, ...changes })); }}
+          task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
+          createAlbum={createAlbum} createAlbumType={createAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
+          openCapture={openCapture} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
+          changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
+          changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
+          openAlbum={(albumId) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId) })); }}
+        />}
+        {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} changeBurstPage={setBurstOffset} changeBurstPageSize={(limit) => { setBurstOffset(0); setBurstPageSize(limit); }} />}
+        {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} />}

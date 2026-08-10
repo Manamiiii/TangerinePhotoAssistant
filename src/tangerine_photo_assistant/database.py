@@ -6,7 +6,7 @@ import sqlite3
 from typing import Iterator
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def _ensure_column(
@@ -138,6 +138,13 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_events_status_start
             ON events(status, start_at);
+
+        CREATE TABLE IF NOT EXISTS album_types (
+            name TEXT PRIMARY KEY,
+            sort_order INTEGER NOT NULL DEFAULT 100,
+            built_in INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS event_sources (
             event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -505,10 +512,18 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(connection, "ai_analyses", "reviewed_at", "TEXT")
     _ensure_column(connection, "ai_runs", "worker_pid", "INTEGER")
     _ensure_column(connection, "ai_runs", "heartbeat_at", "TEXT")
+    connection.executemany(
+        """INSERT OR IGNORE INTO album_types(name, sort_order, built_in, created_at)
+           VALUES (?, ?, 1, CURRENT_TIMESTAMP)""",
+        (
+            ("旅行", 10), ("纪念", 20), ("家人", 30), ("宠物", 40),
+            ("回家", 50), ("专题", 60), ("日常", 70),
+        ),
+    )
     row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
     if row is None:
         connection.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
-    elif row["version"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
+    elif row["version"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
         connection.execute("UPDATE schema_info SET version = ?", (SCHEMA_VERSION,))
     elif row["version"] != SCHEMA_VERSION:
         raise RuntimeError(

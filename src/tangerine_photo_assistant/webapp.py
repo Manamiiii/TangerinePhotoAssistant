@@ -123,6 +123,19 @@ class EventUpdateRequest(BaseModel):
     status: str
 
 
+class AlbumCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=180)
+    category: str = Field(min_length=1, max_length=40)
+
+
+class AlbumTypeCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+class AlbumAssignmentRequest(BaseModel):
+    capture_ids: list[int] = Field(min_length=1, max_length=500)
+
+
 class MigrationStartRequest(BaseModel):
     plan_id: int
     confirmation: str
@@ -506,7 +519,7 @@ class ScanTaskManager:
         connection = connect(self.settings.database_path)
         try:
             def update(stage: str, current: int, total: int) -> None:
-                label = "核对重复文件" if stage == "duplicates" else "生成画面指纹"
+                label = "执行图库完整性核对" if stage == "duplicates" else "生成画面指纹"
                 self._progress(
                     stage=stage, current=current, total=total,
                     message=f"{label}：{current:,} / {total:,}",
@@ -834,7 +847,7 @@ class ScanTaskManager:
             )
             self._update(stage="pairing", message="正在配对 JPG 与 RAW…")
             rebuild_captures(connection)
-            self._update(stage="structure", message="正在更新事件与连拍候选…")
+            self._update(stage="structure", message="正在更新相册建议与连拍候选…")
             rebuild_structure(connection, self.settings.burst_time_gap_seconds)
             self._update(stage="reporting", message="正在更新审计报告…")
             write_report(build_report(connection), self.settings.reports_path)
@@ -931,36 +944,91 @@ def _query_inbox(settings: Settings, limit: int) -> dict[str, Any]:
         connection.close()
 
 
-def _query_library_captures(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
+def _query_library_captures(
+    settings: Settings,
+    limit: int,
+    offset: int,
+    *,
+    album_id: int | None = None,
+    category: str | None = None,
+    camera_model: str | None = None,
+    lens_model: str | None = None,
+    rating: int | None = None,
+    selection: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    search: str | None = None,
+    sort: str = "newest",
+) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
-        total = connection.execute(
-            """SELECT COUNT(DISTINCT c.id)
-               FROM captures c
-               JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
-               JOIN files f ON f.id = cf.file_id AND f.present = 1"""
-        ).fetchone()[0]
-        rows = connection.execute(
-            """
-            SELECT c.id, c.stem, c.captured_at, c.pairing_status,
-                   f.camera_model, f.lens_model,
-                   e.proposed_name AS album_name, e.category,
-                   cr.user_rating, cr.user_pick, cr.user_reject
+        conditions = [
+            "f.present = 1",
+            "cf.file_id = (SELECT MIN(cf2.file_id) FROM capture_files cf2 JOIN files f2 ON f2.id = cf2.file_id WHERE cf2.capture_id = c.id AND cf2.role = 'jpeg' AND f2.present = 1)",
+        ]
+        parameters: list[Any] = []
+        if album_id is not None:
+            conditions.append("e.id = ?")
+            parameters.append(album_id)
+        if category:
+            conditions.append("e.category = ?")
+            parameters.append(category)
+        if camera_model:
+            conditions.append("f.camera_model = ?")
+            parameters.append(camera_model)
+        if lens_model:
+            conditions.append("f.lens_model = ?")
+            parameters.append(lens_model)
+        if rating is not None:
+            conditions.append("cr.user_rating = ?")
+            parameters.append(rating)
+        if selection == "picked":
+            conditions.append("COALESCE(cr.user_pick, 0) = 1")
+        elif selection == "rejected":
+            conditions.append("COALESCE(cr.user_reject, 0) = 1")
+        elif selection == "unreviewed":
+            conditions.append("cr.user_rating IS NULL AND COALESCE(cr.user_pick, 0) = 0 AND COALESCE(cr.user_reject, 0) = 0")
+        if date_from:
+            conditions.append("substr(c.captured_at, 1, 10) >= ?")
+            parameters.append(date_from)
+        if date_to:
+            conditions.append("substr(c.captured_at, 1, 10) <= ?")
+            parameters.append(date_to)
+        if search:
+            conditions.append("(c.stem LIKE ? OR e.proposed_name LIKE ? OR c.parent_relative LIKE ?)")
+            term = f"%{search.strip()}%"
+            parameters.extend((term, term, term))
+        where_sql = " AND ".join(conditions)
+        from_sql = """
             FROM captures c
             JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
-            JOIN files f ON f.id = cf.file_id AND f.present = 1
+            JOIN files f ON f.id = cf.file_id
             LEFT JOIN event_captures ec ON ec.capture_id = c.id
             LEFT JOIN events e ON e.id = ec.event_id
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
-            WHERE cf.file_id = (
-                SELECT MIN(cf2.file_id) FROM capture_files cf2
-                JOIN files f2 ON f2.id = cf2.file_id
-                WHERE cf2.capture_id = c.id AND cf2.role = 'jpeg' AND f2.present = 1
-            )
-            ORDER BY c.captured_at IS NULL, c.captured_at DESC, c.id DESC
+        """
+        total = connection.execute(
+            f"SELECT COUNT(DISTINCT c.id) {from_sql} WHERE {where_sql}",
+            parameters,
+        ).fetchone()[0]
+        ordering = {
+            "oldest": "c.captured_at IS NULL, c.captured_at ASC, c.id ASC",
+            "name": "c.stem COLLATE NOCASE ASC, c.id ASC",
+            "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC",
+        }.get(sort, "c.captured_at IS NULL, c.captured_at DESC, c.id DESC")
+        rows = connection.execute(
+            f"""
+            SELECT c.id, c.stem, c.captured_at, c.pairing_status,
+                   f.camera_model, f.lens_model, e.id AS album_id,
+                   e.proposed_name AS album_name, e.category,
+                   cr.user_rating, cr.user_pick, cr.user_reject
+            {from_sql}
+            WHERE {where_sql}
+            GROUP BY c.id
+            ORDER BY {ordering}
             LIMIT ? OFFSET ?
             """,
-            (limit, offset),
+            (*parameters, limit, offset),
         ).fetchall()
         items = []
         for row in rows:
@@ -972,10 +1040,43 @@ def _query_library_captures(settings: Settings, limit: int, offset: int) -> dict
         connection.close()
 
 
+def _query_library_filters(settings: Settings) -> dict[str, Any]:
+    connection = connect_readonly(settings.database_path)
+    try:
+        albums = connection.execute(
+            """SELECT id, proposed_name AS name, category, capture_count, status
+               FROM events WHERE status != 'archived'
+               ORDER BY start_at IS NULL, start_at DESC, proposed_name"""
+        ).fetchall()
+        types = connection.execute(
+            "SELECT name, built_in FROM album_types ORDER BY sort_order, name"
+        ).fetchall()
+        cameras = connection.execute(
+            """SELECT DISTINCT camera_model FROM files
+               WHERE present=1 AND camera_model IS NOT NULL AND camera_model!=''
+               ORDER BY camera_model"""
+        ).fetchall()
+        lenses = connection.execute(
+            """SELECT DISTINCT lens_model FROM files
+               WHERE present=1 AND lens_model IS NOT NULL AND lens_model!=''
+               ORDER BY lens_model"""
+        ).fetchall()
+        return {
+            "albums": [dict(row) for row in albums],
+            "album_types": [dict(row) for row in types],
+            "cameras": [row[0] for row in cameras],
+            "lenses": [row[0] for row in lenses],
+        }
+    finally:
+        connection.close()
+
+
 def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
     connection = connect(settings.database_path)
     try:
-        total = connection.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        total = connection.execute(
+            "SELECT COUNT(*) FROM events WHERE status != 'archived'"
+        ).fetchone()[0]
         rows = connection.execute(
             """
             SELECT
@@ -987,6 +1088,7 @@ def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]
             FROM events e
             LEFT JOIN event_sources es ON es.event_id = e.id
             LEFT JOIN bursts b ON b.event_id = e.id
+            WHERE e.status != 'archived'
             GROUP BY e.id
             ORDER BY e.start_at IS NULL, e.start_at DESC, e.id DESC
             LIMIT ? OFFSET ?
@@ -1345,11 +1447,37 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def library_captures(
         limit: int = Query(default=60, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
+        album_id: int | None = Query(default=None, ge=1),
+        category: str | None = Query(default=None, max_length=40),
+        camera_model: str | None = Query(default=None, max_length=200),
+        lens_model: str | None = Query(default=None, max_length=240),
+        rating: int | None = Query(default=None, ge=1, le=5),
+        selection: Literal["picked", "rejected", "unreviewed"] | None = None,
+        date_from: str | None = Query(default=None, max_length=10),
+        date_to: str | None = Query(default=None, max_length=10),
+        search: str | None = Query(default=None, max_length=120),
+        sort: Literal["newest", "oldest", "name", "rating"] = "newest",
     ) -> dict[str, Any]:
-        return _query_library_captures(settings, limit, offset)
+        return _query_library_captures(
+            settings, limit, offset, album_id=album_id, category=category,
+            camera_model=camera_model, lens_model=lens_model, rating=rating,
+            selection=selection, date_from=date_from, date_to=date_to,
+            search=search, sort=sort,
+        )
+
+    @app.get("/api/library/filters")
+    def library_filters() -> dict[str, Any]:
+        return _query_library_filters(settings)
 
     @app.get("/api/events")
     def events(
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return _query_events(settings, limit, offset)
+
+    @app.get("/api/albums")
+    def albums(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
     ) -> dict[str, Any]:
@@ -1709,37 +1837,181 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     @app.post("/api/structure/rebuild")
     def rebuild_event_structure() -> dict[str, int]:
         if manager.snapshot()["status"] == "running":
-            raise HTTPException(status_code=409, detail="扫描运行时不能重建事件")
+            raise HTTPException(status_code=409, detail="扫描运行时不能重新整理相册建议")
         connection = connect(settings.database_path)
         try:
             return rebuild_structure(connection, settings.burst_time_gap_seconds)
         finally:
             connection.close()
 
-    @app.put("/api/events/{event_id}")
-    def update_event(event_id: int, request: EventUpdateRequest) -> dict[str, Any]:
+    def save_album(album_id: int, request: EventUpdateRequest) -> dict[str, Any]:
         name = request.proposed_name.strip()
         category = request.category.strip()
         if not name or len(name) > 180:
-            raise HTTPException(status_code=422, detail="事件名称必须为1到180个字符")
-        allowed_categories = {"旅行", "纪念", "宠物", "家人", "回家", "专题", "日常"}
-        if category not in allowed_categories:
-            raise HTTPException(status_code=422, detail="不支持的事件分类")
+            raise HTTPException(status_code=422, detail="相册名称必须为1到180个字符")
         if request.status not in {"proposed", "confirmed"}:
-            raise HTTPException(status_code=422, detail="事件状态不受支持")
+            raise HTTPException(status_code=422, detail="相册状态不受支持")
         connection = connect(settings.database_path)
         try:
+            if connection.execute(
+                "SELECT 1 FROM album_types WHERE name=?", (category,)
+            ).fetchone() is None:
+                raise HTTPException(status_code=422, detail="相册类型不存在")
             cursor = connection.execute(
                 """
                 UPDATE events SET proposed_name=?, category=?, status=?, updated_at=?
                 WHERE id=?
                 """,
-                (name, category, request.status, utc_now(), event_id),
+                (name, category, request.status, utc_now(), album_id),
             )
             if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="事件不存在")
+                raise HTTPException(status_code=404, detail="相册不存在")
             connection.commit()
-            return {"id": event_id, "status": "saved"}
+            return {"id": album_id, "status": "saved"}
+        finally:
+            connection.close()
+
+    @app.put("/api/events/{event_id}")
+    def update_event(event_id: int, request: EventUpdateRequest) -> dict[str, Any]:
+        return save_album(event_id, request)
+
+    @app.put("/api/albums/{album_id}")
+    def update_album(album_id: int, request: EventUpdateRequest) -> dict[str, Any]:
+        return save_album(album_id, request)
+
+    @app.post("/api/albums", status_code=201)
+    def create_album(request: AlbumCreateRequest) -> dict[str, Any]:
+        name = request.name.strip()
+        category = request.category.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="相册名称不能为空")
+        connection = connect(settings.database_path)
+        try:
+            if connection.execute(
+                "SELECT 1 FROM album_types WHERE name=?", (category,)
+            ).fetchone() is None:
+                raise HTTPException(status_code=422, detail="相册类型不存在")
+            now = utc_now()
+            cursor = connection.execute(
+                """INSERT INTO events(
+                       event_key, proposed_name, category, date_label, start_at,
+                       end_at, capture_count, status, confidence, reason_json,
+                       created_at, updated_at
+                   ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 'confirmed', 1.0, ?, ?, ?)""",
+                (
+                    f"manual-album:{uuid4().hex}", name, category,
+                    json.dumps({"method": "manual", "legacy_buckets": []}, ensure_ascii=False),
+                    now, now,
+                ),
+            )
+            connection.commit()
+            return {"id": cursor.lastrowid, "name": name, "category": category}
+        finally:
+            connection.close()
+
+    @app.post("/api/album-types", status_code=201)
+    def create_album_type(request: AlbumTypeCreateRequest) -> dict[str, Any]:
+        name = request.name.strip()
+        connection = connect(settings.database_path)
+        try:
+            try:
+                connection.execute(
+                    """INSERT INTO album_types(name, sort_order, built_in, created_at)
+                       VALUES (?, 100, 0, ?)""",
+                    (name, utc_now()),
+                )
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="同名相册类型已经存在") from exc
+            return {"name": name, "built_in": 0}
+        finally:
+            connection.close()
+
+    @app.delete("/api/album-types/{name}")
+    def delete_album_type(name: str) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            row = connection.execute(
+                "SELECT built_in FROM album_types WHERE name=?", (name,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="相册类型不存在")
+            if row["built_in"]:
+                raise HTTPException(status_code=409, detail="内置相册类型不能删除")
+            if connection.execute(
+                "SELECT 1 FROM events WHERE category=? LIMIT 1", (name,)
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="该类型仍被相册使用")
+            connection.execute("DELETE FROM album_types WHERE name=?", (name,))
+            connection.commit()
+            return {"name": name, "status": "deleted"}
+        finally:
+            connection.close()
+
+    @app.put("/api/albums/{album_id}/captures")
+    def assign_album_captures(
+        album_id: int, request: AlbumAssignmentRequest
+    ) -> dict[str, Any]:
+        capture_ids = sorted(set(request.capture_ids))
+        connection = connect(settings.database_path)
+        try:
+            album = connection.execute(
+                "SELECT id FROM events WHERE id=?", (album_id,)
+            ).fetchone()
+            if album is None:
+                raise HTTPException(status_code=404, detail="相册不存在")
+            placeholders = ",".join("?" for _ in capture_ids)
+            existing_ids = {
+                row[0] for row in connection.execute(
+                    f"SELECT id FROM captures WHERE id IN ({placeholders})", capture_ids
+                )
+            }
+            if len(existing_ids) != len(capture_ids):
+                raise HTTPException(status_code=422, detail="选择中包含不存在的照片")
+            affected = {
+                row[0] for row in connection.execute(
+                    f"SELECT DISTINCT event_id FROM event_captures WHERE capture_id IN ({placeholders})",
+                    capture_ids,
+                )
+            }
+            connection.execute(
+                f"DELETE FROM event_captures WHERE capture_id IN ({placeholders})",
+                capture_ids,
+            )
+            next_sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence_index), -1) + 1 FROM event_captures WHERE event_id=?",
+                (album_id,),
+            ).fetchone()[0]
+            connection.executemany(
+                "INSERT INTO event_captures(event_id, capture_id, sequence_index) VALUES (?, ?, ?)",
+                ((album_id, capture_id, next_sequence + index) for index, capture_id in enumerate(capture_ids)),
+            )
+            affected.add(album_id)
+            for affected_id in affected:
+                connection.execute(
+                    "DELETE FROM event_sources WHERE event_id=?", (affected_id,)
+                )
+                connection.execute(
+                    """INSERT INTO event_sources(event_id, parent_relative)
+                       SELECT ?, c.parent_relative FROM event_captures ec
+                       JOIN captures c ON c.id=ec.capture_id
+                       WHERE ec.event_id=? GROUP BY c.parent_relative""",
+                    (affected_id, affected_id),
+                )
+                connection.execute(
+                    """UPDATE events SET
+                           capture_count=(SELECT COUNT(*) FROM event_captures WHERE event_id=?),
+                           start_at=(SELECT MIN(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
+                           end_at=(SELECT MAX(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
+                           status=CASE WHEN id=? THEN 'confirmed' ELSE status END,
+                           updated_at=? WHERE id=?""",
+                    (
+                        affected_id, affected_id, affected_id, album_id,
+                        utc_now(), affected_id,
+                    ),
+                )
+            connection.commit()
+            return {"album_id": album_id, "assigned_count": len(capture_ids)}
         finally:
             connection.close()
 
