@@ -33,10 +33,8 @@ if [[ ! -d "web/node_modules" ]]; then
   (cd web && npm ci)
 fi
 
-if [[ ! -f "web/dist/index.html" ]]; then
-  echo "Building frontend..."
-  (cd web && npm run build)
-fi
+echo "Building the latest frontend..."
+(cd web && npm run build)
 
 mkdir -p runtime/mac-test/workspace runtime/mac-test/cache
 
