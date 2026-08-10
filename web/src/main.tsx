@@ -57,6 +57,31 @@ type InboxItem = {
 };
 type Inbox = { scan_run_id: number | null; count: number; items: InboxItem[] };
 
+type LibraryCapture = {
+  id: number;
+  stem: string;
+  captured_at: string | null;
+  pairing_status: string;
+  camera_model: string | null;
+  lens_model: string | null;
+  album_name: string | null;
+  category: string | null;
+  user_rating: number | null;
+  user_pick: number | null;
+  user_reject: number | null;
+  thumbnail_url: string;
+};
+type LibraryCapturesResponse = { count: number; limit: number; offset: number; items: LibraryCapture[] };
+type PhoneShareExport = {
+  filename: string;
+  photo_count: number;
+  size_bytes: number;
+  max_edge: number;
+  quality: number;
+  metadata_removed: boolean;
+  download_url: string;
+};
+
 type EventItem = {
   id: number;
   proposed_name: string;
@@ -701,7 +726,7 @@ function EventsView({ overview, events, updateEvent }: {
   return (
     <>
       <section className="structure-hero">
-        <div><span className="section-kicker">目录结构建议</span><h2>把分散目录重新还原为拍摄事件。</h2><p>同日期、同地点的女朋友与风景照片已在数据库中合并。这里只建立关系，不移动文件。</p></div>
+        <div><span className="section-kicker">相册分类</span><h2>拍摄相册</h2><p>按拍摄日期和目录整理照片。</p></div>
         <div className="structure-stat"><strong>{events?.count ?? "—"}</strong><span>个事件建议</span></div>
       </section>
       <section className="category-strip">
@@ -745,7 +770,7 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
   return (
     <>
       <section className="structure-hero burst-hero">
-        <div><span className="section-kicker">画面预筛</span><h2>把连拍候选拆成真正接近的画面。</h2><p>使用本地 JPEG 低分辨率指纹，不上传照片，也不改写原片。第一次会读取连拍 JPEG，后续只处理新增或变化的文件。</p><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "开始视觉预筛"}</span><b aria-hidden="true">→</b></button></div>
+        <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><p>比较连拍和相似画面。</p><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
         <div className="structure-stat"><strong>{visual ? numberFormat.format(visual.similarity_group_count) : "—"}</strong><span>个画面相似组</span></div>
       </section>
       <TaskCard task={task} cancel={cancelTask} />
@@ -874,7 +899,7 @@ function DuplicatesView({ overview, duplicates }: {
   return (
     <>
       <section className="structure-hero">
-        <div><span className="section-kicker">只读审计</span><h2>确认内容完全一致的重复文件。</h2><p>先按同名、同大小筛选，再逐字节计算 SHA-256。这里仅展示候选，不提供删除按钮。</p></div>
+        <div><span className="section-kicker">图库检查</span><h2>重复文件</h2><p>查看内容完全一致的文件。</p></div>
         <div className="structure-stat"><strong>{visual ? numberFormat.format(visual.duplicate_group_count) : "—"}</strong><span>组精确重复</span></div>
       </section>
       <section className="metric-grid">
@@ -901,75 +926,123 @@ function DuplicatesView({ overview, duplicates }: {
   );
 }
 
-function LibraryView({ overview, inbox, events, duplicates, task, startScan, cancelTask, updateEvent }: {
+function PhotoLibraryView({ library, task, startScan, cancelTask, openCapture, exportPhotos }: {
+  library: LibraryCapturesResponse | null;
+  task: Task | null;
+  startScan: () => void;
+  cancelTask: () => void;
+  openCapture: (captureId: number) => void;
+  exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [maxEdge, setMaxEdge] = useState(2048);
+  const [exporting, setExporting] = useState(false);
+  const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
+  const toggle = (captureId: number) => setSelected((current) => {
+    const next = new Set(current);
+    if (next.has(captureId)) next.delete(captureId); else next.add(captureId);
+    return next;
+  });
+  const exportSelected = async () => {
+    if (!selected.size) return;
+    setExporting(true);
+    try {
+      const result = await exportPhotos(Array.from(selected), maxEdge);
+      setLatestExport(result);
+      const link = document.createElement("a");
+      link.href = result.download_url;
+      link.download = result.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } finally {
+      setExporting(false);
+    }
+  };
+  const items = library?.items ?? [];
+  const allSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+  return <>
+    <section className="library-toolbar">
+      <div><strong>{library ? numberFormat.format(library.count) : "—"}</strong><span>张可查看照片</span></div>
+      <div className="library-toolbar-actions"><button className="secondary-action compact" onClick={() => setSelected(new Set(items.map((item) => item.id)))} disabled={!items.length}>选择本页</button><button className="secondary-action compact" onClick={startScan} disabled={task?.status === "running"}>扫描新照片</button></div>
+    </section>
+    <TaskCard task={task} cancel={cancelTask} />
+    <section className={`selection-toolbar ${selected.size ? "visible" : ""}`}>
+      <div><strong>已选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))}>{allSelected ? "取消本页全选" : "选择本页全部"}</button><button onClick={() => setSelected(new Set())}>清除</button></div>
+      <div><label>手机图片长边<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出手机分享包"}</span><b>↓</b></button></div>
+    </section>
+    {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张照片 · {formatBytes(latestExport.size_bytes)} · EXIF 已移除</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
+    <section className="photo-library-grid">
+      {items.map((item) => <article className={`library-photo-card ${selected.has(item.id) ? "selected" : ""}`} key={item.id}>
+        <button className="photo-select" aria-label={`${selected.has(item.id) ? "取消选择" : "选择"} ${item.stem}`} onClick={() => toggle(item.id)}><span>{selected.has(item.id) ? "✓" : ""}</span></button>
+        <button className="photo-open" onClick={() => openCapture(item.id)}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /></button>
+        <div className="photo-card-copy"><div><strong>{item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{item.album_name ?? "尚未归入相册"}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span>{item.user_pick ? <b>已选</b> : item.user_reject ? <b className="rejected">待淘汰</b> : null}</div></div>
+      </article>)}
+      {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
+    </section>
+  </>;
+}
+
+function LibraryView({ library, overview, events, duplicates, task, startScan, cancelTask, updateEvent, openCapture, exportPhotos }: {
+  library: LibraryCapturesResponse | null;
   overview: Overview | null;
-  inbox: Inbox | null;
   events: EventsResponse | null;
   duplicates: DuplicatesResponse | null;
   task: Task | null;
   startScan: () => void;
   cancelTask: () => void;
   updateEvent: (event: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+  openCapture: (captureId: number) => void;
+  exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
 }) {
   const [section, setSection] = useState<LibrarySection>("inbox");
   return (
     <>
       <div className="section-tabs" role="tablist" aria-label="图库功能">
-        <button className={section === "inbox" ? "active" : ""} onClick={() => setSection("inbox")}>照片与入库</button>
-        <button className={section === "events" ? "active" : ""} onClick={() => setSection("events")}>事件</button>
-        <button className={section === "duplicates" ? "active" : ""} onClick={() => setSection("duplicates")}>精确重复</button>
+        <button className={section === "inbox" ? "active" : ""} onClick={() => setSection("inbox")}>全部照片</button>
+        <button className={section === "events" ? "active" : ""} onClick={() => setSection("events")}>相册分类</button>
+        <button className={section === "duplicates" ? "active" : ""} onClick={() => setSection("duplicates")}>重复文件</button>
       </div>
-      {section === "inbox" && <InboxView overview={overview} inbox={inbox} task={task} startScan={startScan} cancelTask={cancelTask} />}
+      {section === "inbox" && <PhotoLibraryView library={library} task={task} startScan={startScan} cancelTask={cancelTask} openCapture={openCapture} exportPhotos={exportPhotos} />}
       {section === "events" && <EventsView overview={overview} events={events} updateEvent={updateEvent} />}
       {section === "duplicates" && <DuplicatesView overview={overview} duplicates={duplicates} />}
     </>
   );
 }
 
-function HomeView({ overview, events, groups, analysis, statistics, task, navigate }: {
+function HomeView({ overview, events, groups, analysis, statistics, library, task, navigate, openCapture }: {
   overview: Overview | null;
   events: EventsResponse | null;
   groups: SimilarityGroupsResponse | null;
   analysis: AnalysisOverview | null;
   statistics: Statistics | null;
+  library: LibraryCapturesResponse | null;
   task: Task | null;
   navigate: (view: View) => void;
+  openCapture: (captureId: number) => void;
 }) {
   const pendingEvents = (events?.items ?? []).filter((event) => event.status !== "confirmed").length;
   const quality = analysis?.quality;
-  const ai = analysis?.ai;
-  const workflow = [
-    { view: "library" as View, label: "整理图库", detail: `${pendingEvents} 个事件待确认`, value: overview?.capture_total ?? 0, unit: "拍摄单元" },
-    { view: "bursts" as View, label: "开始选片", detail: "比较相似画面并评分", value: groups?.count ?? 0, unit: "相似组" },
-    { view: "analysis" as View, label: "检查质量", detail: "技术检测与拍摄复盘", value: quality?.analyzed ?? 0, unit: "已分析" },
-    { view: "lightroom" as View, label: "准备后期", detail: "汇总保留照片与评级", value: statistics?.summary.user_picks ?? 0, unit: "人工保留" },
-  ];
+  const remainingQuality = Math.max(0, (overview?.capture_total ?? 0) - (quality?.analyzed ?? 0));
   return <>
-    <section className="home-welcome">
-      <div><span className="section-kicker">本地摄影工作台</span><h2>今天从哪里继续？</h2><p>扫描、整理、选片和分析都在本机完成，照片不会离开这台电脑。</p></div>
-      <div className={`home-task-status ${task?.status ?? "idle"}`}><span>{task?.status === "running" ? "任务进行中" : "当前状态"}</span><strong>{task?.message ?? "等待开始"}</strong><small>{task?.status === "running" && task.total ? `${numberFormat.format(task.current)} / ${numberFormat.format(task.total)}` : "没有需要处理的后台任务"}</small></div>
-    </section>
     <section className="home-metrics">
-      <article><span>图库规模</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : "读取中"}</small></article>
-      <article><span>事件建议</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个尚未确认</small></article>
-      <article><span>待选片组</span><strong>{groups?.count ?? "—"}</strong><small>{overview?.visual.captures_in_similarity_groups ?? 0} 个拍摄单元</small></article>
-      <article><span>模型完成</span><strong>{ai?.analyzed_capture_count ?? "—"}</strong><small>{ai?.latest_run ? `最近任务 ${ai.latest_run.status}` : "尚无模型任务"}</small></article>
+      <article><span>全部照片</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : ""}</small></article>
+      <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个名称待确认</small></article>
+      <article><span>相似照片</span><strong>{groups?.count ?? "—"}</strong><small>组</small></article>
+      <article><span>已选照片</span><strong>{numberFormat.format(statistics?.summary.user_picks ?? 0)}</strong><small>可导出或准备后期</small></article>
     </section>
-    <section className="home-section-heading"><div><span className="section-kicker">日常流程</span><h3>继续工作</h3></div><small>这些入口不是强制顺序，可以随时返回</small></section>
-    <section className="workflow-grid">
-      {workflow.map((item) => <button key={item.view} className="workflow-card" onClick={() => navigate(item.view)}>
-        <span>{item.label}</span><strong>{numberFormat.format(item.value)}</strong><small>{item.unit}</small><p>{item.detail}</p><b aria-hidden="true">→</b>
-      </button>)}
-    </section>
-    <section className="home-bottom-grid">
-      <section className="panel home-summary-panel"><div className="panel-heading"><div><span className="section-kicker">分析进度</span><h3>图库覆盖情况</h3></div></div><div className="home-progress-list">
-        <div><span>技术质量</span><strong>{quality ? `${numberFormat.format(quality.analyzed)} / ${numberFormat.format(overview?.capture_total ?? 0)}` : "读取中"}</strong></div>
-        <div><span>人工保留</span><strong>{numberFormat.format(statistics?.summary.user_picks ?? 0)}</strong></div>
-        <div><span>待淘汰</span><strong>{numberFormat.format(statistics?.summary.user_rejects ?? 0)}</strong></div>
-        <div><span>精确重复</span><strong>{numberFormat.format(overview?.visual.duplicate_group_count ?? 0)} 组</strong></div>
+    <section className="home-management-grid">
+      <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={() => navigate("library")}>查看全部</button></div><div className="recent-photo-grid">
+        {(library?.items ?? []).slice(0, 8).map((item) => <button key={item.id} onClick={() => openCapture(item.id)}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></button>)}
       </div></section>
-      <section className="panel home-summary-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本地与只读边界</h3></div></div><div className="home-safety-list"><span>✓ 照片分析完全离线</span><span>✓ 原片不会自动删除或改写</span><span>✓ XMP 与 Lightroom 写入关闭</span><span>✓ 人工评分始终优先</span></div></section>
+      <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
+        <button onClick={() => navigate("library")}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>
+        <button onClick={() => navigate("bursts")}><span><strong>{groups?.count ?? 0}</strong> 组相似照片可挑选</span><b>开始挑选</b></button>
+        <button onClick={() => navigate("analysis")}><span><strong>{numberFormat.format(remainingQuality)}</strong> 张照片尚未质量分析</span><b>查看分析</b></button>
+        <button onClick={() => navigate("library")}><span><strong>{numberFormat.format(statistics?.summary.user_picks ?? 0)}</strong> 张照片已标记保留</span><b>选择导出</b></button>
+      </div></section>
     </section>
+    {task && task.status !== "idle" && <section className="home-current-task"><TaskCard task={task} /></section>}
   </>;
 }
 
@@ -1026,7 +1099,7 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
       <section className="structure-hero analysis-hero">
         <div>
           <span className="section-kicker">分层分析</span>
-          <h2>先测技术质量，再让本地模型解释原因。</h2>
+          <h2>照片质量与问题</h2>
           <p>技术检测覆盖全部个人照片；Qwen3-VL 只处理代表帧和问题候选。模型结果仅作复核建议，不会自动删除或改写 Lightroom。</p>
           <div className="analysis-actions">
             <button className="primary-action" onClick={startQuality} disabled={running}><span>运行技术质量分析</span><b>→</b></button>
@@ -1268,7 +1341,7 @@ function StatisticsView({ statistics }: {
   return (
     <>
       <section className="structure-hero statistics-hero">
-        <div><span className="section-kicker">摄影数据</span><h2>从参数分布到长期进步，按拍摄单元统计。</h2><p>JPG与RAW只计算一次；“素材”参考资料不进入个人摄影统计。技术质量完成后，这里会自动出现各题材、镜头和月份的平均质量趋势。</p></div>
+        <div><span className="section-kicker">摄影数据</span><h2>拍摄统计</h2><p>查看题材、器材和拍摄参数分布。</p></div>
         <div className="structure-stat"><strong>{summary ? numberFormat.format(summary.capture_count) : "—"}</strong><span>个个人拍摄单元</span></div>
       </section>
       <section className="metric-grid">
@@ -1300,7 +1373,7 @@ function LightroomView({ status, manifest, generateManifest }: {
   return (
     <>
       <section className="structure-hero lightroom-hero">
-        <div><span className="section-kicker">Lightroom Classic准备</span><h2>先生成可审查清单，再决定导入与复制。</h2><p>清单包含JPG/RAW配对、事件、题材、有效星级、人工选择、关键词和建议目标目录。生成操作不会创建目录副本，不会写XMP，也不会打开或修改Lightroom目录。</p><button className="primary-action" onClick={generateManifest}><span>生成最新准备清单</span><b>→</b></button></div>
+        <div><span className="section-kicker">Lightroom Classic</span><h2>后期准备清单</h2><p>汇总已选照片、评级和相册信息。</p><button className="primary-action" onClick={generateManifest}><span>生成准备清单</span><b>→</b></button></div>
         <div className="structure-stat"><strong>{status ? numberFormat.format(status.capture_count) : "—"}</strong><span>个待准备拍摄单元</span></div>
       </section>
       <section className="metric-grid">
@@ -1407,7 +1480,7 @@ function App() {
     return saved === "dark" ? "dark" : "light";
   });
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [inbox, setInbox] = useState<Inbox | null>(null);
+  const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
   const [events, setEvents] = useState<EventsResponse | null>(null);
   const [bursts, setBursts] = useState<BurstsResponse | null>(null);
   const [duplicates, setDuplicates] = useState<DuplicatesResponse | null>(null);
@@ -1434,9 +1507,9 @@ function App() {
   }, [theme]);
 
   const refreshLibrary = useCallback(async () => {
-    const [overviewData, inboxData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
+    const [overviewData, libraryData, eventData, burstData, duplicateData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, migrationData] = await Promise.all([
       getJson<Overview>("/api/overview"),
-      getJson<Inbox>("/api/inbox?limit=12"),
+      getJson<LibraryCapturesResponse>("/api/library/captures?limit=80"),
       getJson<EventsResponse>("/api/events?limit=100"),
       getJson<BurstsResponse>("/api/bursts?limit=50"),
       getJson<DuplicatesResponse>("/api/duplicates?limit=50"),
@@ -1452,7 +1525,7 @@ function App() {
       getJson<MigrationStatus>("/api/migration/status"),
     ]);
     setOverview(overviewData);
-    setInbox(inboxData);
+    setLibraryCaptures(libraryData);
     setEvents(eventData);
     setBursts(burstData);
     setDuplicates(duplicateData);
@@ -1688,6 +1761,20 @@ function App() {
     }
   };
 
+  const exportPhoneShare = async (captureIds: number[], maxEdge: number) => {
+    setError(null);
+    try {
+      return await getJson<PhoneShareExport>("/api/exports/phone-share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capture_ids: captureIds, max_edge: maxEdge, quality: 90 }),
+      });
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const generateMigrationPlan = async () => {
     if (!window.confirm("现在只生成迁移清单并检查冲突，不会创建目录或复制照片。继续吗？")) return;
     setError(null);
@@ -1752,7 +1839,7 @@ function App() {
   };
 
   const pageMeta = {
-    home: ["OVERVIEW", "首页概览", "查看当前进度并快速继续日常工作"],
+    home: ["OVERVIEW", "首页概览", ""],
     library: ["LIBRARY", "照片图库", "浏览、整理并管理全部拍摄单元"],
     bursts: ["REVIEW", "连拍选片", "比较连拍与相似画面，留下真正需要的版本"],
     analysis: ["ANALYSIS / REVIEW", "质量分析", "批量运行技术检测与本地模型，在单张详情中复核结果"],
@@ -1768,12 +1855,14 @@ function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
-          <span className="nav-group-label">日常工作</span>
+          <span className="nav-group-label">照片管理</span>
           <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
           <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span>图</span>照片图库</button>
           <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>连拍选片</button>
+          <span className="nav-group-label system-label">分析学习</span>
           <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
           <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>统</span>摄影统计</button>
+          <span className="nav-group-label system-label">工具</span>
           <button className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
           <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
@@ -1785,7 +1874,7 @@ function App() {
 
       <main>
         <header className="topbar">
-          <div><span className="eyebrow">{pageMeta[0]}</span><h1>{pageMeta[1]}</h1><p>{pageMeta[2]}</p></div>
+          <div><span className="eyebrow">{pageMeta[0]}</span><h1>{pageMeta[1]}</h1></div>
           <div className="topbar-tools">
             <button className="theme-toggle" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={`切换到${theme === "light" ? "深色" : "浅色"}主题`}>
               <span aria-hidden="true">{theme === "light" ? "☀" : "◐"}</span>
@@ -1795,8 +1884,8 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} events={events} groups={similarityGroups} analysis={analysis} statistics={statistics} task={task} navigate={setView} />}
-        {view === "library" && <LibraryView overview={overview} inbox={inbox} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} />}
+        {view === "home" && <HomeView overview={overview} events={events} groups={similarityGroups} analysis={analysis} statistics={statistics} library={libraryCaptures} task={task} navigate={setView} openCapture={openCapture} />}
+        {view === "library" && <LibraryView library={libraryCaptures} overview={overview} events={events} duplicates={duplicates} task={task} startScan={startScan} cancelTask={cancelTask} updateEvent={updateEvent} openCapture={openCapture} exportPhotos={exportPhoneShare} />}
         {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} />}
         {view === "statistics" && <StatisticsView statistics={statistics} />}

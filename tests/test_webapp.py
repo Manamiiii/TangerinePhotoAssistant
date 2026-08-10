@@ -16,6 +16,7 @@ from tangerine_photo_assistant.webapp import (
     _query_duplicates,
     _query_events,
     _query_inbox,
+    _query_library_captures,
     _query_overview,
     _query_quality,
 )
@@ -68,6 +69,7 @@ class WebAppQueryTests(unittest.TestCase):
 
             overview = _query_overview(settings)
             inbox = _query_inbox(settings, 10)
+            library = _query_library_captures(settings, 10, 0)
             events = _query_events(settings, 10, 0)
             bursts = _query_bursts(settings, 10, 0)
             duplicates = _query_duplicates(settings, 10, 0)
@@ -78,6 +80,8 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(overview["capture_total"], 1)
             self.assertEqual(inbox["count"], 1)
             self.assertEqual(inbox["items"][0]["pairing_status"], "paired")
+            self.assertEqual(library["count"], 1)
+            self.assertEqual(library["items"][0]["thumbnail_url"], "/api/thumbnails/1?size=640")
             self.assertEqual(events["count"], 1)
             self.assertEqual(events["items"][0]["category"], "旅行")
             self.assertEqual(bursts["count"], 0)

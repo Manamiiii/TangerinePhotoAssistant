@@ -48,6 +48,7 @@ from .archive import (
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .equipment import build_equipment_catalog
+from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .inventory import enrich_metadata, scan_library, utc_now
 from .lightroom import lightroom_status, write_lightroom_manifest
 from .metadata import ExifToolMetadataReader, PillowMetadataReader
@@ -98,6 +99,12 @@ class ReviewUpdateRequest(BaseModel):
     user_pick: bool | None = None
     user_reject: bool = False
     user_note: str | None = None
+
+
+class PhoneShareExportRequest(BaseModel):
+    capture_ids: list[int] = Field(min_length=1, max_length=100)
+    max_edge: int = 2048
+    quality: int = Field(default=90, ge=70, le=95)
 
 
 class AiReviewUpdateRequest(BaseModel):
@@ -924,6 +931,47 @@ def _query_inbox(settings: Settings, limit: int) -> dict[str, Any]:
         connection.close()
 
 
+def _query_library_captures(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
+    connection = connect_readonly(settings.database_path)
+    try:
+        total = connection.execute(
+            """SELECT COUNT(DISTINCT c.id)
+               FROM captures c
+               JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
+               JOIN files f ON f.id = cf.file_id AND f.present = 1"""
+        ).fetchone()[0]
+        rows = connection.execute(
+            """
+            SELECT c.id, c.stem, c.captured_at, c.pairing_status,
+                   f.camera_model, f.lens_model,
+                   e.proposed_name AS album_name, e.category,
+                   cr.user_rating, cr.user_pick, cr.user_reject
+            FROM captures c
+            JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
+            JOIN files f ON f.id = cf.file_id AND f.present = 1
+            LEFT JOIN event_captures ec ON ec.capture_id = c.id
+            LEFT JOIN events e ON e.id = ec.event_id
+            LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
+            WHERE cf.file_id = (
+                SELECT MIN(cf2.file_id) FROM capture_files cf2
+                JOIN files f2 ON f2.id = cf2.file_id
+                WHERE cf2.capture_id = c.id AND cf2.role = 'jpeg' AND f2.present = 1
+            )
+            ORDER BY c.captured_at IS NULL, c.captured_at DESC, c.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["thumbnail_url"] = f"/api/thumbnails/{item['id']}?size=640"
+            items.append(item)
+        return {"count": total, "limit": limit, "offset": offset, "items": items}
+    finally:
+        connection.close()
+
+
 def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
     connection = connect(settings.database_path)
     try:
@@ -1293,6 +1341,13 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def inbox(limit: int = Query(default=24, ge=1, le=200)) -> dict[str, Any]:
         return _query_inbox(settings, limit)
 
+    @app.get("/api/library/captures")
+    def library_captures(
+        limit: int = Query(default=60, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return _query_library_captures(settings, limit, offset)
+
     @app.get("/api/events")
     def events(
         limit: int = Query(default=50, ge=1, le=200),
@@ -1562,6 +1617,27 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         thumbnail_cache = ThumbnailCache(settings)
         return result
 
+    @app.post("/api/exports/phone-share", status_code=201)
+    def create_phone_share_export(request: PhoneShareExportRequest) -> dict[str, Any]:
+        if request.max_edge not in ALLOWED_SHARE_EDGES:
+            raise HTTPException(status_code=422, detail="不支持的导出尺寸")
+        connection = connect_readonly(settings.database_path)
+        try:
+            try:
+                result = write_phone_share_export(
+                    connection,
+                    settings.originals,
+                    settings.reports_path,
+                    request.capture_ids,
+                    request.max_edge,
+                    request.quality,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+        return {**result, "download_url": f"/api/reports/{result['filename']}"}
+
     @app.get("/api/reports/{filename}")
     def download_report(filename: str) -> FileResponse:
         allowed = {
@@ -1571,7 +1647,10 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         is_migration_report = bool(
             re.fullmatch(r"migration-(?:plan|failures)-\d+\.(csv|json)", filename)
         )
-        if filename not in allowed and not is_migration_report:
+        is_phone_share = bool(
+            re.fullmatch(r"phone-share-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
+        )
+        if filename not in allowed and not is_migration_report and not is_phone_share:
             raise HTTPException(status_code=404, detail="报告不存在")
         path = (settings.reports_path / filename).resolve()
         if not path.is_file() or not path.is_relative_to(settings.reports_path.resolve()):
