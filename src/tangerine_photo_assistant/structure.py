@@ -581,6 +581,9 @@ def structure_summary(connection: sqlite3.Connection) -> dict[str, Any]:
     ).fetchone()
     return {
         "event_count": connection.execute("SELECT COUNT(*) FROM events").fetchone()[0],
+        "unconfirmed_event_count": connection.execute(
+            "SELECT COUNT(*) FROM events WHERE status <> 'confirmed'"
+        ).fetchone()[0],
         "categories": [dict(row) for row in category_rows],
         "burst_count": burst["burst_count"],
         "captures_in_bursts": burst["capture_count"],

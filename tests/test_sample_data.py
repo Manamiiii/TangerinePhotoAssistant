@@ -69,7 +69,11 @@ class DemoLibraryTests(unittest.TestCase):
             connection = connect(settings.database_path)
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM capture_reviews WHERE user_pick=1").fetchone()[0],
-                4,
+                3,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM capture_reviews WHERE user_reject=1").fetchone()[0],
+                1,
             )
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0],

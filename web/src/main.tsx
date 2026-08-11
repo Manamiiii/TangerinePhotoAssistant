@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -10,6 +10,7 @@ type CountRow = { count: number } & Record<string, string | number | null>;
 
 type StructureSummary = {
   event_count: number;
+  unconfirmed_event_count: number;
   categories: Array<{ category: string; event_count: number; capture_count: number }>;
   burst_count: number;
   captures_in_bursts: number;
@@ -832,7 +833,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
               <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
               <div className="album-date"><strong>{album.start_at?.slice(0, 10) ?? "—"}</strong><span>拍摄日期</span></div>
               <div className={`album-status ${album.status === "confirmed" ? "confirmed" : ""}`}>{album.status === "confirmed" ? "已确认" : "待确认"}</div>
-              <div className="album-row-actions"><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button><button onClick={() => openAlbumEditor(album)}>编辑</button>{album.status !== "confirmed" && <button onClick={() => updateAlbum(album, { status: "confirmed" })}>确认</button>}</div>
+              <div className="album-row-actions"><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button><button onClick={() => openAlbumEditor(album)}>编辑</button>{album.status !== "confirmed" ? <button onClick={() => updateAlbum(album, { status: "confirmed" })}>确认</button> : <span aria-hidden="true" />}</div>
             </article>
           ))}
           {!albums?.items.length && <div className="empty-state">还没有相册，可以新建一个空相册。</div>}
@@ -900,14 +901,14 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
                 <div className="photo-frame">
                   <img src={item.thumbnail_url} loading="lazy" alt={`${item.stem} 缩略图`} />
                   {item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}
-                  {item.user_pick ? <span className="photo-flag user">已精选</span> : null}
+                  {item.user_pick ? <span className="photo-flag user">组内入选</span> : null}
                 </div>
                 <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span></div>
                 <div className="photo-review" onClick={(event) => event.stopPropagation()}>
                   <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                     <option value="">星级</option><option value="1">1★</option><option value="2">2★</option><option value="3">3★</option><option value="4">4★</option><option value="5">5★</option>
                   </select>
-                  <button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>精选</button>
+                  <button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>入选</button>
                   <button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>排除</button>
                   {index > 0 && <button onClick={() => void editGrouping(item.capture_id, "split_before")}>从这里拆分</button>}
                   <button onClick={() => void editGrouping(item.capture_id, "exclude")}>移出本组</button>
@@ -1021,20 +1022,19 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
     <div className="similarity-picker-grid">{group.items.map((item, index) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
       <button className="similarity-picker-photo" onClick={() => openCapture(item.capture_id)}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{item.auto_pick && <span>技术推荐</span>}</button>
       <div className="similarity-picker-copy"><strong>{item.stem}</strong><small>{item.technical_score == null ? "未评分" : `技术分 ${Math.round(item.technical_score)}`} · ISO {item.iso ?? "—"}</small></div>
-      <div className="similarity-picker-actions"><select value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}><option value="">星级</option>{[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}★</option>)}</select><button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>精选</button><button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>排除</button></div>
+      <div className="similarity-picker-actions"><select value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}><option value="">星级</option>{[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}★</option>)}</select><button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>入选</button><button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>排除</button></div>
       <div className="similarity-grouping-actions">{index > 0 && <button onClick={() => void editGrouping(item.capture_id, "split_before")}>从这里拆分</button>}<button onClick={() => void editGrouping(item.capture_id, "exclude")}>移出本组</button>{item.grouping_override && <button onClick={() => void editGrouping(item.capture_id, "auto")}>恢复自动</button>}</div>
     </article>)}</div>
   </ModalShell>;
 }
 
-function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, saveReview, editGrouping, exportPhotos, assignToAlbum, changePage, changePageSize, albumContext = false }: {
+function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, changePage, changePageSize, albumContext = false }: {
   library: LibraryCapturesResponse | null;
   filters: LibraryFilters | null;
   query: LibraryQuery;
   updateQuery: (changes: Partial<LibraryQuery>) => void;
   openCapture: (captureId: number) => void;
   openGroup?: (groupId: number) => void;
-  saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping?: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
@@ -1090,7 +1090,6 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       <label><span>相机</span><select value={query.camera} onChange={(event) => updateQuery({ camera: event.target.value })}><option value="">全部相机</option>{(filters?.cameras ?? []).map((camera) => <option key={camera}>{camera}</option>)}</select></label>
       <label><span>镜头</span><select value={query.lens} onChange={(event) => updateQuery({ lens: event.target.value })}><option value="">全部镜头</option>{(filters?.lenses ?? []).map((lens) => <option key={lens}>{lens}</option>)}</select></label>
       <label><span>人工星级</span><select value={query.rating} onChange={(event) => updateQuery({ rating: event.target.value })}><option value="">全部星级</option>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} 星</option>)}</select></label>
-      <label><span>整理标记</span><select value={query.selection} onChange={(event) => updateQuery({ selection: event.target.value })}><option value="">全部照片</option><option value="picked">已精选</option><option value="rejected">已排除</option><option value="unreviewed">未标记</option></select></label>
       <label><span>开始日期</span><input type="date" value={query.dateFrom} onChange={(event) => updateQuery({ dateFrom: event.target.value })} /></label>
       <label><span>结束日期</span><input type="date" value={query.dateTo} onChange={(event) => updateQuery({ dateTo: event.target.value })} /></label>
       <label><span>排序</span><select value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
@@ -1111,10 +1110,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       {items.map((item) => {
         const itemSelected = item.selection_capture_ids.every((captureId) => selected.has(captureId));
         const isGroup = item.item_type === "group" && item.similarity_group_id != null;
-        return <article className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={`${item.item_type}-${item.similarity_group_id ?? item.id}`}>
+        return <article className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={isGroup ? `group-${item.similarity_group_id}` : `photo-${item.id}`}>
         {selectionMode && <button className="photo-select" aria-label={`${itemSelected ? "取消批量选择" : "批量选择"} ${item.stem}`} onClick={() => toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : ""}</span></button>}
         <button className="photo-open" onClick={() => isGroup && openGroup ? openGroup(item.similarity_group_id!) : openCapture(item.id)}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张</span>}</button>
-        <div className="photo-card-copy"><div><strong>{isGroup ? `连拍 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{isGroup ? `${item.similarity_group_size} 张 · ${formatBytes(item.size_bytes)} · ${item.group_pick_count ?? 0} 张精选` : `${formatBytes(item.size_bytes)} · ${item.album_name ?? "尚未归入相册"}`}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出连拍</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>连拍组 · {item.similarity_group_size} 张</button> : null}{item.user_pick ? <b>已精选</b> : item.user_reject ? <b className="rejected">已排除</b> : null}</div></div>{!isGroup && <div className="photo-quick-review"><button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>{item.user_pick ? "取消精选" : "精选"}</button><button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>{item.user_reject ? "取消排除" : "排除"}</button></div>}</div>
+        <div className="photo-card-copy"><div><strong>{isGroup ? `连拍 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{isGroup ? `${item.similarity_group_size} 张 · ${formatBytes(item.size_bytes)} · ${item.group_pick_count ?? 0} 张入选` : `${formatBytes(item.size_bytes)} · ${item.album_name ?? "尚未归入相册"}`}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出连拍</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>连拍组 · {item.similarity_group_size} 张</button> : null}{item.similarity_group_id && (item.user_pick ? <b>组内入选</b> : item.user_reject ? <b className="rejected">组内排除</b> : null)}</div></div></div>
       </article>})}
       {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
     </section>
@@ -1122,13 +1121,14 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   </>;
 }
 
-function LibraryView({ overview, library, albums, filters, query, updateQuery, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
+function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
   query: LibraryQuery;
   updateQuery: (changes: Partial<LibraryQuery>) => void;
+  requestedSection: LibrarySection;
   task: Task | null;
   startScan: (albumId: number) => void;
   cancelTask: () => void;
@@ -1150,13 +1150,16 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
   changeAlbumPage: (offset: number) => void;
   changeAlbumPageSize: (limit: number) => void;
 }) {
-  const [section, setSection] = useState<LibrarySection>("photos");
+  const [section, setSection] = useState<LibrarySection>(requestedSection);
   const [activeAlbumId, setActiveAlbumId] = useState<number | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [targetAlbum, setTargetAlbum] = useState("");
   const [newAlbumName, setNewAlbumName] = useState("");
   const [newAlbumCategory, setNewAlbumCategory] = useState("");
   const activeAlbum = filters?.albums.find((album) => album.id === activeAlbumId) ?? null;
+  useEffect(() => {
+    if (activeAlbumId === null) setSection(requestedSection);
+  }, [activeAlbumId, requestedSection]);
   const showAlbum = (albumId: number) => {
     setActiveAlbumId(albumId);
     updateQuery({ albumId: String(albumId), category: "", collapseGroups: true });
@@ -1192,9 +1195,9 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
       <TaskCard task={task} cancel={cancelTask} />
       {activeAlbumId ? <>
         <section className="album-detail-header"><button className="album-back" onClick={leaveAlbum}>← 返回相册</button><div><span>{activeAlbum?.category ?? "相册"}</span><h2>{activeAlbum?.name ?? "相册照片"}</h2><small>{numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片</small></div><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>更新图库</button></section>
-        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} saveReview={saveReview} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
+        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
       </> : <>
-        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} saveReview={saveReview} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
+        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
         {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
       </>}
       {updateOpen && <ModalShell title="更新图库" close={() => setUpdateOpen(false)}><form className="editor-form" onSubmit={(event) => { event.preventDefault(); void runUpdate(); }}>
@@ -1208,34 +1211,26 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
   );
 }
 
-function HomeView({ overview, events, groups, analysis, statistics, library, task, navigate, openCapture }: {
+function HomeView({ overview, library, task, openPhotos, openAlbums, openCapture }: {
   overview: Overview | null;
-  events: EventsResponse | null;
-  groups: SimilarityGroupsResponse | null;
-  analysis: AnalysisOverview | null;
-  statistics: Statistics | null;
   library: LibraryCapturesResponse | null;
   task: Task | null;
-  navigate: (view: View) => void;
+  openPhotos: () => void;
+  openAlbums: () => void;
   openCapture: (captureId: number) => void;
 }) {
-  const pendingEvents = (events?.items ?? []).filter((event) => event.status !== "confirmed").length;
-  const quality = analysis?.quality;
-  const remainingQuality = Math.max(0, (overview?.capture_total ?? 0) - (quality?.analyzed ?? 0));
+  const pendingEvents = overview?.structure.unconfirmed_event_count ?? 0;
   return <>
     <section className="home-metrics">
       <article><span>全部照片</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : ""}</small></article>
       <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个名称待确认</small></article>
     </section>
     <section className="home-management-grid">
-      <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={() => navigate("library")}>查看全部</button></div><div className="recent-photo-grid">
+      <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={openPhotos}>查看全部</button></div><div className="recent-photo-grid">
         {(library?.items ?? []).slice(0, 8).map((item) => <button key={item.id} onClick={() => openCapture(item.id)}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></button>)}
       </div></section>
       <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
-        <button onClick={() => navigate("library")}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>
-        <button onClick={() => navigate("library")}><span>在相册中折叠连拍并挑选照片</span><b>进入相册</b></button>
-        <button onClick={() => navigate("analysis")}><span><strong>{numberFormat.format(remainingQuality)}</strong> 张照片尚未质量分析</span><b>查看分析</b></button>
-        <button onClick={() => navigate("library")}><span>临时勾选照片并生成手机分享包</span><b>浏览照片</b></button>
+        {pendingEvents > 0 ? <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button> : <div className="empty-state">当前没有需要及时处理的项目。</div>}
       </div></section>
     </section>
     {task && task.status !== "idle" && <section className="home-current-task"><TaskCard task={task} /></section>}
@@ -1413,8 +1408,6 @@ function AnalysisView({ analysis, preflight, quality, task, startQuality, startA
                 <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                   <option value="">人工星级</option><option value="1">1 星</option><option value="2">2 星</option><option value="3">3 星</option><option value="4">4 星</option><option value="5">5 星</option>
                 </select>
-                <button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>精选</button>
-                <button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>排除</button>
               </div>
             </article>
           ))}
@@ -1552,8 +1545,8 @@ function StatisticsView({ statistics }: {
       <section className="metric-grid">
         <article><span>拍摄时间跨度</span><strong className="text-value">{summary?.first_capture?.slice(0, 10) ?? "—"}</strong><small>至 {summary?.last_capture?.slice(0, 10) ?? "—"}</small></article>
         <article><span>已完成质量分析</span><strong>{summary ? numberFormat.format(summary.quality_analyzed) : "—"}</strong><small>平均分 {summary?.average_technical_score ?? "—"}</small></article>
-        <article><span>人工精选</span><strong>{summary ? numberFormat.format(summary.user_picks) : "—"}</strong><small>只保存在本地数据库</small></article>
-        <article><span>人工排除</span><strong>{summary ? numberFormat.format(summary.user_rejects) : "—"}</strong><small>不会删除原片</small></article>
+        <article><span>连拍入选</span><strong>{summary ? numberFormat.format(summary.user_picks) : "—"}</strong><small>组内最终选择</small></article>
+        <article><span>连拍排除</span><strong>{summary ? numberFormat.format(summary.user_rejects) : "—"}</strong><small>不会删除原片</small></article>
       </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" />
@@ -1584,8 +1577,8 @@ function LightroomView({ status, manifest, generateManifest }: {
       <section className="metric-grid">
         <article><span>相册已确认</span><strong>{status ? `${status.confirmed_events}/${status.event_count}` : "—"}</strong><small>未确认名称仍会标注为建议</small></article>
         <article><span>已有评级</span><strong>{status ? numberFormat.format(status.rated_captures) : "—"}</strong><small>人工星级与技术评级分别保存</small></article>
-        <article><span>人工精选</span><strong>{status ? numberFormat.format(status.user_picks) : "—"}</strong><small>准备清单中的pick字段</small></article>
-        <article><span>人工排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>只标记，不删除</small></article>
+        <article><span>连拍入选</span><strong>{status ? numberFormat.format(status.user_picks) : "—"}</strong><small>准备清单中的pick字段</small></article>
+        <article><span>连拍排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>只标记，不删除</small></article>
       </section>
       <section className="lightroom-grid">
         <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本轮只生成报告</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>历史原片不变</strong><small>D:\Photo继续只读保留，不移动、不改名、不改写</small></span></div><div><b>✓</b><span><strong>XMP写入关闭</strong><small>不会在原片旁创建或修改附属文件</small></span></div><div><b>✓</b><span><strong>使用活动图库</strong><small>Lightroom准备清单指向D:\PhotoLibrary\Photos</small></span></div><div><b>✓</b><span><strong>JPG与RAW同步</strong><small>同一拍摄单元共享评级和标签</small></span></div></div></section>
@@ -1686,6 +1679,7 @@ function App() {
   });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
+  const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>("photos");
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
     pageSize: 40, albumId: "", category: "", camera: "", lens: "",
@@ -1717,6 +1711,7 @@ function App() {
   const [migration, setMigration] = useState<MigrationStatus | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const refreshSequence = useRef(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1725,6 +1720,7 @@ function App() {
   }, [theme]);
 
   const refreshLibrary = useCallback(async () => {
+    const requestSequence = ++refreshSequence.current;
     const libraryParameters = new URLSearchParams({
       limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
     });
@@ -1754,6 +1750,7 @@ function App() {
       getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
     ]);
+    if (requestSequence !== refreshSequence.current) return;
     setOverview(overviewData);
     setLibraryCaptures(libraryData);
     setLibraryFilters(filterData);
@@ -2189,7 +2186,7 @@ function App() {
         <nav aria-label="主要功能">
           <span className="nav-group-label">照片管理</span>
           <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
-          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span>图</span>照片图库</button>
+          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { setLibraryLandingSection("photos"); setView("library"); }}><span>图</span>照片图库</button>
           <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>连拍选片</button>
           <span className="nav-group-label system-label">分析学习</span>
           <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
@@ -2215,10 +2212,11 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} events={events} groups={similarityGroups} analysis={analysis} statistics={statistics} library={libraryCaptures} task={task} navigate={setView} openCapture={openCapture} />}
+        {view === "home" && <HomeView overview={overview} library={libraryCaptures} task={task} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
-          updateQuery={(changes) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, ...changes })); }}
+          requestedSection={libraryLandingSection}
+          updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
           openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}

@@ -106,6 +106,7 @@ class StructureTests(unittest.TestCase):
             self.assertEqual(event["capture_count"], 3)
             self.assertEqual(source_count, 2)
             self.assertEqual(summary["event_count"], 3)
+            self.assertEqual(summary["unconfirmed_event_count"], 3)
             self.assertEqual(result["excluded_reference_captures"], 1)
             self.assertEqual(result["candidate_bursts"], 1)
             self.assertEqual(result["largest_burst"], 3)

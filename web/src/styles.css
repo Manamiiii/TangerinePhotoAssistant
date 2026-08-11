@@ -445,7 +445,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .layout-list .library-photo-card { min-height: 74px; display: grid; grid-template-columns: 108px minmax(0, 1fr); }
 .layout-list .photo-open { height: 74px; }
 .layout-list .photo-open img { height: 74px; aspect-ratio: auto; object-fit: cover; }
-.layout-list .photo-card-copy { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) auto 150px; align-items: center; gap: 18px; }
+.layout-list .photo-card-copy { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) auto; align-items: center; gap: 18px; }
 .layout-list .photo-card-copy > div:first-child { justify-content: flex-start; gap: 14px; }
 .layout-list .photo-card-copy p { margin: 0; }
 .layout-list .photo-quick-review { width: 150px; margin: 0; padding: 0; border: 0; }
@@ -470,7 +470,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .album-date { display: flex; flex-direction: column; gap: 3px; }
 .album-date strong { font-size: 10px; font-weight: 500; }
 .album-date span { color: var(--muted); font-size: 8px; }
-.album-row-actions { display: flex; justify-content: flex-end; gap: 5px; }
+.album-row-actions { display: grid; grid-template-columns: 78px 44px 44px; justify-content: end; gap: 5px; }
 .album-row-actions button { min-height: 30px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; font-size: 8px; cursor: pointer; }
 .album-row-actions button:hover { border-color: var(--line); color: inherit; }
 .album-row-actions .album-open-action { color: inherit; border-color: var(--line); background: var(--surface-raised); }

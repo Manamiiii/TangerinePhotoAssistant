@@ -20,11 +20,11 @@ GENERATOR_VERSION = 3
 
 DEMO_REVIEWS: dict[str, tuple[int | None, bool, bool, str]] = {
     "BEACH_0001": (2, False, True, "演示：连拍中排除"),
-    "BEACH_0003": (5, True, False, "演示：连拍精选封面"),
-    "PARK_0004": (5, True, False, "演示：第一段连拍精选"),
-    "PARK_0007": (4, True, False, "演示：第二段连拍精选"),
-    "NIGHT_0002": (5, True, False, "演示：非连拍照片精选"),
-    "DETAIL_0002": (2, False, True, "演示：非连拍照片排除"),
+    "BEACH_0003": (5, True, False, "演示：连拍入选封面"),
+    "PARK_0004": (5, True, False, "演示：第一段连拍入选"),
+    "PARK_0007": (4, True, False, "演示：第二段连拍入选"),
+    "NIGHT_0002": (5, False, False, "演示：非连拍照片仅使用星级"),
+    "DETAIL_0002": (2, False, False, "演示：非连拍照片仅使用星级"),
 }
 
 SCENES: tuple[dict[str, Any], ...] = (
