@@ -16,15 +16,15 @@ from .quality import rebuild_group_recommendations
 from .visual import rebuild_similarity_groups
 
 
-GENERATOR_VERSION = 2
+GENERATOR_VERSION = 3
 
 DEMO_REVIEWS: dict[str, tuple[int | None, bool, bool, str]] = {
-    "BEACH_0001": (2, False, True, "演示：连拍中淘汰"),
-    "BEACH_0003": (5, True, False, "演示：连拍保留封面"),
-    "PARK_0004": (5, True, False, "演示：第一段连拍保留"),
-    "PARK_0007": (4, True, False, "演示：第二段连拍保留"),
-    "NIGHT_0002": (5, True, False, "演示：非连拍照片保留"),
-    "DETAIL_0002": (2, False, True, "演示：非连拍照片淘汰"),
+    "BEACH_0001": (2, False, True, "演示：连拍中排除"),
+    "BEACH_0003": (5, True, False, "演示：连拍精选封面"),
+    "PARK_0004": (5, True, False, "演示：第一段连拍精选"),
+    "PARK_0007": (4, True, False, "演示：第二段连拍精选"),
+    "NIGHT_0002": (5, True, False, "演示：非连拍照片精选"),
+    "DETAIL_0002": (2, False, True, "演示：非连拍照片排除"),
 }
 
 SCENES: tuple[dict[str, Any], ...] = (
@@ -60,7 +60,7 @@ SCENES: tuple[dict[str, Any], ...] = (
         "relative": "旅行/2026/2026-08-01_城市夜景",
         "prefix": "NIGHT",
         "count": 6,
-        "sources": ("MAC_TEST_0002.JPG",),
+        "sources": ("MAC_TEST_0002.JPG", "MAC_TEST_0004.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
         "start": datetime(2026, 8, 1, 20, 15, 0),
         "gap_seconds": 4,
         "lens": "XF16-80mmF4 R OIS WR",
@@ -74,7 +74,7 @@ SCENES: tuple[dict[str, Any], ...] = (
         "relative": "日常/2026/2026-08-05_静物练习",
         "prefix": "DETAIL",
         "count": 4,
-        "sources": ("MAC_TEST_0002.JPG",),
+        "sources": ("MAC_TEST_0004.JPG", "MAC_TEST_0002.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
         "start": datetime(2026, 8, 5, 15, 40, 0),
         "gap_seconds": 8,
         "lens": "XC15-45mmF3.5-5.6 OIS PZ",

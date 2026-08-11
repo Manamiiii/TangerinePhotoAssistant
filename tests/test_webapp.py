@@ -238,6 +238,7 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(group["id"], picked_id)
             self.assertEqual(group["group_pick_count"], 1)
             self.assertEqual(group["selection_capture_ids"], [picked_id])
+            self.assertGreater(group["size_bytes"], single["size_bytes"])
             self.assertEqual(single["id"], single_id)
 
             picked = _query_library_captures(

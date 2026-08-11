@@ -1072,6 +1072,12 @@ def _query_library_captures(
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
                    cr.auto_pick, qm.technical_score,
                    sgo.action AS grouping_override,
+                   COALESCE((
+                       SELECT SUM(member_file.size_bytes)
+                       FROM capture_files member_cf
+                       JOIN files member_file ON member_file.id=member_cf.file_id
+                       WHERE member_cf.capture_id=c.id AND member_file.present=1
+                   ), 0) AS size_bytes,
                    MAX(sg.id) AS similarity_group_id,
                    MAX(sg.capture_count) AS similarity_group_size,
                    MAX(group_stats.pick_count) AS group_pick_count,
@@ -1128,6 +1134,7 @@ def _query_library_captures(
                 group_item = folded[positions[group_id]]
                 picked_ids = [item["id"] for item in group_members if item["user_pick"]]
                 group_item["selection_capture_ids"] = picked_ids or [group_item["id"]]
+                group_item["size_bytes"] = sum(item["size_bytes"] for item in group_members)
             total = len(folded)
             return {
                 "count": total, "limit": limit, "offset": offset,

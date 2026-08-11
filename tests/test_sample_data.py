@@ -75,6 +75,14 @@ class DemoLibraryTests(unittest.TestCase):
                 connection.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0],
                 1,
             )
+            self.assertEqual(
+                connection.execute(
+                    """SELECT COUNT(*) FROM similarity_group_captures sgc
+                       JOIN captures c ON c.id=sgc.capture_id
+                       WHERE c.stem LIKE 'NIGHT_%'"""
+                ).fetchone()[0],
+                0,
+            )
             connection.close()
 
 
