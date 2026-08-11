@@ -70,6 +70,10 @@ fi
 "$APP" structure --config "$CONFIG"
 "$APP" visual --config "$CONFIG"
 "$APP" quality --config "$CONFIG"
+.venv-mac/bin/python -m tangerine_photo_assistant.sample_data \
+  --source sample-library/photos/mac-test-event \
+  --target runtime/mac-test/sample-library/photos \
+  --database "$DATABASE"
 
 if [[ "$MODE" == "--prepare-only" ]]; then
   echo "Mac test data is ready."

@@ -35,6 +35,11 @@ frontend, expands the four privacy-cleaned source samples into a deterministic
 http://127.0.0.1:8765
 ```
 
+To verify burst folding, open `照片图库 → 相册`, then enter `海边散步` or
+`公园抓拍`. Album details default to `折叠连拍`; `全部照片` intentionally stays
+expanded. The demo seeds retained, rejected, non-burst, multi-pick, and manual
+split examples so all selection states are visible without editing production data.
+
 Later starts reuse the environment and catalog. Stop the server with
 `Control-C` in Terminal.
 

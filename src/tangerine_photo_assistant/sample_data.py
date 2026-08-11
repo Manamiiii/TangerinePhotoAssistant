@@ -10,8 +10,22 @@ from typing import Any
 
 from PIL import Image, ImageEnhance, TiffImagePlugin
 
+from .database import connect
+from .inventory import utc_now
+from .quality import rebuild_group_recommendations
+from .visual import rebuild_similarity_groups
+
 
 GENERATOR_VERSION = 2
+
+DEMO_REVIEWS: dict[str, tuple[int | None, bool, bool, str]] = {
+    "BEACH_0001": (2, False, True, "演示：连拍中淘汰"),
+    "BEACH_0003": (5, True, False, "演示：连拍保留封面"),
+    "PARK_0004": (5, True, False, "演示：第一段连拍保留"),
+    "PARK_0007": (4, True, False, "演示：第二段连拍保留"),
+    "NIGHT_0002": (5, True, False, "演示：非连拍照片保留"),
+    "DETAIL_0002": (2, False, True, "演示：非连拍照片淘汰"),
+}
 
 SCENES: tuple[dict[str, Any], ...] = (
     {
@@ -175,16 +189,74 @@ def generate_demo_library(source_root: Path, target_root: Path) -> dict[str, Any
     return manifest
 
 
+def seed_demo_catalog(database_path: Path) -> dict[str, int]:
+    """Add deterministic review and grouping examples to the isolated demo catalog."""
+    connection = connect(database_path)
+    try:
+        now = utc_now()
+        updated = 0
+        for stem, (rating, picked, rejected, note) in DEMO_REVIEWS.items():
+            row = connection.execute(
+                "SELECT id FROM captures WHERE stem=? ORDER BY id LIMIT 1", (stem,)
+            ).fetchone()
+            if row is None:
+                continue
+            connection.execute(
+                """INSERT INTO capture_reviews(
+                       capture_id, user_rating, user_pick, user_reject,
+                       user_note, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(capture_id) DO UPDATE SET
+                       user_rating=excluded.user_rating,
+                       user_pick=excluded.user_pick,
+                       user_reject=excluded.user_reject,
+                       user_note=excluded.user_note,
+                       updated_at=excluded.updated_at""",
+                (row["id"], rating, int(picked), int(rejected), note, now),
+            )
+            updated += 1
+        split = connection.execute(
+            "SELECT id FROM captures WHERE stem='PARK_0006' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if split is not None:
+            connection.execute(
+                """INSERT INTO similarity_group_overrides(
+                       capture_id, action, created_at, updated_at
+                   ) VALUES (?, 'split_before', ?, ?)
+                   ON CONFLICT(capture_id) DO UPDATE SET
+                       action=excluded.action, updated_at=excluded.updated_at""",
+                (split["id"], now, now),
+            )
+        connection.commit()
+        groups = rebuild_similarity_groups(connection)
+        rebuild_group_recommendations(connection)
+        return {
+            "reviews": updated,
+            "manual_splits": int(split is not None),
+            "similarity_groups": groups["similarity_groups"],
+        }
+    finally:
+        connection.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate the isolated Mac demo photo library")
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--database", type=Path)
     arguments = parser.parse_args()
     result = generate_demo_library(arguments.source, arguments.target)
     print(
         f"Mac demo library ready: {result['sample_count']} files, "
         f"{result['event_count']} events, {result['exact_duplicate_count']} exact duplicates"
     )
+    if arguments.database is not None:
+        seeded = seed_demo_catalog(arguments.database)
+        print(
+            f"Demo selections ready: {seeded['reviews']} reviews, "
+            f"{seeded['manual_splits']} manual split, "
+            f"{seeded['similarity_groups']} similarity groups"
+        )
     return 0
 
 
