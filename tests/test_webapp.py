@@ -88,6 +88,9 @@ class WebAppQueryTests(unittest.TestCase):
             empty_library = _query_library_captures(
                 settings, 10, 0, category="宠物"
             )
+            unassigned_library = _query_library_captures(
+                settings, 10, 0, unassigned_only=True
+            )
             library_filters = _query_library_filters(settings)
             events = _query_events(settings, 10, 0)
             bursts = _query_bursts(settings, 10, 0)
@@ -103,6 +106,7 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(library["items"][0]["thumbnail_url"], "/api/thumbnails/1?size=640")
             self.assertEqual(filtered_library["count"], 1)
             self.assertEqual(empty_library["count"], 0)
+            self.assertEqual(unassigned_library["count"], 0)
             self.assertIn("旅行", {item["name"] for item in library_filters["album_types"]})
             self.assertEqual(library_filters["albums"][0]["capture_count"], 1)
             self.assertEqual(events["count"], 1)

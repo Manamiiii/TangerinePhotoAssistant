@@ -584,6 +584,17 @@ def structure_summary(connection: sqlite3.Connection) -> dict[str, Any]:
         "unconfirmed_event_count": connection.execute(
             "SELECT COUNT(*) FROM events WHERE status <> 'confirmed'"
         ).fetchone()[0],
+        "unassigned_capture_count": connection.execute(
+            """SELECT COUNT(*) FROM captures c
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM event_captures ec WHERE ec.capture_id=c.id
+               )
+                 AND EXISTS (
+                   SELECT 1 FROM capture_files cf
+                   JOIN files f ON f.id=cf.file_id
+                   WHERE cf.capture_id=c.id AND f.present=1
+                 )"""
+        ).fetchone()[0],
         "categories": [dict(row) for row in category_rows],
         "burst_count": burst["burst_count"],
         "captures_in_bursts": burst["capture_count"],

@@ -987,6 +987,7 @@ def _query_library_captures(
     offset: int,
     *,
     album_id: int | None = None,
+    unassigned_only: bool = False,
     category: str | None = None,
     camera_model: str | None = None,
     lens_model: str | None = None,
@@ -1008,6 +1009,8 @@ def _query_library_captures(
         if album_id is not None:
             conditions.append("e.id = ?")
             parameters.append(album_id)
+        elif unassigned_only:
+            conditions.append("e.id IS NULL")
         if category:
             conditions.append("e.category = ?")
             parameters.append(category)
@@ -1624,6 +1627,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         limit: int = Query(default=60, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
         album_id: int | None = Query(default=None, ge=1),
+        unassigned: bool = False,
         category: str | None = Query(default=None, max_length=40),
         camera_model: str | None = Query(default=None, max_length=200),
         lens_model: str | None = Query(default=None, max_length=240),
@@ -1640,6 +1644,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             camera_model=camera_model, lens_model=lens_model, rating=rating,
             selection=selection, date_from=date_from, date_to=date_to,
             search=search, sort=sort, collapse_groups=collapse_groups,
+            unassigned_only=unassigned,
         )
 
     @app.get("/api/library/filters")

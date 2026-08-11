@@ -11,6 +11,7 @@ type CountRow = { count: number } & Record<string, string | number | null>;
 type StructureSummary = {
   event_count: number;
   unconfirmed_event_count: number;
+  unassigned_capture_count: number;
   categories: Array<{ category: string; event_count: number; capture_count: number }>;
   burst_count: number;
   captures_in_bursts: number;
@@ -819,12 +820,8 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   };
   return (
     <>
-      <section className="album-management-header">
-        <div><strong>相册管理</strong><span>{numberFormat.format(albums?.count ?? 0)} 个相册</span></div>
-        <button className="toolbar-button primary" onClick={() => openAlbumEditor("new")}>新建相册</button>
-      </section>
       <section className="panel event-panel album-panel">
-        <div className="panel-heading"><div><span className="section-kicker">相册管理</span><h3>全部相册</h3></div><span className="batch-count">按最近拍摄时间排列</span></div>
+        <div className="panel-heading"><div><h3>全部相册</h3><span className="batch-count">{numberFormat.format(albums?.count ?? 0)} 个 · 按最近拍摄时间排列</span></div><button className="toolbar-button primary" onClick={() => openAlbumEditor("new")}>新建相册</button></div>
         <div className="event-list">
           {(albums?.items ?? []).map((album) => (
             <article className="event-row album-row" key={album.id}>
@@ -832,8 +829,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
               <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.source_count ? `${album.source_count} 个来源目录` : "手动创建"}</span></div>
               <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
               <div className="album-date"><strong>{album.start_at?.slice(0, 10) ?? "—"}</strong><span>拍摄日期</span></div>
-              <div className={`album-status ${album.status === "confirmed" ? "confirmed" : ""}`}>{album.status === "confirmed" ? "已确认" : "待确认"}</div>
-              <div className="album-row-actions"><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button><button onClick={() => openAlbumEditor(album)}>编辑</button>{album.status !== "confirmed" ? <button onClick={() => updateAlbum(album, { status: "confirmed" })}>确认</button> : <span aria-hidden="true" />}</div>
+              <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button><button className={album.status === "confirmed" ? "confirmed" : ""} disabled={album.status === "confirmed"} onClick={() => updateAlbum(album, { status: "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认"}</button><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button></div>
             </article>
           ))}
           {!albums?.items.length && <div className="empty-state">还没有相册，可以新建一个空相册。</div>}
@@ -861,9 +857,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   );
 }
 
-function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, cancelTask, changeGroupPage, changeGroupPageSize, changeBurstPage, changeBurstPageSize }: {
-  overview: Overview | null;
-  bursts: BurstsResponse | null;
+function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, cancelTask, changeGroupPage, changeGroupPageSize }: {
   groups: SimilarityGroupsResponse | null;
   selectedGroup: SimilarityGroupDetail | null;
   task: Task | null;
@@ -876,16 +870,12 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
   cancelTask: () => void;
   changeGroupPage: (offset: number) => void;
   changeGroupPageSize: (limit: number) => void;
-  changeBurstPage: (offset: number) => void;
-  changeBurstPageSize: (limit: number) => void;
 }) {
-  const summary = overview?.structure;
-  const visual = overview?.visual;
   return (
     <>
       <section className="structure-hero burst-hero">
         <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><p>比较连拍和相似画面。</p><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
-        <div className="structure-stat"><strong>{visual ? numberFormat.format(visual.similarity_group_count) : "—"}</strong><span>个画面相似组</span></div>
+        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.count) : "—"}</strong><span>组待比较照片</span></div>
       </section>
       <TaskCard task={task} cancel={cancelTask} />
       {selectedGroup ? (
@@ -932,27 +922,6 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
           {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
         </section>
       )}
-      <section className="metric-grid burst-metrics">
-        <article><span>已生成指纹</span><strong>{visual ? numberFormat.format(visual.fingerprint_count) : "—"}</strong><small>只保存特征，不复制照片</small></article>
-        <article><span>进入相似组</span><strong>{visual ? numberFormat.format(visual.captures_in_similarity_groups) : "—"}</strong><small>拍摄单元</small></article>
-        <article><span>最大相似组</span><strong>{visual?.largest_similarity_group ?? "—"}</strong><small>张</small></article>
-        <article><span>当前判断依据</span><strong className="text-value">画面 + 色彩</strong><small>无需大模型的快速预筛</small></article>
-      </section>
-      <section className="panel burst-panel">
-        <div className="panel-heading"><div><span className="section-kicker">优先处理</span><h3>最大的连拍候选</h3></div><span className="batch-count">按组内数量排序</span></div>
-        <div className="burst-list">
-          {(bursts?.items ?? []).map((burst, index) => (
-            <article className="burst-row" key={burst.id}>
-              <span className="burst-rank">{String(index + 1).padStart(2, "0")}</span>
-              <div className="burst-main"><strong>{burst.event_name}</strong><span>{burst.first_stem} → {burst.last_stem}</span></div>
-              <div className="burst-camera"><strong>{burst.camera_model ?? "未知相机"}</strong><span>{burst.start_at.replace("T", " ")}</span></div>
-              <div className="burst-count"><strong>{burst.capture_count}</strong><span>张</span></div>
-              <span className="candidate-badge">{burst.similarity_group_count ? `${burst.similarity_group_count} 个相似组` : "未形成相似组"}</span>
-            </article>
-          ))}
-        </div>
-        {bursts && <Pagination count={bursts.count} limit={bursts.limit} offset={bursts.offset} onChange={changeBurstPage} onLimitChange={changeBurstPageSize} />}
-      </section>
     </>
   );
 }
@@ -1085,7 +1054,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   return <>
     <section className="library-filters">
       <label className="search-filter"><span>搜索</span><input value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="文件名、相册或目录" /></label>
-      {!albumContext && <label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label>}
+      {!albumContext && <label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option><option value="__unassigned__">未归入相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label>}
       {!albumContext && <label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label>}
       <label><span>相机</span><select value={query.camera} onChange={(event) => updateQuery({ camera: event.target.value })}><option value="">全部相机</option>{(filters?.cameras ?? []).map((camera) => <option key={camera}>{camera}</option>)}</select></label>
       <label><span>镜头</span><select value={query.lens} onChange={(event) => updateQuery({ lens: event.target.value })}><option value="">全部镜头</option>{(filters?.lenses ?? []).map((lens) => <option key={lens}>{lens}</option>)}</select></label>
@@ -1211,26 +1180,42 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   );
 }
 
-function HomeView({ overview, library, task, openPhotos, openAlbums, openCapture }: {
+function HomeView({ overview, statistics, archive, activeBaseline, library, task, openPhotos, openAlbums, openUnassigned, openMaintenance, openCapture }: {
   overview: Overview | null;
+  statistics: Statistics | null;
+  archive: ArchiveStatus | null;
+  activeBaseline: ArchiveStatus | null;
   library: LibraryCapturesResponse | null;
   task: Task | null;
   openPhotos: () => void;
   openAlbums: () => void;
+  openUnassigned: () => void;
+  openMaintenance: () => void;
   openCapture: (captureId: number) => void;
 }) {
   const pendingEvents = overview?.structure.unconfirmed_event_count ?? 0;
+  const unassigned = overview?.structure.unassigned_capture_count ?? 0;
+  const archiveIssue = archive?.comparison && !archive.comparison.healthy;
+  const activeIssue = activeBaseline?.comparison && !activeBaseline.comparison.healthy;
+  const monthRows = statistics?.months ?? [];
+  const latestMonth = monthRows[monthRows.length - 1] ?? null;
+  const hasPending = pendingEvents > 0 || unassigned > 0 || Boolean(archiveIssue) || Boolean(activeIssue);
   return <>
     <section className="home-metrics">
       <article><span>全部照片</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : ""}</small></article>
       <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个名称待确认</small></article>
+      <article><span>最近拍摄月</span><strong>{latestMonth ? numberFormat.format(latestMonth.count) : "—"}</strong><small>{latestMonth?.month ?? "暂无拍摄日期"}</small></article>
     </section>
     <section className="home-management-grid">
       <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={openPhotos}>查看全部</button></div><div className="recent-photo-grid">
         {(library?.items ?? []).slice(0, 8).map((item) => <button key={item.id} onClick={() => openCapture(item.id)}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></button>)}
       </div></section>
       <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
-        {pendingEvents > 0 ? <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button> : <div className="empty-state">当前没有需要及时处理的项目。</div>}
+        {pendingEvents > 0 && <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>}
+        {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
+        {archiveIssue && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
+        {activeIssue && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
+        {!hasPending && <div className="empty-state">当前没有需要及时处理的项目。</div>}
       </div></section>
     </section>
     {task && task.status !== "idle" && <section className="home-current-task"><TaskCard task={task} /></section>}
@@ -1689,9 +1674,6 @@ function App() {
   const [albumOffset, setAlbumOffset] = useState(0);
   const [albumPageSize, setAlbumPageSize] = useState(40);
   const [events, setEvents] = useState<EventsResponse | null>(null);
-  const [bursts, setBursts] = useState<BurstsResponse | null>(null);
-  const [burstOffset, setBurstOffset] = useState(0);
-  const [burstPageSize, setBurstPageSize] = useState(40);
   const [analysis, setAnalysis] = useState<AnalysisOverview | null>(null);
   const [aiPreflight, setAiPreflight] = useState<AiPreflight | null>(null);
   const [quality, setQuality] = useState<QualityResponse | null>(null);
@@ -1724,7 +1706,8 @@ function App() {
     const libraryParameters = new URLSearchParams({
       limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
     });
-    if (libraryQuery.albumId) libraryParameters.set("album_id", libraryQuery.albumId);
+    if (libraryQuery.albumId === "__unassigned__") libraryParameters.set("unassigned", "true");
+    else if (libraryQuery.albumId) libraryParameters.set("album_id", libraryQuery.albumId);
     if (libraryQuery.category) libraryParameters.set("category", libraryQuery.category);
     if (libraryQuery.camera) libraryParameters.set("camera_model", libraryQuery.camera);
     if (libraryQuery.lens) libraryParameters.set("lens_model", libraryQuery.lens);
@@ -1734,12 +1717,11 @@ function App() {
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
     if (libraryQuery.albumId && libraryQuery.collapseGroups) libraryParameters.set("collapse_groups", "true");
-    const [overviewData, libraryData, filterData, eventData, burstData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = await Promise.all([
+    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = await Promise.all([
       getJson<Overview>("/api/overview"),
       getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
       getJson<LibraryFilters>("/api/library/filters"),
       getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`),
-      getJson<BurstsResponse>(`/api/bursts?limit=${burstPageSize}&offset=${burstOffset}`),
       getJson<AnalysisOverview>("/api/analysis/overview"),
       getJson<AiPreflight>("/api/ai/preflight"),
       getJson<QualityResponse>(`/api/quality?limit=${qualityPageSize}&offset=${qualityOffset}`),
@@ -1755,7 +1737,6 @@ function App() {
     setLibraryCaptures(libraryData);
     setLibraryFilters(filterData);
     setEvents(eventData);
-    setBursts(burstData);
     setAnalysis(analysisData);
     setAiPreflight(preflightData);
     setQuality(qualityData);
@@ -1765,7 +1746,7 @@ function App() {
     setArchive(archiveData);
     setActiveLibraryBaseline(activeBaselineData);
     setLightroomStatus(lightroomData);
-  }, [albumOffset, albumPageSize, burstOffset, burstPageSize, groupOffset, groupPageSize, libraryOffset, libraryQuery, qualityOffset, qualityPageSize]);
+  }, [albumOffset, albumPageSize, groupOffset, groupPageSize, libraryOffset, libraryQuery, qualityOffset, qualityPageSize]);
 
   useEffect(() => {
     Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then(setTask)]).catch(
@@ -2212,7 +2193,7 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} library={libraryCaptures} task={task} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openCapture={openCapture} />}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} task={task} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
           requestedSection={libraryLandingSection}
@@ -2223,7 +2204,7 @@ function App() {
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
         />}
-        {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} changeBurstPage={setBurstOffset} changeBurstPageSize={(limit) => { setBurstOffset(0); setBurstPageSize(limit); }} />}
+        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
