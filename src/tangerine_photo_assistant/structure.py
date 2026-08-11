@@ -370,9 +370,12 @@ def propose_events(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
-def _stem_number(stem: str) -> int | None:
+def _stem_sequence(stem: str) -> tuple[str, int, int] | None:
     match = TRAILING_NUMBER.search(stem)
-    return int(match.group(1)) if match else None
+    if match is None:
+        return None
+    digits = match.group(1)
+    return stem[:match.start()].casefold(), int(digits), len(digits)
 
 
 def _can_join_burst(
@@ -387,12 +390,18 @@ def _can_join_burst(
     ).total_seconds()
     if delta < 0 or delta > gap_seconds:
         return False
-    previous_number = _stem_number(previous.stem)
-    current_number = _stem_number(current.stem)
-    if previous_number is not None and current_number is not None:
-        difference = current_number - previous_number
-        return 1 <= difference <= 10
-    return True
+    previous_sequence = _stem_sequence(previous.stem)
+    current_sequence = _stem_sequence(current.stem)
+    if previous_sequence is None or current_sequence is None:
+        return False
+    previous_prefix, previous_number, previous_width = previous_sequence
+    current_prefix, current_number, current_width = current_sequence
+    if previous_prefix != current_prefix or previous_width != current_width:
+        return False
+    if current_number == previous_number + 1:
+        return True
+    rollover = 10**previous_width - 1
+    return previous_number == rollover and current_number in {0, 1}
 
 
 def rebuild_bursts(connection: sqlite3.Connection, gap_seconds: float) -> dict[str, int]:

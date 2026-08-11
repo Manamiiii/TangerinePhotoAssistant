@@ -7,7 +7,12 @@ from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.metadata import MetadataResult
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.settings import Settings
-from tangerine_photo_assistant.structure import rebuild_structure, structure_summary
+from tangerine_photo_assistant.structure import (
+    CaptureRecord,
+    _can_join_burst,
+    rebuild_structure,
+    structure_summary,
+)
 
 
 class MappingMetadataReader:
@@ -48,6 +53,18 @@ def settings_for(root: Path) -> Settings:
 
 
 class StructureTests(unittest.TestCase):
+    def test_burst_sequence_requires_consecutive_matching_file_numbers(self) -> None:
+        def capture(stem: str, second: int) -> CaptureRecord:
+            return CaptureRecord(
+                id=second, parent_relative="album", stem=stem,
+                captured_at=f"2026-08-11T10:00:0{second}", camera_model="X-S20",
+            )
+
+        self.assertTrue(_can_join_burst(capture("DSCF0001", 0), capture("DSCF0002", 1), 3.0))
+        self.assertFalse(_can_join_burst(capture("DSCF0001", 0), capture("DSCF0003", 1), 3.0))
+        self.assertFalse(_can_join_burst(capture("DSCF0001", 0), capture("IMG_0002", 1), 3.0))
+        self.assertTrue(_can_join_burst(capture("DSCF9999", 0), capture("DSCF0001", 1), 3.0))
+
     def test_merges_legacy_subject_folders_and_groups_bursts(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

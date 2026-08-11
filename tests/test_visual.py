@@ -92,6 +92,41 @@ class VisualAnalysisTests(unittest.TestCase):
             self.assertEqual(duplicate_result["duplicate_files"], 2)
             self.assertEqual(fingerprint_result["fingerprint_errors"], 0)
             self.assertGreaterEqual(similarity_result["similarity_groups"], 1)
+            ordered_capture_ids = [
+                row[0] for row in connection.execute(
+                    "SELECT capture_id FROM similarity_group_captures ORDER BY sequence_index"
+                )
+            ]
+            middle_capture_id = ordered_capture_ids[1]
+            connection.execute(
+                """INSERT INTO similarity_group_overrides(
+                       capture_id, action, created_at, updated_at
+                   ) VALUES (?, 'split_before', 'now', 'now')""",
+                (middle_capture_id,),
+            )
+            connection.commit()
+            split_result = rebuild_similarity_groups(connection)
+            self.assertEqual(split_result["similarity_groups"], 1)
+            split_members = [
+                row[0] for row in connection.execute(
+                    "SELECT capture_id FROM similarity_group_captures ORDER BY sequence_index"
+                )
+            ]
+            self.assertEqual(split_members, ordered_capture_ids[1:])
+            connection.execute(
+                "UPDATE similarity_group_overrides SET action='exclude' WHERE capture_id=?",
+                (middle_capture_id,),
+            )
+            connection.commit()
+            excluded_result = rebuild_similarity_groups(connection)
+            self.assertEqual(excluded_result["similarity_groups"], 0)
+            connection.execute(
+                "DELETE FROM similarity_group_overrides WHERE capture_id=?",
+                (middle_capture_id,),
+            )
+            connection.commit()
+            restored_result = rebuild_similarity_groups(connection)
+            self.assertEqual(restored_result["similarity_groups"], 1)
             event_ids = {
                 row[0] for row in connection.execute("SELECT id FROM events")
             }

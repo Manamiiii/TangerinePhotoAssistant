@@ -6,7 +6,7 @@ import sqlite3
 from typing import Iterator
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def _ensure_column(
@@ -264,6 +264,13 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_similarity_group_captures_capture
             ON similarity_group_captures(capture_id);
+
+        CREATE TABLE IF NOT EXISTS similarity_group_overrides (
+            capture_id INTEGER PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,
+            action TEXT NOT NULL CHECK(action IN ('exclude', 'split_before')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS quality_metrics (
             capture_id INTEGER PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,
@@ -523,7 +530,7 @@ def connect(path: Path) -> sqlite3.Connection:
     row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
     if row is None:
         connection.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
-    elif row["version"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
+    elif row["version"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
         connection.execute("UPDATE schema_info SET version = ?", (SCHEMA_VERSION,))
     elif row["version"] != SCHEMA_VERSION:
         raise RuntimeError(

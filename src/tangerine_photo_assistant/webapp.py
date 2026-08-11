@@ -63,13 +63,13 @@ from .migration import (
     switch_active_library,
 )
 from .pairing import rebuild_captures
-from .quality import analyze_quality
+from .quality import analyze_quality, rebuild_group_recommendations
 from .reporting import build_report, write_report
 from .settings import Settings
 from .statistics import build_statistics
 from .structure import rebuild_structure, structure_summary
 from .thumbnails import ThumbnailCache
-from .visual import analyze_visuals
+from .visual import analyze_visuals, rebuild_similarity_groups
 
 
 @dataclass
@@ -144,6 +144,10 @@ class AlbumAssignmentRequest(BaseModel):
 
 class ScanStartRequest(BaseModel):
     album_id: int = Field(ge=1)
+
+
+class SimilarityOverrideRequest(BaseModel):
+    action: Literal["exclude", "split_before", "auto"]
 
 
 class MigrationStartRequest(BaseModel):
@@ -992,6 +996,7 @@ def _query_library_captures(
     date_to: str | None = None,
     search: str | None = None,
     sort: str = "newest",
+    collapse_groups: bool = False,
 ) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
@@ -1041,38 +1046,99 @@ def _query_library_captures(
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
             LEFT JOIN similarity_group_captures sgc ON sgc.capture_id = c.id
             LEFT JOIN similarity_groups sg ON sg.id = sgc.group_id
+            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
+            LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id = c.id
+            LEFT JOIN (
+                SELECT members.group_id,
+                       SUM(CASE WHEN COALESCE(reviews.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
+                       SUM(CASE WHEN COALESCE(reviews.user_reject, 0)=1 THEN 1 ELSE 0 END) AS reject_count,
+                       SUM(CASE WHEN reviews.user_rating IS NULL
+                                     AND COALESCE(reviews.user_pick, 0)=0
+                                     AND COALESCE(reviews.user_reject, 0)=0 THEN 1 ELSE 0 END) AS unreviewed_count
+                FROM similarity_group_captures members
+                LEFT JOIN capture_reviews reviews ON reviews.capture_id=members.capture_id
+                GROUP BY members.group_id
+            ) group_stats ON group_stats.group_id=sg.id
         """
-        total = connection.execute(
-            f"SELECT COUNT(DISTINCT c.id) {from_sql} WHERE {where_sql}",
-            parameters,
-        ).fetchone()[0]
         ordering = {
             "oldest": "c.captured_at IS NULL, c.captured_at ASC, c.id ASC",
             "name": "c.stem COLLATE NOCASE ASC, c.id ASC",
             "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC",
         }.get(sort, "c.captured_at IS NULL, c.captured_at DESC, c.id DESC")
-        rows = connection.execute(
-            f"""
+        row_sql = f"""
             SELECT c.id, c.stem, c.captured_at, c.pairing_status,
                    f.camera_model, f.lens_model, e.id AS album_id,
                    e.proposed_name AS album_name, e.category,
-                   cr.user_rating, cr.user_pick, cr.user_reject,
+                   cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
+                   cr.auto_pick, qm.technical_score,
+                   sgo.action AS grouping_override,
                    MAX(sg.id) AS similarity_group_id,
-                   MAX(sg.capture_count) AS similarity_group_size
+                   MAX(sg.capture_count) AS similarity_group_size,
+                   MAX(group_stats.pick_count) AS group_pick_count,
+                   MAX(group_stats.reject_count) AS group_reject_count,
+                   MAX(group_stats.unreviewed_count) AS group_unreviewed_count
             {from_sql}
             WHERE {where_sql}
             GROUP BY c.id
             ORDER BY {ordering}
-            LIMIT ? OFFSET ?
-            """,
-            (*parameters, limit, offset),
-        ).fetchall()
+            """
+        if collapse_groups:
+            rows = connection.execute(row_sql, parameters).fetchall()
+        else:
+            rows = connection.execute(
+                f"{row_sql} LIMIT ? OFFSET ?", (*parameters, limit, offset)
+            ).fetchall()
         items = []
         for row in rows:
             item = dict(row)
             item["thumbnail_url"] = f"/api/thumbnails/{item['id']}?size=640"
+            item["item_type"] = "photo"
+            item["selection_capture_ids"] = [item["id"]]
             items.append(item)
-        return {"count": total, "limit": limit, "offset": offset, "items": items}
+        if collapse_groups:
+            folded: list[dict[str, Any]] = []
+            positions: dict[int, int] = {}
+            members: dict[int, list[dict[str, Any]]] = {}
+            for item in items:
+                group_id = item["similarity_group_id"]
+                if group_id is None:
+                    folded.append(item)
+                    continue
+                members.setdefault(group_id, []).append(item)
+                if group_id not in positions:
+                    positions[group_id] = len(folded)
+                    group_item = dict(item)
+                    group_item["item_type"] = "group"
+                    folded.append(group_item)
+                    continue
+                current = folded[positions[group_id]]
+                candidate_rank = (
+                    int(bool(item["user_pick"])), item["user_rating"] or 0,
+                    int(bool(item["auto_pick"])), item["technical_score"] or -1,
+                )
+                current_rank = (
+                    int(bool(current["user_pick"])), current["user_rating"] or 0,
+                    int(bool(current["auto_pick"])), current["technical_score"] or -1,
+                )
+                if candidate_rank > current_rank:
+                    replacement = dict(item)
+                    replacement["item_type"] = "group"
+                    folded[positions[group_id]] = replacement
+            for group_id, group_members in members.items():
+                group_item = folded[positions[group_id]]
+                picked_ids = [item["id"] for item in group_members if item["user_pick"]]
+                group_item["selection_capture_ids"] = picked_ids or [group_item["id"]]
+            total = len(folded)
+            return {
+                "count": total, "limit": limit, "offset": offset,
+                "items": folded[offset:offset + limit], "collapsed": True,
+            }
+        total = connection.execute(
+            f"SELECT COUNT(DISTINCT c.id) {from_sql} WHERE {where_sql}",
+            parameters,
+        ).fetchone()[0]
+        return {"count": total, "limit": limit, "offset": offset, "items": items,
+                "collapsed": False}
     finally:
         connection.close()
 
@@ -1417,6 +1483,7 @@ def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]
                    qm.exposure_score, qm.sharpness_score, qm.exif_score,
                    qm.issue_json, cr.auto_rating, cr.auto_pick, cr.similarity_rank,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
+                   sgo.action AS grouping_override,
                    f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
                    f.focal_length_35mm, f.camera_model, f.lens_model
             FROM similarity_group_captures sgc
@@ -1428,6 +1495,7 @@ def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]
             JOIN files f ON f.id = cf.file_id
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
+            LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id = c.id
             WHERE sgc.group_id = ? ORDER BY sgc.sequence_index
             """,
             (group_id,),
@@ -1558,12 +1626,13 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         date_to: str | None = Query(default=None, max_length=10),
         search: str | None = Query(default=None, max_length=120),
         sort: Literal["newest", "oldest", "name", "rating"] = "newest",
+        collapse_groups: bool = False,
     ) -> dict[str, Any]:
         return _query_library_captures(
             settings, limit, offset, album_id=album_id, category=category,
             camera_model=camera_model, lens_model=lens_model, rating=rating,
             selection=selection, date_from=date_from, date_to=date_to,
-            search=search, sort=sort,
+            search=search, sort=sort, collapse_groups=collapse_groups,
         )
 
     @app.get("/api/library/filters")
@@ -1694,6 +1763,50 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             return _query_similarity_group(settings, group_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.put("/api/captures/{capture_id}/similarity-override")
+    def update_similarity_override(
+        capture_id: int, request: SimilarityOverrideRequest
+    ) -> dict[str, Any]:
+        if manager.snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="后台任务运行时不能调整相似分组")
+        connection = connect(settings.database_path)
+        try:
+            if connection.execute(
+                "SELECT 1 FROM captures WHERE id=?", (capture_id,)
+            ).fetchone() is None:
+                raise HTTPException(status_code=404, detail="照片不存在")
+            if request.action == "auto":
+                connection.execute(
+                    "DELETE FROM similarity_group_overrides WHERE capture_id=?",
+                    (capture_id,),
+                )
+            else:
+                if connection.execute(
+                    "SELECT 1 FROM burst_captures WHERE capture_id=? LIMIT 1",
+                    (capture_id,),
+                ).fetchone() is None:
+                    raise HTTPException(status_code=422, detail="这张照片不属于连拍候选")
+                now = utc_now()
+                connection.execute(
+                    """INSERT INTO similarity_group_overrides(
+                           capture_id, action, created_at, updated_at
+                       ) VALUES (?, ?, ?, ?)
+                       ON CONFLICT(capture_id) DO UPDATE SET
+                           action=excluded.action, updated_at=excluded.updated_at""",
+                    (capture_id, request.action, now, now),
+                )
+            connection.commit()
+            regrouped = rebuild_similarity_groups(connection)
+            recommendations = rebuild_group_recommendations(connection)
+            return {
+                "capture_id": capture_id,
+                "action": request.action,
+                **regrouped,
+                **recommendations,
+            }
+        finally:
+            connection.close()
 
     @app.get("/api/captures/{capture_id}")
     def capture_detail(capture_id: int) -> dict[str, Any]:

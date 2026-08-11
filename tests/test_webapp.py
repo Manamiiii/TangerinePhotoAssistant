@@ -11,6 +11,10 @@ from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.settings import Settings
 from tangerine_photo_assistant.structure import rebuild_structure
+from tangerine_photo_assistant.visual import (
+    build_visual_fingerprints,
+    rebuild_similarity_groups,
+)
 from tangerine_photo_assistant.webapp import (
     AiStartRequest,
     ScanTaskManager,
@@ -187,6 +191,60 @@ class WebAppQueryTests(unittest.TestCase):
             ).fetchall()
             connection.close()
             self.assertEqual([row[0] for row in members], ["new"])
+
+    def test_album_feed_collapses_similarity_groups_and_keeps_single_photos(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            source = settings.originals / "2026-08-11_折叠测试"
+            source.mkdir(parents=True)
+            for stem in ("DSCF0001", "DSCF0002", "DSCF0003", "DSCF0010"):
+                Image.new("RGB", (48, 32), "orange").save(source / f"{stem}.JPG")
+            connection = connect(settings.database_path)
+            scan_library(connection, settings)
+            for stem, second in (("DSCF0001", 1), ("DSCF0002", 2), ("DSCF0003", 3), ("DSCF0010", 10)):
+                connection.execute(
+                    "UPDATE files SET captured_at=? WHERE stem=?",
+                    (f"2026-08-11T10:00:{second:02d}", stem),
+                )
+            connection.commit()
+            rebuild_captures(connection)
+            rebuild_structure(connection, settings.burst_time_gap_seconds)
+            build_visual_fingerprints(connection)
+            rebuild_similarity_groups(connection)
+            album_id = connection.execute("SELECT id FROM events LIMIT 1").fetchone()[0]
+            picked_id = connection.execute(
+                "SELECT id FROM captures WHERE stem='DSCF0002'"
+            ).fetchone()[0]
+            single_id = connection.execute(
+                "SELECT id FROM captures WHERE stem='DSCF0010'"
+            ).fetchone()[0]
+            connection.executemany(
+                """INSERT INTO capture_reviews(
+                       capture_id, user_pick, user_reject, updated_at
+                   ) VALUES (?, 1, 0, 'now')""",
+                ((picked_id,), (single_id,)),
+            )
+            connection.commit()
+            connection.close()
+
+            collapsed = _query_library_captures(
+                settings, 20, 0, album_id=album_id, collapse_groups=True
+            )
+            self.assertTrue(collapsed["collapsed"])
+            self.assertEqual(collapsed["count"], 2)
+            group = next(item for item in collapsed["items"] if item["item_type"] == "group")
+            single = next(item for item in collapsed["items"] if item["item_type"] == "photo")
+            self.assertEqual(group["id"], picked_id)
+            self.assertEqual(group["group_pick_count"], 1)
+            self.assertEqual(group["selection_capture_ids"], [picked_id])
+            self.assertEqual(single["id"], single_id)
+
+            picked = _query_library_captures(
+                settings, 20, 0, album_id=album_id,
+                selection="picked", collapse_groups=True,
+            )
+            self.assertEqual(picked["count"], 2)
 
 
 if __name__ == "__main__":

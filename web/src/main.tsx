@@ -70,11 +70,18 @@ type LibraryCapture = {
   user_rating: number | null;
   user_pick: number | null;
   user_reject: number | null;
+  user_note: string | null;
   similarity_group_id: number | null;
   similarity_group_size: number | null;
+  item_type: "photo" | "group";
+  selection_capture_ids: number[];
+  group_pick_count: number | null;
+  group_reject_count: number | null;
+  group_unreviewed_count: number | null;
+  grouping_override: "exclude" | "split_before" | null;
   thumbnail_url: string;
 };
-type LibraryCapturesResponse = { count: number; limit: number; offset: number; items: LibraryCapture[] };
+type LibraryCapturesResponse = { count: number; limit: number; offset: number; collapsed: boolean; items: LibraryCapture[] };
 type LibraryFilters = {
   albums: Array<{ id: number; name: string; category: string; capture_count: number; status: string }>;
   album_types: Array<{ name: string; built_in: number }>;
@@ -93,6 +100,7 @@ type LibraryQuery = {
   dateTo: string;
   search: string;
   sort: string;
+  collapseGroups: boolean;
 };
 type PhoneShareExport = {
   filename: string;
@@ -172,6 +180,7 @@ type GroupCapture = {
   user_pick: number | null;
   user_reject: number;
   user_note: string | null;
+  grouping_override: "exclude" | "split_before" | null;
   exposure_time: number | null;
   f_number: number | null;
   iso: number | null;
@@ -854,7 +863,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   );
 }
 
-function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, cancelTask, changeGroupPage, changeGroupPageSize, changeBurstPage, changeBurstPageSize }: {
+function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, cancelTask, changeGroupPage, changeGroupPageSize, changeBurstPage, changeBurstPageSize }: {
   overview: Overview | null;
   bursts: BurstsResponse | null;
   groups: SimilarityGroupsResponse | null;
@@ -865,6 +874,7 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
   closeGroup: () => void;
   openCapture: (captureId: number) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
+  editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   cancelTask: () => void;
   changeGroupPage: (offset: number) => void;
   changeGroupPageSize: (limit: number) => void;
@@ -888,7 +898,7 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
           </div>
           <div className="comparison-note">共 {selectedGroup.capture_count} 张 · 按拍摄顺序排列 · 点击图片查看完整参数</div>
           <div className="comparison-grid">
-            {selectedGroup.items.map((item) => (
+            {selectedGroup.items.map((item, index) => (
               <article className={`comparison-card ${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id} onClick={() => openCapture(item.capture_id)}>
                 <div className="photo-frame">
                   <img src={item.thumbnail_url} loading="lazy" alt={`${item.stem} 缩略图`} />
@@ -902,6 +912,9 @@ function BurstsView({ overview, bursts, groups, selectedGroup, task, startVisual
                   </select>
                   <button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>保留</button>
                   <button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>待淘汰</button>
+                  {index > 0 && <button onClick={() => void editGrouping(item.capture_id, "split_before")}>从这里拆分</button>}
+                  <button onClick={() => void editGrouping(item.capture_id, "exclude")}>移出本组</button>
+                  {item.grouping_override && <button onClick={() => void editGrouping(item.capture_id, "auto")}>恢复自动</button>}
                 </div>
               </article>
             ))}
@@ -999,29 +1012,33 @@ function CaptureDetailPanel({ detail, close, saveAiReview }: {
   );
 }
 
-function SimilarityPickerModal({ group, close, openCapture, saveReview }: {
+function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrouping }: {
   group: SimilarityGroupDetail;
   close: () => void;
   openCapture: (captureId: number) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
+  editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
 }) {
   return <ModalShell title={`${group.event_name} · 相似照片`} close={close} wide>
     <div className="similarity-picker-summary">共 {group.capture_count} 张，按拍摄顺序排列</div>
-    <div className="similarity-picker-grid">{group.items.map((item) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
+    <div className="similarity-picker-grid">{group.items.map((item, index) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
       <button className="similarity-picker-photo" onClick={() => openCapture(item.capture_id)}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{item.auto_pick && <span>技术推荐</span>}</button>
       <div className="similarity-picker-copy"><strong>{item.stem}</strong><small>{item.technical_score == null ? "未评分" : `技术分 ${Math.round(item.technical_score)}`} · ISO {item.iso ?? "—"}</small></div>
       <div className="similarity-picker-actions"><select value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}><option value="">星级</option>{[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}★</option>)}</select><button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>保留</button><button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>淘汰</button></div>
+      <div className="similarity-grouping-actions">{index > 0 && <button onClick={() => void editGrouping(item.capture_id, "split_before")}>从这里拆分</button>}<button onClick={() => void editGrouping(item.capture_id, "exclude")}>移出本组</button>{item.grouping_override && <button onClick={() => void editGrouping(item.capture_id, "auto")}>恢复自动</button>}</div>
     </article>)}</div>
   </ModalShell>;
 }
 
-function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, exportPhotos, assignToAlbum, changePage, changePageSize, albumContext = false }: {
+function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, saveReview, editGrouping, exportPhotos, assignToAlbum, changePage, changePageSize, albumContext = false }: {
   library: LibraryCapturesResponse | null;
   filters: LibraryFilters | null;
   query: LibraryQuery;
   updateQuery: (changes: Partial<LibraryQuery>) => void;
   openCapture: (captureId: number) => void;
   openGroup?: (groupId: number) => void;
+  saveReview: (captureId: number, review: ReviewPayload) => void;
+  editGrouping?: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
   changePage: (offset: number) => void;
@@ -1033,9 +1050,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [maxEdge, setMaxEdge] = useState(2048);
   const [exporting, setExporting] = useState(false);
   const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
-  const toggle = (captureId: number) => setSelected((current) => {
+  const toggle = (captureIds: number[]) => setSelected((current) => {
     const next = new Set(current);
-    if (next.has(captureId)) next.delete(captureId); else next.add(captureId);
+    const remove = captureIds.every((captureId) => next.has(captureId));
+    captureIds.forEach((captureId) => remove ? next.delete(captureId) : next.add(captureId));
     return next;
   });
   const exportSelected = async () => {
@@ -1055,11 +1073,12 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     }
   };
   const items = library?.items ?? [];
-  const allSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+  const pageCaptureIds = Array.from(new Set(items.flatMap((item) => item.selection_capture_ids)));
+  const allSelected = pageCaptureIds.length > 0 && pageCaptureIds.every((captureId) => selected.has(captureId));
   return <>
     <section className="library-toolbar">
-      <div><strong>{library ? numberFormat.format(library.count) : "—"}</strong><span>张符合条件的照片</span></div>
-      <div className="library-toolbar-actions"><button className="toolbar-button" onClick={() => setSelected((current) => new Set([...current, ...items.map((item) => item.id)]))} disabled={!items.length}>选择本页</button></div>
+      <div><strong>{library ? numberFormat.format(library.count) : "—"}</strong><span>{library?.collapsed ? "个照片或连拍组" : "张符合条件的照片"}</span></div>
+      <div className="library-toolbar-actions">{albumContext && <div className="burst-view-toggle"><button className={query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: true })}>折叠连拍</button><button className={!query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: false })}>展开全部</button></div>}<button className="toolbar-button" onClick={() => setSelected((current) => new Set([...current, ...pageCaptureIds]))} disabled={!items.length}>批量选择本页</button></div>
     </section>
     <section className="library-filters">
       <label className="search-filter"><span>搜索</span><input value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="文件名、相册或目录" /></label>
@@ -1075,23 +1094,26 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       <button className="toolbar-button filter-reset" onClick={() => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest" })}>清除筛选</button>
     </section>
     <section className={`selection-toolbar ${selected.size ? "visible" : ""}`}>
-      <div><strong>已选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !items.some((item) => item.id === id))) : new Set([...selected, ...items.map((item) => item.id)]))}>{allSelected ? "取消本页全选" : "选择本页全部"}</button><button onClick={() => setSelected(new Set())}>清除</button></div>
+      <div><strong>已批量选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds]))}>{allSelected ? "取消本页全选" : "选择本页全部"}</button><button onClick={() => setSelected(new Set())}>清除</button></div>
       <div className="selection-actions"><label>归入相册<select value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>应用</button><label>分享尺寸<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出分享包"}</span><b>↓</b></button></div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张照片 · {formatBytes(latestExport.size_bytes)} · EXIF 已移除</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
     <section className="photo-library-grid">
-      {items.map((item) => <article className={`library-photo-card ${selected.has(item.id) ? "selected" : ""}`} key={item.id}>
-        <button className="photo-select" aria-label={`${selected.has(item.id) ? "取消选择" : "选择"} ${item.stem}`} onClick={() => toggle(item.id)}><span>{selected.has(item.id) ? "✓" : ""}</span></button>
-        <button className="photo-open" onClick={() => openCapture(item.id)}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /></button>
-        <div className="photo-card-copy"><div><strong>{item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{item.album_name ?? "尚未归入相册"}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span><div>{item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>相似 {item.similarity_group_size}</button> : null}{item.user_pick ? <b>已选</b> : item.user_reject ? <b className="rejected">待淘汰</b> : null}</div></div></div>
-      </article>)}
+      {items.map((item) => {
+        const itemSelected = item.selection_capture_ids.every((captureId) => selected.has(captureId));
+        const isGroup = item.item_type === "group" && item.similarity_group_id != null;
+        return <article className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={`${item.item_type}-${item.similarity_group_id ?? item.id}`}>
+        <button className="photo-select" aria-label={`${itemSelected ? "取消批量选择" : "批量选择"} ${item.stem}`} onClick={() => toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : ""}</span></button>
+        <button className="photo-open" onClick={() => isGroup && openGroup ? openGroup(item.similarity_group_id!) : openCapture(item.id)}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张</span>}</button>
+        <div className="photo-card-copy"><div><strong>{isGroup ? `连拍 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{isGroup ? `${item.group_pick_count ?? 0} 张保留 · ${item.group_unreviewed_count ?? 0} 张未处理` : item.album_name ?? "尚未归入相册"}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : isGroup && item.user_pick ? "保留封面" : "未评分"}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出连拍</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>相似 {item.similarity_group_size}</button> : null}{item.user_pick ? <b>已保留</b> : item.user_reject ? <b className="rejected">待淘汰</b> : null}</div></div>{!isGroup && <div className="photo-quick-review"><button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>{item.user_pick ? "取消保留" : "保留"}</button><button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>{item.user_reject ? "取消淘汰" : "淘汰"}</button></div>}</div>
+      </article>})}
       {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
     </section>
     {library && <Pagination count={library.count} limit={library.limit} offset={library.offset} onChange={changePage} onLimitChange={changePageSize} />}
   </>;
 }
 
-function LibraryView({ overview, library, albums, filters, query, updateQuery, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
+function LibraryView({ overview, library, albums, filters, query, updateQuery, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
@@ -1112,6 +1134,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
   openGroup: (groupId: number) => void;
   closeGroup: () => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
+  editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
@@ -1127,12 +1150,12 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
   const activeAlbum = filters?.albums.find((album) => album.id === activeAlbumId) ?? null;
   const showAlbum = (albumId: number) => {
     setActiveAlbumId(albumId);
-    updateQuery({ albumId: String(albumId), category: "" });
+    updateQuery({ albumId: String(albumId), category: "", collapseGroups: true });
   };
   const leaveAlbum = () => {
     setActiveAlbumId(null);
     setSection("albums");
-    updateQuery({ albumId: "", category: "" });
+    updateQuery({ albumId: "", category: "", collapseGroups: false });
   };
   const openUpdate = () => {
     setTargetAlbum(filters?.albums[0] ? String(filters.albums[0].id) : "__new__");
@@ -1160,13 +1183,13 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
       <TaskCard task={task} cancel={cancelTask} />
       {activeAlbumId ? <>
         <section className="album-detail-header"><button className="album-back" onClick={leaveAlbum}>← 返回相册</button><div><span>{activeAlbum?.category ?? "相册"}</span><h2>{activeAlbum?.name ?? "相册照片"}</h2><small>{numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片</small></div></section>
-        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
+        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} saveReview={saveReview} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
       </> : <>
         <div className="section-tabs" role="tablist" aria-label="图库功能">
           <button className={section === "photos" ? "active" : ""} onClick={() => setSection("photos")}>全部照片</button>
           <button className={section === "albums" ? "active" : ""} onClick={() => setSection("albums")}>相册</button>
         </div>
-        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
+        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} saveReview={saveReview} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
         {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
       </>}
       {updateOpen && <ModalShell title="更新图库" close={() => setUpdateOpen(false)}><form className="editor-form" onSubmit={(event) => { event.preventDefault(); void runUpdate(); }}>
@@ -1175,7 +1198,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, t
         <div className="update-library-note">只索引新增或变化的文件。原片不会被移动、删除或改写。</div>
         <footer><button type="button" className="toolbar-button" onClick={() => setUpdateOpen(false)}>取消</button><button className="toolbar-button primary" disabled={!targetAlbum || (targetAlbum === "__new__" && !newAlbumName.trim())}>开始更新</button></footer>
       </form></ModalShell>}
-      {selectedGroup && <SimilarityPickerModal group={selectedGroup} close={closeGroup} openCapture={openCapture} saveReview={saveReview} />}
+      {selectedGroup && <SimilarityPickerModal group={selectedGroup} close={closeGroup} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} />}
     </>
   );
 }
@@ -1663,7 +1686,7 @@ function App() {
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
     pageSize: 80, albumId: "", category: "", camera: "", lens: "",
-    rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest",
+    rating: "", selection: "", dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
   });
   const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
   const [albumOffset, setAlbumOffset] = useState(0);
@@ -1711,6 +1734,7 @@ function App() {
     if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
+    if (libraryQuery.albumId && libraryQuery.collapseGroups) libraryParameters.set("collapse_groups", "true");
     const [overviewData, libraryData, filterData, eventData, burstData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = await Promise.all([
       getJson<Overview>("/api/overview"),
       getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
@@ -1873,6 +1897,7 @@ function App() {
           user_note: review.user_note,
         } : item),
       } : current);
+      await refreshLibrary();
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -1901,6 +1926,22 @@ function App() {
       setSelectedGroup(await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${groupId}`));
     } catch (reason) {
       setError((reason as Error).message);
+    }
+  };
+
+  const editGrouping = async (captureId: number, action: "exclude" | "split_before" | "auto") => {
+    setError(null);
+    try {
+      await getJson(`/api/captures/${captureId}/similarity-override`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      setSelectedGroup(null);
+      await refreshLibrary();
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
     }
   };
 
@@ -2177,11 +2218,11 @@ function App() {
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
-          openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
+          openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
         />}
-        {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} changeBurstPage={setBurstOffset} changeBurstPageSize={(limit) => { setBurstOffset(0); setBurstPageSize(limit); }} />}
+        {view === "bursts" && <BurstsView overview={overview} bursts={bursts} groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} changeBurstPage={setBurstOffset} changeBurstPageSize={(limit) => { setBurstOffset(0); setBurstPageSize(limit); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}

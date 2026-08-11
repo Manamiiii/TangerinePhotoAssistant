@@ -283,15 +283,32 @@ def rebuild_similarity_groups(
     for row in rows:
         by_burst[row["burst_id"]].append(row)
 
+    overrides = {
+        row["capture_id"]: row["action"]
+        for row in connection.execute(
+            "SELECT capture_id, action FROM similarity_group_overrides"
+        )
+    }
+
     groups: list[tuple[int, list[tuple[sqlite3.Row, int | None]], int]] = []
     for burst_id, captures in by_burst.items():
         segment: list[tuple[sqlite3.Row, int | None]] = []
         max_seen = 0
+        def finish_segment() -> None:
+            nonlocal segment, max_seen
+            if len(segment) >= 2:
+                groups.append((burst_id, segment, max_seen))
+            segment, max_seen = [], 0
+
         for row in captures:
+            override = overrides.get(row["capture_id"])
+            if override == "exclude":
+                finish_segment()
+                continue
+            if override == "split_before" and segment:
+                finish_segment()
             if row["dhash64"] is None:
-                if len(segment) >= 2:
-                    groups.append((burst_id, segment, max_seen))
-                segment, max_seen = [], 0
+                finish_segment()
                 continue
             distance = None
             similar = True
@@ -304,15 +321,12 @@ def rebuild_similarity_groups(
                 )
                 similar = distance <= max_hamming and color_distance <= max_color_distance
             if not similar:
-                if len(segment) >= 2:
-                    groups.append((burst_id, segment, max_seen))
-                segment, max_seen = [], 0
+                finish_segment()
                 distance = None
             segment.append((row, distance))
             if distance is not None:
                 max_seen = max(max_seen, distance)
-        if len(segment) >= 2:
-            groups.append((burst_id, segment, max_seen))
+        finish_segment()
 
     with transaction(connection):
         connection.execute("DELETE FROM similarity_group_captures")
