@@ -19,6 +19,7 @@ from tangerine_photo_assistant.webapp import (
     AiStartRequest,
     ScanTaskManager,
     ScanStartRequest,
+    SimilarityGroupEditRequest,
     _assign_captures_to_album,
     _query_analysis_overview,
     _query_bursts,
@@ -64,6 +65,10 @@ class WebAppQueryTests(unittest.TestCase):
             AiStartRequest(mode="unsupported", limit=10)
         with self.assertRaises(ValidationError):
             ScanStartRequest(album_id=0)
+        request = SimilarityGroupEditRequest(
+            source_group_id=1, groups=[], excluded_ids=[1, 2]
+        )
+        self.assertEqual(request.excluded_ids, [1, 2])
 
     def test_overview_and_inbox_use_real_catalog_data(self) -> None:
         with TemporaryDirectory() as directory:

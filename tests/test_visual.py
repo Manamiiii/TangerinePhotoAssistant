@@ -127,6 +127,33 @@ class VisualAnalysisTests(unittest.TestCase):
             connection.commit()
             restored_result = rebuild_similarity_groups(connection)
             self.assertEqual(restored_result["similarity_groups"], 1)
+            connection.executemany(
+                """INSERT INTO similarity_group_overrides(
+                       capture_id, action, created_at, updated_at,
+                       manual_batch_key, manual_group_key
+                   ) VALUES (?, 'split_before', 'now', 'now', 'manual:test', 'manual:test:a')""",
+                [(ordered_capture_ids[0],), (ordered_capture_ids[2],)],
+            )
+            connection.execute(
+                """INSERT INTO similarity_group_overrides(
+                       capture_id, action, created_at, updated_at, manual_batch_key
+                   ) VALUES (?, 'exclude', 'now', 'now', 'manual:test')""",
+                (ordered_capture_ids[1],),
+            )
+            connection.commit()
+            manual_result = rebuild_similarity_groups(connection)
+            self.assertEqual(manual_result["similarity_groups"], 1)
+            manual_members = [
+                row[0] for row in connection.execute(
+                    "SELECT capture_id FROM similarity_group_captures ORDER BY sequence_index"
+                )
+            ]
+            self.assertEqual(manual_members, [ordered_capture_ids[0], ordered_capture_ids[2]])
+            connection.execute(
+                "DELETE FROM similarity_group_overrides WHERE manual_batch_key='manual:test'"
+            )
+            connection.commit()
+            self.assertEqual(rebuild_similarity_groups(connection)["similarity_groups"], 1)
             event_ids = {
                 row[0] for row in connection.execute("SELECT id FROM events")
             }

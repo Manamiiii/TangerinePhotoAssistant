@@ -150,6 +150,12 @@ class SimilarityOverrideRequest(BaseModel):
     action: Literal["exclude", "split_before", "auto"]
 
 
+class SimilarityGroupEditRequest(BaseModel):
+    source_group_id: int = Field(ge=1)
+    groups: list[list[int]] = Field(max_length=20)
+    excluded_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
 class MigrationStartRequest(BaseModel):
     plan_id: int
     confirmation: str
@@ -1074,7 +1080,7 @@ def _query_library_captures(
                    e.proposed_name AS album_name, e.category,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
                    cr.auto_pick, qm.technical_score,
-                   sgo.action AS grouping_override,
+                   sgo.action AS grouping_override, sgo.manual_batch_key,
                    COALESCE((
                        SELECT SUM(member_file.size_bytes)
                        FROM capture_files member_cf
@@ -1397,18 +1403,32 @@ def _query_analysis_overview(settings: Settings) -> dict[str, Any]:
         connection.close()
 
 
-def _query_quality(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
+def _query_quality(
+    settings: Settings,
+    limit: int,
+    offset: int,
+    review_filter: str = "all",
+    search: str | None = None,
+) -> dict[str, Any]:
     connection = connect(settings.database_path)
     try:
-        total = connection.execute("SELECT COUNT(*) FROM quality_metrics").fetchone()[0]
-        rows = connection.execute(
-            """
-            SELECT qm.capture_id, c.stem, c.captured_at, e.proposed_name AS event_name,
-                   e.category, qm.technical_score, qm.exposure_score, qm.sharpness_score,
-                   qm.exif_score, qm.highlight_clip_pct, qm.shadow_clip_pct,
-                   qm.issue_json, qm.error, cr.auto_rating, cr.auto_pick,
-                   cr.similarity_rank, cr.user_rating, cr.user_pick,
-                   cr.user_reject, cr.user_note, aa.result_json AS ai_result_json
+        conditions = ["1=1"]
+        parameters: list[Any] = []
+        if review_filter == "problems":
+            conditions.append("qm.issue_json <> '[]'")
+        elif review_filter == "low_score":
+            conditions.append("qm.technical_score < 70")
+        elif review_filter == "with_model":
+            conditions.append("aa.id IS NOT NULL")
+        elif review_filter == "without_model":
+            conditions.append("aa.id IS NULL")
+        elif review_filter == "unrated":
+            conditions.append("cr.user_rating IS NULL")
+        if search:
+            conditions.append("(c.stem LIKE ? OR e.proposed_name LIKE ?)")
+            term = f"%{search.strip()}%"
+            parameters.extend((term, term))
+        from_sql = """
             FROM quality_metrics qm
             JOIN captures c ON c.id = qm.capture_id
             JOIN event_captures ec ON ec.capture_id = c.id
@@ -1419,10 +1439,25 @@ def _query_quality(settings: Settings, limit: int, offset: int) -> dict[str, Any
                 WHERE aa2.capture_id = c.id AND aa2.status = 'complete'
                 ORDER BY aa2.id DESC LIMIT 1
             )
+        """
+        where_sql = " AND ".join(conditions)
+        total = connection.execute(
+            f"SELECT COUNT(*) {from_sql} WHERE {where_sql}", parameters
+        ).fetchone()[0]
+        rows = connection.execute(
+            f"""
+            SELECT qm.capture_id, c.stem, c.captured_at, e.proposed_name AS event_name,
+                   e.category, qm.technical_score, qm.exposure_score, qm.sharpness_score,
+                   qm.exif_score, qm.highlight_clip_pct, qm.shadow_clip_pct,
+                   qm.issue_json, qm.error, cr.auto_rating, cr.auto_pick,
+                   cr.similarity_rank, cr.user_rating, cr.user_pick,
+                   cr.user_reject, cr.user_note, aa.result_json AS ai_result_json
+            {from_sql}
+            WHERE {where_sql}
             ORDER BY qm.error IS NOT NULL, qm.technical_score ASC, qm.capture_id
             LIMIT ? OFFSET ?
             """,
-            (limit, offset),
+            (*parameters, limit, offset),
         ).fetchall()
         items = []
         for row in rows:
@@ -1430,6 +1465,7 @@ def _query_quality(settings: Settings, limit: int, offset: int) -> dict[str, Any
             item["issues"] = json.loads(item.pop("issue_json"))
             raw_ai = item.pop("ai_result_json")
             item["ai_result"] = json.loads(raw_ai) if raw_ai else None
+            item["thumbnail_url"] = f"/api/thumbnails/{item['capture_id']}?size=320"
             items.append(item)
         return {"count": total, "limit": limit, "offset": offset, "items": items}
     finally:
@@ -1493,7 +1529,7 @@ def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]
                    qm.exposure_score, qm.sharpness_score, qm.exif_score,
                    qm.issue_json, cr.auto_rating, cr.auto_pick, cr.similarity_rank,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
-                   sgo.action AS grouping_override,
+                   sgo.action AS grouping_override, sgo.manual_batch_key,
                    f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
                    f.focal_length_35mm, f.camera_model, f.lens_model
             FROM similarity_group_captures sgc
@@ -1621,6 +1657,25 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     @app.get("/api/inbox")
     def inbox(limit: int = Query(default=24, ge=1, le=200)) -> dict[str, Any]:
         return _query_inbox(settings, limit)
+
+    @app.get("/api/system/photo-inbox")
+    def photo_inbox() -> dict[str, Any]:
+        path = settings.originals / "待整理"
+        return {
+            "path": str(path),
+            "exists": path.is_dir(),
+            "can_open": os.name == "nt" and path.is_dir(),
+        }
+
+    @app.post("/api/system/photo-inbox/open")
+    def open_photo_inbox() -> dict[str, Any]:
+        path = settings.originals / "待整理"
+        if os.name != "nt":
+            raise HTTPException(status_code=422, detail="打开文件夹只在 Windows 主机可用")
+        if not path.is_dir():
+            raise HTTPException(status_code=404, detail=f"待整理目录不存在：{path}")
+        os.startfile(path)  # type: ignore[attr-defined]
+        return {"opened": True, "path": str(path)}
 
     @app.get("/api/library/captures")
     def library_captures(
@@ -1759,8 +1814,12 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def quality_results(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
+        review_filter: Literal[
+            "all", "problems", "low_score", "with_model", "without_model", "unrated"
+        ] = "all",
+        search: str | None = Query(default=None, max_length=120),
     ) -> dict[str, Any]:
-        return _query_quality(settings, limit, offset)
+        return _query_quality(settings, limit, offset, review_filter, search)
 
     @app.get("/api/similarity-groups")
     def similarity_groups(
@@ -1789,10 +1848,20 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             ).fetchone() is None:
                 raise HTTPException(status_code=404, detail="照片不存在")
             if request.action == "auto":
-                connection.execute(
-                    "DELETE FROM similarity_group_overrides WHERE capture_id=?",
+                override = connection.execute(
+                    "SELECT manual_batch_key FROM similarity_group_overrides WHERE capture_id=?",
                     (capture_id,),
-                )
+                ).fetchone()
+                if override is not None and override["manual_batch_key"]:
+                    connection.execute(
+                        "DELETE FROM similarity_group_overrides WHERE manual_batch_key=?",
+                        (override["manual_batch_key"],),
+                    )
+                else:
+                    connection.execute(
+                        "DELETE FROM similarity_group_overrides WHERE capture_id=?",
+                        (capture_id,),
+                    )
             else:
                 if connection.execute(
                     "SELECT 1 FROM burst_captures WHERE capture_id=? LIMIT 1",
@@ -1817,6 +1886,60 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 **regrouped,
                 **recommendations,
             }
+        finally:
+            connection.close()
+
+    @app.put("/api/similarity-groups/manual")
+    def update_similarity_group_manual(request: SimilarityGroupEditRequest) -> dict[str, Any]:
+        if manager.snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="后台任务运行时不能调整相似分组")
+        connection = connect(settings.database_path)
+        try:
+            source_ids = {
+                row["capture_id"] for row in connection.execute(
+                    "SELECT capture_id FROM similarity_group_captures WHERE group_id=?",
+                    (request.source_group_id,),
+                )
+            }
+            if not source_ids:
+                raise HTTPException(status_code=404, detail="相似组不存在或已经更新")
+            submitted = [capture_id for group in request.groups for capture_id in group]
+            submitted.extend(request.excluded_ids)
+            if len(submitted) != len(set(submitted)) or set(submitted) != source_ids:
+                raise HTTPException(status_code=422, detail="每张照片必须且只能放入一个组或移出区")
+            batch_key = f"manual:{uuid4().hex}"
+            now = utc_now()
+            connection.execute(
+                f"DELETE FROM similarity_group_overrides WHERE capture_id IN ({','.join('?' for _ in source_ids)})",
+                tuple(source_ids),
+            )
+            for index, group in enumerate(request.groups):
+                group_key = f"{batch_key}:{index}"
+                if len(group) == 1:
+                    connection.execute(
+                        """INSERT INTO similarity_group_overrides(
+                               capture_id, action, created_at, updated_at, manual_batch_key
+                           ) VALUES (?, 'exclude', ?, ?, ?)""",
+                        (group[0], now, now, batch_key),
+                    )
+                else:
+                    connection.executemany(
+                        """INSERT INTO similarity_group_overrides(
+                           capture_id, action, created_at, updated_at,
+                           manual_batch_key, manual_group_key
+                       ) VALUES (?, 'split_before', ?, ?, ?, ?)""",
+                        [(capture_id, now, now, batch_key, group_key) for capture_id in group],
+                    )
+            connection.executemany(
+                """INSERT INTO similarity_group_overrides(
+                       capture_id, action, created_at, updated_at, manual_batch_key
+                   ) VALUES (?, 'exclude', ?, ?, ?)""",
+                [(capture_id, now, now, batch_key) for capture_id in request.excluded_ids],
+            )
+            connection.commit()
+            regrouped = rebuild_similarity_groups(connection)
+            recommendations = rebuild_group_recommendations(connection)
+            return {"batch_key": batch_key, **regrouped, **recommendations}
         finally:
             connection.close()
 

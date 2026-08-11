@@ -284,13 +284,15 @@ def rebuild_similarity_groups(
         by_burst[row["burst_id"]].append(row)
 
     overrides = {
-        row["capture_id"]: row["action"]
+        row["capture_id"]: row
         for row in connection.execute(
-            "SELECT capture_id, action FROM similarity_group_overrides"
+            """SELECT capture_id, action, manual_batch_key, manual_group_key
+               FROM similarity_group_overrides"""
         )
     }
 
     groups: list[tuple[int, list[tuple[sqlite3.Row, int | None]], int]] = []
+    manual_groups: dict[tuple[int, str], list[sqlite3.Row]] = defaultdict(list)
     for burst_id, captures in by_burst.items():
         segment: list[tuple[sqlite3.Row, int | None]] = []
         max_seen = 0
@@ -302,10 +304,15 @@ def rebuild_similarity_groups(
 
         for row in captures:
             override = overrides.get(row["capture_id"])
-            if override == "exclude":
+            if override is not None and override["manual_group_key"]:
+                finish_segment()
+                manual_groups[(burst_id, override["manual_group_key"])].append(row)
+                continue
+            action = override["action"] if override is not None else None
+            if action == "exclude":
                 finish_segment()
                 continue
-            if override == "split_before" and segment:
+            if action == "split_before" and segment:
                 finish_segment()
             if row["dhash64"] is None:
                 finish_segment()
@@ -327,6 +334,19 @@ def rebuild_similarity_groups(
             if distance is not None:
                 max_seen = max(max_seen, distance)
         finish_segment()
+
+    for (burst_id, _), captures in manual_groups.items():
+        if len(captures) < 2:
+            continue
+        segment: list[tuple[sqlite3.Row, int | None]] = []
+        max_seen = 0
+        for index, row in enumerate(captures):
+            distance = None
+            if index and row["dhash64"] is not None and captures[index - 1]["dhash64"] is not None:
+                distance = hamming_distance(captures[index - 1]["dhash64"], row["dhash64"])
+                max_seen = max(max_seen, distance)
+            segment.append((row, distance))
+        groups.append((burst_id, segment, max_seen))
 
     with transaction(connection):
         connection.execute("DELETE FROM similarity_group_captures")
