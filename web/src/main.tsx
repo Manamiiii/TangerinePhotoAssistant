@@ -823,6 +823,13 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      const review = (changes: Partial<ReviewPayload>) => saveReview(detail.id, {
+        user_rating: detail.user_rating,
+        user_pick: Boolean(detail.user_pick),
+        user_reject: Boolean(detail.user_reject),
+        user_note: detail.user_note,
+        ...changes,
+      });
       if (event.key === "Escape") { close(); return; }
       if (event.key === "ArrowLeft") { event.preventDefault(); navigate(-1); return; }
       if (event.key === "ArrowRight") { event.preventDefault(); navigate(1); return; }
@@ -833,7 +840,7 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, [detail, close, navigate, saveReview]);
   return (
     <div className="detail-backdrop" role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
       {hasPrev && <button className="detail-nav prev" aria-label="上一张" onClick={(event) => { event.stopPropagation(); navigate(-1); }}>‹</button>}
@@ -2126,7 +2133,7 @@ function App() {
         {view === "equipment" && <EquipmentView equipment={equipment} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} generateManifest={generateManifest} />}
-        {captureDetail && <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailContext.indexOf(captureDetail.id) > 0} hasNext={detailContext.indexOf(captureDetail.id) >= 0 && detailContext.indexOf(captureDetail.id) < detailContext.length - 1} />}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.message}</div>)}
         </div>
