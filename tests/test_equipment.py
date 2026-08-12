@@ -1,7 +1,6 @@
-from pathlib import Path
-import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.equipment import build_equipment_catalog

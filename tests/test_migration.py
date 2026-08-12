@@ -1,18 +1,18 @@
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from threading import Event, Thread
-from dataclasses import replace
 import hashlib
 import time
 import unittest
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import Event, Thread
 from unittest.mock import patch
 
-from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.archive import (
     create_archive_baseline,
     recorded_active_library_status,
     recorded_archive_status,
 )
+from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.migration import (
     audit_migration_run,
@@ -300,7 +300,7 @@ class MigrationPlanTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             payload = b"cancel-resume" * (1024 * 1024)
-            settings, connection, _, plan = self.create_single_file_plan(root, payload)
+            _settings, connection, _, plan = self.create_single_file_plan(root, payload)
             run_id = prepare_migration_run(
                 connection, plan["id"], f"COPY PLAN {plan['id']}"
             )["run_id"]
@@ -322,7 +322,7 @@ class MigrationPlanTests(unittest.TestCase):
     def test_conflict_source_change_and_hash_failure_are_safe(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            settings, connection, source, plan = self.create_single_file_plan(root)
+            settings, connection, _source, plan = self.create_single_file_plan(root)
             item = connection.execute(
                 "SELECT * FROM migration_items WHERE plan_id=?", (plan["id"],)
             ).fetchone()

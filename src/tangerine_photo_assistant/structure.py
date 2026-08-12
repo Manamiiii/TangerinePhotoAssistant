@@ -1,19 +1,18 @@
 from __future__ import annotations
 
+import json
+import re
+import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha1
 from pathlib import PureWindowsPath
-import json
-import re
-import sqlite3
 from typing import Any
 from uuid import uuid4
 
 from .database import transaction
 from .inventory import utc_now
-
 
 DATE_COMPONENT = re.compile(
     r"^(?P<year>\d{4})[.-](?P<month>\d{1,2})[.-](?P<day>\d{1,2})"

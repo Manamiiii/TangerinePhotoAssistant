@@ -3,15 +3,14 @@ from __future__ import annotations
 import csv
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from .database import transaction
 from .inventory import utc_now
-
 
 PROMPT_VERSION = "photo-critique-v4"
 
@@ -958,7 +957,7 @@ def validate_model_result(result: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _format_exposure_seconds(value: float | int | None) -> str | None:
+def _format_exposure_seconds(value: float | None) -> str | None:
     if value is None or value <= 0:
         return None
     seconds = float(value)

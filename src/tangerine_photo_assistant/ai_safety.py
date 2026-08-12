@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
-from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -146,7 +146,7 @@ def create_pre_ai_database_backup(settings: Settings, run_id: int) -> Path:
         raise FileNotFoundError(f"Analysis database does not exist: {settings.database_path}")
     backup_root = settings.workspace / "Backups" / "AnalysisDatabase"
     backup_root.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     target = backup_root / f"catalog-before-ai-run-{run_id}-{timestamp}.sqlite3"
     if target.exists():
         raise FileExistsError(f"Database backup already exists: {target}")
@@ -185,7 +185,7 @@ def discover_pre_ai_database_backups(
         if run_id not in known_runs:
             continue
         created_at = datetime.fromtimestamp(
-            path.stat().st_mtime, timezone.utc
+            path.stat().st_mtime, UTC
         ).replace(microsecond=0).isoformat()
         cursor = connection.execute(
             """

@@ -1,7 +1,7 @@
+import unittest
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 from zipfile import ZipFile
 
 from PIL import Image

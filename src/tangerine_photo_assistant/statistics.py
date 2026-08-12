@@ -3,7 +3,6 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-
 CAPTURE_CTE = """
 WITH capture_exif AS (
     SELECT c.id, c.captured_at, e.category, e.id AS event_id,
@@ -53,7 +52,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         """
     ).fetchall()]
     return {
-        "summary": {key: summary[key] for key in summary.keys()},
+        "summary": dict(summary),
         "categories": _rows(
             connection,
             """SELECT category, COUNT(*) AS count,

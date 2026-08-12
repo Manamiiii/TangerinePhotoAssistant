@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import sqlite3
+from collections import defaultdict
 from uuid import uuid4
 
 from .database import transaction

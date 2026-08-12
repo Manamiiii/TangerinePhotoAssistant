@@ -1,18 +1,18 @@
-from pathlib import Path
-from tempfile import TemporaryDirectory
 import json
 import os
 import time
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from PIL import Image, ImageDraw
 
 from tangerine_photo_assistant.ai_analysis import (
-    _format_exposure_seconds,
     _balanced_benchmark_candidates,
-    ai_summary,
+    _format_exposure_seconds,
     ai_result_audit,
     ai_results_page,
+    ai_summary,
     create_ai_failure_retry_run,
     create_ai_run,
     parse_model_json,
@@ -23,6 +23,7 @@ from tangerine_photo_assistant.ai_analysis import (
     validate_model_result,
     write_ai_run_report,
 )
+from tangerine_photo_assistant.ai_worker import _apply_control_request
 from tangerine_photo_assistant.archive import (
     compare_archive_baseline,
     create_archive_baseline,
@@ -36,12 +37,11 @@ from tangerine_photo_assistant.lightroom import (
     lightroom_status,
     write_lightroom_manifest,
 )
-from tangerine_photo_assistant.ai_worker import _apply_control_request
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.quality import analyze_quality, measure_image
 from tangerine_photo_assistant.settings import Settings
-from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.statistics import build_statistics
+from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.thumbnails import ThumbnailCache
 from tangerine_photo_assistant.visual import build_visual_fingerprints, rebuild_similarity_groups
 from tangerine_photo_assistant.webapp import (

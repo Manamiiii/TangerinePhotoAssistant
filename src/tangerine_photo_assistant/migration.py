@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
-from hashlib import sha256
 import json
 import os
-from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import sqlite3
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import datetime
+from hashlib import sha256
+from pathlib import Path, PureWindowsPath
+from typing import Any
 
 from .database import transaction
 from .inventory import utc_now
-
 
 INVALID_COMPONENT = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 EXCLUDED_TOP_LEVEL = frozenset({"素材"})

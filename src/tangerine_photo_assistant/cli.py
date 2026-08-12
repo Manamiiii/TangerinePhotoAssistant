@@ -1,26 +1,26 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import ipaddress
 import os
-from pathlib import Path
 import shutil
 import subprocess
-from threading import Timer
 import webbrowser
+from dataclasses import replace
+from pathlib import Path
+from threading import Timer
 
 from . import __version__
-from .database import connect, connect_readonly
 from .ai_analysis import create_ai_run, write_ai_run_report
 from .archive import (
     create_archive_baseline,
     run_integrity_check,
 )
+from .database import connect, connect_readonly
 from .inventory import enrich_metadata, scan_library
 from .lightroom import write_lightroom_manifest
-from .migration import active_library_root
 from .metadata import ExifToolMetadataReader, PillowMetadataReader
+from .migration import active_library_root
 from .pairing import rebuild_captures
 from .quality import analyze_quality
 from .reporting import build_report, write_report

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sqlite3
 import tomllib
+from pathlib import Path
 from typing import Any
-
 
 ACCESSORY_SECTIONS = (
     "supports",

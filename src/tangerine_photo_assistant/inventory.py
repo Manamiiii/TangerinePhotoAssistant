@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from datetime import datetime, timezone
-from pathlib import Path
 import os
 import sqlite3
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from .database import transaction
 from .metadata import MetadataReader, database_fields
 from .settings import Settings
-
 
 JPEG_EXTENSIONS = frozenset({".jpg", ".jpeg"})
 IMAGE_EXTENSIONS = frozenset(
@@ -34,7 +33,7 @@ VIDEO_EXTENSIONS = frozenset(
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def media_kind(extension: str, raw_extensions: tuple[str, ...]) -> str:

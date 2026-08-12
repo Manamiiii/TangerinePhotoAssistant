@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta
 import hashlib
 import json
-from pathlib import Path
 import shutil
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageEnhance, TiffImagePlugin
@@ -14,7 +14,6 @@ from .database import connect
 from .inventory import utc_now
 from .quality import rebuild_group_recommendations
 from .visual import rebuild_similarity_groups
-
 
 GENERATOR_VERSION = 3
 

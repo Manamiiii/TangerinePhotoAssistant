@@ -1,7 +1,7 @@
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import sleep
-import unittest
 
 from PIL import Image
 from pydantic import ValidationError
@@ -17,8 +17,8 @@ from tangerine_photo_assistant.visual import (
 )
 from tangerine_photo_assistant.webapp import (
     AiStartRequest,
-    ScanTaskManager,
     ScanStartRequest,
+    ScanTaskManager,
     SimilarityGroupEditRequest,
     _assign_captures_to_album,
     _query_analysis_overview,

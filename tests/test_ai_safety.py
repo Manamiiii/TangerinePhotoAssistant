@@ -1,14 +1,14 @@
-from pathlib import Path
 import sqlite3
-from tempfile import TemporaryDirectory
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from tangerine_photo_assistant.ai_safety import (
     ai_preflight,
     create_pre_ai_database_backup,
-    gpu_status,
     discover_pre_ai_database_backups,
+    gpu_status,
 )
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.settings import Settings

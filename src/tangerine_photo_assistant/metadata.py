@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import json
 import re
 import subprocess
-from typing import Any, Iterable, Iterator, Protocol
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, ClassVar, Protocol
 
 from PIL import Image, UnidentifiedImageError
-
 
 EXIF_TAGS = (
     "DateTimeOriginal",
@@ -56,12 +56,12 @@ class PillowMetadataReader:
     ExifTool remains the preferred reader for RAW, video, maker notes, and GPS.
     """
 
-    _TOP_LEVEL_TAGS = {
+    _TOP_LEVEL_TAGS: ClassVar[dict[int, str]] = {
         271: "Make",
         272: "Model",
         306: "CreateDate",
     }
-    _EXIF_IFD_TAGS = {
+    _EXIF_IFD_TAGS: ClassVar[dict[int, str]] = {
         33434: "ExposureTime",
         33437: "FNumber",
         34855: "ISO",
@@ -221,7 +221,7 @@ def _path_key(path: Path) -> str:
     return str(path.resolve()).casefold()
 
 
-def number(value: Any, target: type[int] | type[float]) -> int | float | None:
+def number(value: Any, target: type[int | float]) -> int | float | None:
     if value is None or value == "":
         return None
     try:

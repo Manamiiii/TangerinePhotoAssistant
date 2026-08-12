@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
 import math
-from pathlib import Path
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageFile, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
 
 from .database import transaction
 from .inventory import utc_now
-
 
 ALGORITHM_VERSION = "technical-v1"
 Progress = Callable[[int, int], None]

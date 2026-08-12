@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import subprocess
-import tomllib
-from threading import Event, Lock, Thread
 import time
+import tomllib
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
+from threading import Event, Lock, Thread
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -22,10 +22,10 @@ from .ai_analysis import (
     PROMPT_VERSION,
     _decorate_ai_run,
     _process_exists,
+    ai_results_page,
     ai_run_failures,
     ai_run_history,
     ai_run_status,
-    ai_results_page,
     ai_summary,
     create_ai_failure_retry_run,
     create_ai_run,
