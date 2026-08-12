@@ -50,6 +50,11 @@ from .archive import (
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .equipment import build_equipment_catalog
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
+from .grouping import (
+    SimilarityGroupingError,
+    restore_similarity_grouping,
+    save_manual_similarity_grouping,
+)
 from .inventory import enrich_metadata, scan_library, utc_now
 from .lightroom import lightroom_status, write_lightroom_manifest
 from .metadata import ExifToolMetadataReader, PillowMetadataReader
@@ -1674,7 +1679,12 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=422, detail="打开文件夹只在 Windows 主机可用")
         if not path.is_dir():
             raise HTTPException(status_code=404, detail=f"待整理目录不存在：{path}")
-        os.startfile(path)  # type: ignore[attr-defined]
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"无法打开资源管理器：{exc}"
+            ) from exc
         return {"opened": True, "path": str(path)}
 
     @app.get("/api/library/captures")
@@ -1848,20 +1858,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             ).fetchone() is None:
                 raise HTTPException(status_code=404, detail="照片不存在")
             if request.action == "auto":
-                override = connection.execute(
-                    "SELECT manual_batch_key FROM similarity_group_overrides WHERE capture_id=?",
-                    (capture_id,),
-                ).fetchone()
-                if override is not None and override["manual_batch_key"]:
-                    connection.execute(
-                        "DELETE FROM similarity_group_overrides WHERE manual_batch_key=?",
-                        (override["manual_batch_key"],),
-                    )
-                else:
-                    connection.execute(
-                        "DELETE FROM similarity_group_overrides WHERE capture_id=?",
-                        (capture_id,),
-                    )
+                regrouped = restore_similarity_grouping(connection, capture_id)
+                return {"capture_id": capture_id, "action": request.action, **regrouped}
             else:
                 if connection.execute(
                     "SELECT 1 FROM burst_captures WHERE capture_id=? LIMIT 1",
@@ -1895,51 +1893,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=409, detail="后台任务运行时不能调整相似分组")
         connection = connect(settings.database_path)
         try:
-            source_ids = {
-                row["capture_id"] for row in connection.execute(
-                    "SELECT capture_id FROM similarity_group_captures WHERE group_id=?",
-                    (request.source_group_id,),
+            try:
+                return save_manual_similarity_grouping(
+                    connection,
+                    request.source_group_id,
+                    request.groups,
+                    request.excluded_ids,
                 )
-            }
-            if not source_ids:
-                raise HTTPException(status_code=404, detail="相似组不存在或已经更新")
-            submitted = [capture_id for group in request.groups for capture_id in group]
-            submitted.extend(request.excluded_ids)
-            if len(submitted) != len(set(submitted)) or set(submitted) != source_ids:
-                raise HTTPException(status_code=422, detail="每张照片必须且只能放入一个组或移出区")
-            batch_key = f"manual:{uuid4().hex}"
-            now = utc_now()
-            connection.execute(
-                f"DELETE FROM similarity_group_overrides WHERE capture_id IN ({','.join('?' for _ in source_ids)})",
-                tuple(source_ids),
-            )
-            for index, group in enumerate(request.groups):
-                group_key = f"{batch_key}:{index}"
-                if len(group) == 1:
-                    connection.execute(
-                        """INSERT INTO similarity_group_overrides(
-                               capture_id, action, created_at, updated_at, manual_batch_key
-                           ) VALUES (?, 'exclude', ?, ?, ?)""",
-                        (group[0], now, now, batch_key),
-                    )
-                else:
-                    connection.executemany(
-                        """INSERT INTO similarity_group_overrides(
-                           capture_id, action, created_at, updated_at,
-                           manual_batch_key, manual_group_key
-                       ) VALUES (?, 'split_before', ?, ?, ?, ?)""",
-                        [(capture_id, now, now, batch_key, group_key) for capture_id in group],
-                    )
-            connection.executemany(
-                """INSERT INTO similarity_group_overrides(
-                       capture_id, action, created_at, updated_at, manual_batch_key
-                   ) VALUES (?, 'exclude', ?, ?, ?)""",
-                [(capture_id, now, now, batch_key) for capture_id in request.excluded_ids],
-            )
-            connection.commit()
-            regrouped = rebuild_similarity_groups(connection)
-            recommendations = rebuild_group_recommendations(connection)
-            return {"batch_key": batch_key, **regrouped, **recommendations}
+            except SimilarityGroupingError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 

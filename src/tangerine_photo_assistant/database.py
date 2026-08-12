@@ -1,12 +1,68 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Iterator
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
+SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
+
+
+def read_schema_version(path: Path) -> int | None:
+    """Read a catalog version without creating or mutating the database."""
+    if not path.is_file():
+        return None
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_info'"
+        ).fetchone()
+        if table is None:
+            return None
+        row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
+        return int(row[0]) if row is not None else None
+    finally:
+        connection.close()
+
+
+def _schema_backup_directory(path: Path) -> Path:
+    if path.parent.name.casefold() == "analysisdatabase":
+        return path.parent.parent / "Backups" / "AnalysisDatabase"
+    return path.parent / "SchemaBackups"
+
+
+def backup_before_schema_upgrade(path: Path, from_version: int) -> Path:
+    """Create and verify a consistent SQLite backup before an in-place upgrade."""
+    backup_directory = _schema_backup_directory(path)
+    backup_directory.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    target = backup_directory / (
+        f"{path.stem}-pre-schema{SCHEMA_VERSION}-from{from_version}-{timestamp}{path.suffix}"
+    )
+    source = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    destination = sqlite3.connect(target)
+    try:
+        source.backup(destination)
+        destination.commit()
+        if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise RuntimeError("Schema upgrade backup failed SQLite integrity verification")
+        backed_up_version = destination.execute(
+            "SELECT version FROM schema_info LIMIT 1"
+        ).fetchone()[0]
+        if int(backed_up_version) != from_version:
+            raise RuntimeError("Schema upgrade backup has an unexpected catalog version")
+    except Exception:
+        destination.close()
+        source.close()
+        target.unlink(missing_ok=True)
+        raise
+    else:
+        destination.close()
+        source.close()
+    return target
 
 
 def _ensure_column(
@@ -19,6 +75,15 @@ def _ensure_column(
 
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
+    existing_version = read_schema_version(path)
+    if path.is_file() and path.stat().st_size > 0 and existing_version is None:
+        raise RuntimeError("Existing database is missing a readable schema_info version")
+    if existing_version is not None and existing_version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise RuntimeError(
+            f"Unsupported database schema {existing_version}; expected {SCHEMA_VERSION}"
+        )
+    if existing_version is not None and existing_version < SCHEMA_VERSION:
+        backup_before_schema_upgrade(path, existing_version)
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
@@ -521,6 +586,10 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(connection, "ai_runs", "heartbeat_at", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_batch_key", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_group_key", "TEXT")
+    connection.execute(
+        """CREATE INDEX IF NOT EXISTS idx_similarity_group_overrides_batch
+           ON similarity_group_overrides(manual_batch_key)"""
+    )
     connection.executemany(
         """INSERT OR IGNORE INTO album_types(name, sort_order, built_in, created_at)
            VALUES (?, ?, 1, CURRENT_TIMESTAMP)""",
@@ -532,7 +601,7 @@ def connect(path: Path) -> sqlite3.Connection:
     row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
     if row is None:
         connection.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
-    elif row["version"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
+    elif int(row["version"]) < SCHEMA_VERSION:
         connection.execute("UPDATE schema_info SET version = ?", (SCHEMA_VERSION,))
     elif row["version"] != SCHEMA_VERSION:
         raise RuntimeError(

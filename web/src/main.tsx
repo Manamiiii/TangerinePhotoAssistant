@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { StrictMode, useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -47,18 +47,6 @@ type Overview = {
     files_seen: number;
   } | null;
 };
-
-type InboxItem = {
-  id: number;
-  parent_relative: string;
-  stem: string;
-  captured_at: string | null;
-  pairing_status: string;
-  camera_model: string | null;
-  lens_model: string | null;
-  file_count: number;
-};
-type Inbox = { scan_run_id: number | null; count: number; items: InboxItem[] };
 
 type LibraryCapture = {
   id: number;
@@ -133,22 +121,6 @@ type EventItem = {
   reason: { method: string; legacy_buckets: string[] };
 };
 type EventsResponse = { count: number; limit: number; offset: number; items: EventItem[] };
-
-type BurstItem = {
-  id: number;
-  start_at: string;
-  end_at: string;
-  capture_count: number;
-  camera_model: string | null;
-  event_id: number;
-  event_name: string;
-  category: string;
-  first_stem: string;
-  last_stem: string;
-  similarity_group_count: number;
-  largest_similarity_group: number;
-};
-type BurstsResponse = { count: number; limit: number; offset: number; items: BurstItem[] };
 
 type SimilarityGroupItem = {
   id: number;
@@ -507,49 +479,6 @@ type LightroomManifest = {
   json_url: string;
 };
 
-type MigrationStatus = {
-  plan: {
-    id: number;
-    created_at: string;
-    source_root: string;
-    target_root: string;
-    status: string;
-    item_count: number;
-    total_bytes: number;
-    excluded_count: number;
-    excluded_bytes: number;
-    conflict_count: number;
-    unassigned_count: number;
-    available_bytes: number;
-    ready: boolean;
-    csv_url: string;
-    json_url: string;
-    sample_conflicts: Array<{ source_relative: string; target_relative: string; reason: string }>;
-    sample_unassigned: Array<{ source_relative: string; target_relative: string; reason: string }>;
-    confirmation_phrase: string;
-    switch_confirmation_phrase: string;
-    failure_csv_url?: string;
-    failure_json_url?: string;
-    failures: Array<{ stage: string; error_code: string; message: string; source_relative: string; target_relative: string }>;
-    run: {
-      id: number;
-      status: string;
-      copied_count: number;
-      verified_count: number;
-      failed_count: number;
-      copied_bytes: number;
-      total_bytes: number;
-      speed_bytes_per_second: number | null;
-      eta_seconds: number | null;
-      audit_status: string;
-      batch_max_files: number | null;
-      batch_max_bytes: number | null;
-      batch_max_seconds: number | null;
-      completed_batches: number;
-    } | null;
-  } | null;
-};
-
 type Task = {
   id: string | null;
   status: "idle" | "running" | "paused" | "complete" | "failed" | "cancelled";
@@ -602,16 +531,6 @@ function formatDate(value: string | null | undefined) {
 function formatExposure(value: number | null | undefined) {
   if (!value) return "—";
   return value < 1 ? `1/${Math.round(1 / value)}s` : `${value.toFixed(1)}s`;
-}
-
-function pairingLabel(status: string) {
-  const labels: Record<string, string> = {
-    paired: "JPG + RAW",
-    jpeg_only: "仅 JPG",
-    raw_only: "仅 RAW",
-    paired_duplicate_role: "配对待检查",
-  };
-  return labels[status] ?? status;
 }
 
 function technicalGrade(score: number | null | undefined) {
@@ -711,97 +630,6 @@ function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => v
         <div className="task-actions"><div className="progress-track"><span style={{ width: `${progress ?? 0}%` }} /></div><button onClick={cancel}>取消剩余任务</button></div>
       )}
     </section>
-  );
-}
-
-function InboxView({
-  overview,
-  inbox,
-  task,
-  startScan,
-  cancelTask,
-}: {
-  overview: Overview | null;
-  inbox: Inbox | null;
-  task: Task | null;
-  startScan: () => void;
-  cancelTask: () => void;
-}) {
-  const pairing = useMemo(
-    () => Object.fromEntries((overview?.pairing ?? []).map((row) => [row.pairing_status, row.count])),
-    [overview],
-  );
-  return (
-    <>
-      <section className="hero-card">
-        <div className="hero-copy">
-          <span className="section-kicker">增量工作流</span>
-          <h2>新照片放好后，<br />这里会接手其余工作。</h2>
-          <p>快速核对图库，只读取新增或变化文件的拍摄信息。不会移动、删除或改写原片。</p>
-          <button className="primary-action" onClick={startScan} disabled={task?.status === "running"}>
-            <span>{task?.status === "running" ? "扫描进行中" : "扫描新照片"}</span>
-            <b aria-hidden="true">→</b>
-          </button>
-        </div>
-        <div className="library-number">
-          <span>当前拍摄单元</span>
-          <strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong>
-          <small>
-            {overview
-              ? `${numberFormat.format(overview.files.count)} 个文件 · ${formatBytes(overview.files.size_bytes)}`
-              : "正在读取图库"}
-          </small>
-        </div>
-        <div className="aperture-rings" aria-hidden="true"><i /><i /><i /></div>
-      </section>
-
-      <TaskCard task={task} cancel={cancelTask} />
-
-      <section className="metric-grid" aria-label="图库概览">
-        <article><span>完整配对</span><strong>{numberFormat.format(pairing.paired ?? 0)}</strong><small>JPG + RAW</small></article>
-        <article><span>仅 JPG</span><strong>{numberFormat.format(pairing.jpeg_only ?? 0)}</strong><small>可能是导出或单拍</small></article>
-        <article><span>仅 RAW</span><strong>{numberFormat.format(pairing.raw_only ?? 0)}</strong><small>需要复核</small></article>
-        <article>
-          <span>拍摄日期可用</span>
-          <strong>{overview ? `${Math.round((overview.dated_captures / Math.max(overview.capture_total, 1)) * 100)}%` : "—"}</strong>
-          <small>用于相册整理</small>
-        </article>
-      </section>
-
-      <section className="content-grid">
-        <div className="panel recent-panel">
-          <div className="panel-heading">
-            <div><span className="section-kicker">最近批次</span><h3>最近入库</h3></div>
-            <span className="batch-count">{inbox ? `${numberFormat.format(inbox.count)} 个拍摄单元` : "读取中"}</span>
-          </div>
-          <div className="capture-list">
-            {(inbox?.items ?? []).slice(0, 8).map((item) => (
-              <article key={item.id} className="capture-row">
-                <div className="file-avatar">{item.stem.slice(-2)}</div>
-                <div className="capture-name"><strong>{item.stem}</strong><span title={item.parent_relative}>{item.parent_relative || "图库根目录"}</span></div>
-                <div className="capture-camera"><strong>{item.camera_model ?? "未知相机"}</strong><span>{item.lens_model ?? "镜头信息不可用"}</span></div>
-                <time>{item.captured_at?.slice(0, 10) ?? "日期未知"}</time>
-                <span className={`pair-badge ${item.pairing_status}`}>{pairingLabel(item.pairing_status)}</span>
-              </article>
-            ))}
-            {!inbox?.items.length && <div className="empty-state">还没有入库记录</div>}
-          </div>
-        </div>
-
-        <div className="panel gear-panel">
-          <div className="panel-heading"><div><span className="section-kicker">器材识别</span><h3>主要镜头</h3></div></div>
-          <div className="lens-list">
-            {(overview?.lenses ?? []).slice(0, 4).map((lens, index) => (
-              <div className="lens-row" key={lens.lens_model}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <div><strong>{lens.lens_model}</strong><small>{numberFormat.format(lens.count)} 个文件记录</small></div>
-              </div>
-            ))}
-          </div>
-          <div className="next-step"><span>相册已整理</span><strong>{overview?.structure.event_count ?? 0} 个拍摄相册</strong><p>可在相册管理中调整名称、类型和照片归属。</p></div>
-        </div>
-      </section>
-    </>
   );
 }
 
@@ -1650,89 +1478,6 @@ function LightroomView({ status, manifest, generateManifest }: {
   );
 }
 
-function MigrationView({ status, task, generatePlan, startMigration, pauseMigration, cancelMigration, resumeMigration, switchLibrary }: {
-  status: MigrationStatus | null;
-  task: Task | null;
-  generatePlan: () => void;
-  startMigration: (planId: number, confirmation: string, batchFiles: number, batchGb: number, batchMinutes: number) => void;
-  pauseMigration: () => void;
-  cancelMigration: () => void;
-  resumeMigration: (runId: number) => void;
-  switchLibrary: (runId: number, confirmation: string) => void;
-}) {
-  const plan = status?.plan;
-  const [copyConfirmation, setCopyConfirmation] = useState("");
-  const [switchConfirmation, setSwitchConfirmation] = useState("");
-  const [batchFiles, setBatchFiles] = useState(2000);
-  const [batchGb, setBatchGb] = useState(100);
-  const [batchMinutes, setBatchMinutes] = useState(240);
-  const run = plan?.run;
-  const migrationRunning = task?.status === "running" && task.stage.startsWith("migration");
-  const migrationPaused = task?.status === "paused" && task.stage.startsWith("migration");
-  return (
-    <>
-      <section className="structure-hero migration-hero">
-        <div><span className="section-kicker">只读迁移规划</span><h2>先把每个文件的去向写清楚，晚上再复制。</h2><p>来源固定为D:\Photo，新图库为D:\PhotoLibrary\Photos。现在只生成逐文件清单、检查重名与空间，不创建目标目录，不复制、移动或删除照片。</p><button className="primary-action" onClick={generatePlan}><span>生成最新迁移计划</span><b>→</b></button></div>
-        <div className="structure-stat"><strong>{plan ? numberFormat.format(plan.item_count) : "—"}</strong><span>个计划复制文件</span></div>
-      </section>
-      <section className="metric-grid migration-metrics">
-        <article><span>计划数据量</span><strong>{plan ? formatBytes(plan.total_bytes) : "—"}</strong><small>原片仍留在旧目录</small></article>
-        <article><span>目标可用空间</span><strong>{plan ? formatBytes(plan.available_bytes) : "—"}</strong><small>D盘当前剩余容量</small></article>
-        <article><span>路径冲突</span><strong>{plan ? numberFormat.format(plan.conflict_count) : "—"}</strong><small>必须为0才能执行</small></article>
-        <article><span>待人工归类</span><strong>{plan ? numberFormat.format(plan.unassigned_count) : "—"}</strong><small>视频、PSD及附属文件等</small></article>
-      </section>
-      <section className="migration-grid">
-        <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全闸门</span><h3>{run?.status === "switched" ? "迁移审计通过，活动图库已切换" : plan ? (plan.ready ? "计划通过预检查" : "计划暂不能执行") : "等待生成计划"}</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>旧图库保持原样</strong><small>D:\Photo始终只读保留</small></span></div><div><b>✓</b><span><strong>素材独立保留</strong><small>{plan ? `${numberFormat.format(plan.excluded_count)} 个素材文件不进入个人图库` : "D:\Photo\素材默认排除"}</small></span></div><div><b>{plan?.conflict_count ? "!" : "✓"}</b><span><strong>禁止覆盖同名目标</strong><small>{plan ? `${numberFormat.format(plan.conflict_count)} 个冲突需要处理` : "发现冲突时不会自动改名"}</small></span></div><div><b>✓</b><span><strong>复制执行入口受确认保护</strong><small>只有已审计计划和完整确认文字才能创建任务</small></span></div></div></section>
-        <section className="panel manifest-panel"><div className="panel-heading"><div><span className="section-kicker">逐文件清单</span><h3>迁移计划报告</h3></div></div>{plan ? <div className="manifest-result"><strong>计划 #{plan.id}</strong><span>{formatDate(plan.created_at)} · {numberFormat.format(plan.item_count)} 个文件</span><a href={plan.csv_url}>下载CSV清单</a><a href={plan.json_url}>下载完整JSON</a><small>报告明确标记 files_copied=false，今晚确认后才执行。</small></div> : <div className="empty-state">尚未生成迁移计划。</div>}</section>
-      </section>
-      {plan && <section className="panel migration-execution">
-        <div className="panel-heading"><div><span className="section-kicker">执行前摘要</span><h3>复制、校验、审计、再确认切换</h3></div></div>
-        <div className="migration-summary">
-          <div><span>来源（永久保留）</span><strong>{plan.source_root}</strong></div>
-          <div><span>目标（禁止覆盖）</span><strong>{plan.target_root}</strong></div>
-          <div><span>逐文件 SHA-256</span><strong>源文件 + 临时目标</strong></div>
-          <div><span>完成后</span><strong>全库重新审计，不删除旧原片</strong></div>
-        </div>
-        {run && <div className="migration-run-status">
-          <strong>任务 #{run.id} · {run.status} · 已完成 {numberFormat.format(run.completed_batches)} 批</strong>
-          <span>{numberFormat.format(run.verified_count)} 已校验 · {numberFormat.format(run.failed_count)} 失败 · {formatBytes(run.copied_bytes)} 已写入</span>
-          <small>每批最多 {numberFormat.format(run.batch_max_files ?? 0)} 个文件 / {run.batch_max_bytes ? formatBytes(run.batch_max_bytes) : "不限数据量"} / {run.batch_max_seconds ? formatDuration(run.batch_max_seconds) : "不限时长"}</small>
-          <small>{run.speed_bytes_per_second ? `${formatFileSize(run.speed_bytes_per_second)}/秒 · 预计剩余 ${formatDuration(run.eta_seconds)}` : `全库审计：${run.audit_status}`}</small>
-        </div>}
-        {!run && <div className="danger-confirmation">
-          <div className="batch-config">
-            <label><span>每批文件数</span><input type="number" min="1" value={batchFiles} onChange={(event) => setBatchFiles(Math.max(1, Number(event.target.value)))} /></label>
-            <label><span>每批数据量（GB）</span><input type="number" min="1" value={batchGb} onChange={(event) => setBatchGb(Math.max(1, Number(event.target.value)))} /></label>
-            <label><span>每批最长时间（分钟）</span><input type="number" min="1" value={batchMinutes} onChange={(event) => setBatchMinutes(Math.max(1, Number(event.target.value)))} /></label>
-          </div>
-          <small>任一上限先达到，就在当前文件完成复制和 SHA-256 校验后自动暂停。</small>
-          <label>要创建真实复制任务，请完整输入 <code>{plan.confirmation_phrase}</code></label>
-          <input value={copyConfirmation} onChange={(event) => setCopyConfirmation(event.target.value)} placeholder={plan.confirmation_phrase} autoComplete="off" />
-          <button className="primary-action" disabled={!plan.ready || copyConfirmation !== plan.confirmation_phrase || migrationRunning} onClick={() => startMigration(plan.id, copyConfirmation, batchFiles, batchGb, batchMinutes)}><span>确认并创建分批复制任务</span><b>→</b></button>
-          <small>此按钮会真实创建目标目录并复制照片；不会移动、删除或修改 D:\Photo。</small>
-        </div>}
-        {run && ["failed", "cancelled"].includes(run.status) && <div className="danger-confirmation"><strong>断点与失败清单已保留</strong><button className="primary-action" onClick={() => resumeMigration(run.id)}><span>继续任务并重试失败文件</span><b>→</b></button></div>}
-        {(migrationRunning || migrationPaused) && <div className="task-actions">
-          <div className="progress-track"><span style={{ width: `${task?.bytes_total ? Math.min(100, task.bytes_current / task.bytes_total * 100) : 0}%` }} /></div>
-          {migrationRunning && <button onClick={pauseMigration}>暂停</button>}
-          {(migrationRunning || migrationPaused) && <button onClick={cancelMigration}>安全取消</button>}
-          {migrationPaused && run && <button onClick={() => resumeMigration(run.id)}>继续</button>}
-        </div>}
-        {run?.status === "paused" && !migrationPaused && <div className="danger-confirmation"><strong>上一批已经安全结束</strong><button className="primary-action" onClick={() => resumeMigration(run.id)}><span>开始下一批</span><b>→</b></button><small>服务重启后也可以从这里继续，不会重复复制已校验文件。</small></div>}
-        {run?.status === "audited" && <div className="danger-confirmation switch-confirmation">
-          <label>全库审计已通过。切换前请再次输入 <code>{plan.switch_confirmation_phrase}</code></label>
-          <input value={switchConfirmation} onChange={(event) => setSwitchConfirmation(event.target.value)} placeholder={plan.switch_confirmation_phrase} autoComplete="off" />
-          <button className="primary-action" disabled={switchConfirmation !== plan.switch_confirmation_phrase} onClick={() => switchLibrary(run.id, switchConfirmation)}><span>再次确认并切换活动图库</span><b>→</b></button>
-          <small>切换只更新活动路径和数据库关联；旧原片仍完整保留。</small>
-        </div>}
-        {plan.failures.length > 0 && <div className="manifest-result"><strong>{numberFormat.format(plan.failures.length)} 条失败记录（页面最多显示 50 条）</strong>{plan.failure_csv_url && <a href={plan.failure_csv_url}>下载失败 CSV</a>}{plan.failure_json_url && <a href={plan.failure_json_url}>下载失败 JSON</a>}</div>}
-      </section>}
-      {plan?.sample_conflicts.length ? <section className="panel migration-issues"><div className="panel-heading"><div><span className="section-kicker">需要处理</span><h3>目标路径冲突样例</h3></div></div>{plan.sample_conflicts.map((item) => <div className="migration-issue" key={`${item.source_relative}-${item.target_relative}`}><strong>{item.source_relative}</strong><span>→ {item.target_relative}</span></div>)}</section> : null}
-      {plan?.sample_unassigned.length ? <section className="panel migration-issues"><div className="panel-heading"><div><span className="section-kicker">不会猜测</span><h3>待整理文件样例</h3></div></div>{plan.sample_unassigned.map((item) => <div className="migration-issue" key={item.source_relative}><strong>{item.source_relative}</strong><span>→ {item.target_relative}</span></div>)}</section> : null}
-    </>
-  );
-}
-
 function App() {
   const [view, setView] = useState<View>("home");
   const [theme, setTheme] = useState<Theme>(() => {
@@ -1769,7 +1514,6 @@ function App() {
   const [activeLibraryBaseline, setActiveLibraryBaseline] = useState<ArchiveStatus | null>(null);
   const [lightroomStatus, setLightroomStatus] = useState<LightroomStatus | null>(null);
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
-  const [migration, setMigration] = useState<MigrationStatus | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refreshSequence = useRef(0);
@@ -2178,69 +1922,6 @@ function App() {
     } catch (reason) {
       setError((reason as Error).message);
       throw reason;
-    }
-  };
-
-  const generateMigrationPlan = async () => {
-    if (!window.confirm("现在只生成迁移清单并检查冲突，不会创建目录或复制照片。继续吗？")) return;
-    setError(null);
-    try {
-      setMigration(await getJson<MigrationStatus>("/api/migration/plans", { method: "POST" }));
-    } catch (reason) {
-      setError((reason as Error).message);
-    }
-  };
-
-  const startMigration = async (planId: number, confirmation: string, batchFiles: number, batchGb: number, batchMinutes: number) => {
-    if (!window.confirm("这会真实创建 D:\\PhotoLibrary\\Photos 并开始复制，但不会移动或删除 D:\\Photo。确认启动吗？")) return;
-    setError(null);
-    try {
-      setTask(await getJson<Task>("/api/migration/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan_id: planId,
-          confirmation,
-          batch_max_files: batchFiles,
-          batch_max_gb: batchGb,
-          batch_max_minutes: batchMinutes,
-        }),
-      }));
-    } catch (reason) {
-      setError((reason as Error).message);
-    }
-  };
-
-  const pauseMigration = async () => {
-    setError(null);
-    try {
-      setTask(await getJson<Task>("/api/migration/runs/current/pause", { method: "POST" }));
-    } catch (reason) {
-      setError((reason as Error).message);
-    }
-  };
-
-  const resumeMigration = async (runId: number) => {
-    setError(null);
-    try {
-      setTask(await getJson<Task>(`/api/migration/runs/${runId}/resume`, { method: "POST" }));
-    } catch (reason) {
-      setError((reason as Error).message);
-    }
-  };
-
-  const switchLibrary = async (runId: number, confirmation: string) => {
-    if (!window.confirm("最后确认：将活动图库切换到新路径。旧原片不会删除，确认继续吗？")) return;
-    setError(null);
-    try {
-      await getJson("/api/migration/switch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id: runId, confirmation }),
-      });
-      await refreshLibrary();
-    } catch (reason) {
-      setError((reason as Error).message);
     }
   };
 
