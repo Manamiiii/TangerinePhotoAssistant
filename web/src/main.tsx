@@ -29,6 +29,12 @@ type Overview = {
   capture_total: number;
   dated_captures: number;
   structure: StructureSummary;
+  workflow: {
+    unanalyzed_captures: number;
+    pending_similarity_groups: number;
+    user_picks: number;
+    user_rejects: number;
+  } | null;
   visual: {
     duplicate_group_count: number;
     duplicate_file_count: number;
@@ -194,6 +200,9 @@ type CaptureDetail = {
   exposure_score: number | null;
   sharpness_score: number | null;
   exif_score: number | null;
+  shadow_clip_pct: number | null;
+  highlight_clip_pct: number | null;
+  histogram: number[] | null;
   auto_rating: number | null;
   user_rating: number | null;
   user_pick: number | null;
@@ -214,6 +223,14 @@ type CaptureDetail = {
     exposure_compensation: number | null;
     width: number | null;
     height: number | null;
+    gps_latitude: number | null;
+    gps_longitude: number | null;
+    metering_mode: string | null;
+    white_balance: string | null;
+    flash: string | null;
+    focus_mode: string | null;
+    film_simulation: string | null;
+    dynamic_range: string | null;
   }>;
   ai_analyses: Array<{
     id: number;
@@ -408,12 +425,19 @@ type Statistics = {
   };
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
-  lenses: Array<StatisticRow & { lens_model: string }>;
+  lenses: Array<StatisticRow & { lens_model: string; user_picks: number; pick_rate: number | null }>;
   focal_ranges: Array<StatisticRow & { bucket: string }>;
   iso_ranges: Array<StatisticRow & { bucket: string }>;
   aperture_ranges: Array<StatisticRow & { bucket: string }>;
+  shutter_ranges: Array<StatisticRow & { bucket: string }>;
+  exposure_compensation_ranges: Array<StatisticRow & { bucket: string }>;
   ratings: Array<{ rating: number; count: number; user_rated: number }>;
   issues: Array<{ code: string; message: string; count: number }>;
+  selection: {
+    group_total: number;
+    groups_reviewed: number | null;
+    average_picks_per_group: number | null;
+  } | null;
 };
 
 type EquipmentItem = {
@@ -795,6 +819,40 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   );
 }
 
+function LuminanceHistogram({ histogram, shadowClip, highlightClip }: {
+  histogram: number[];
+  shadowClip: number | null;
+  highlightClip: number | null;
+}) {
+  const width = 256;
+  const height = 72;
+  const max = Math.max(1, ...histogram);
+  const barWidth = width / histogram.length;
+  return (
+    <div className="detail-histogram">
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="亮度直方图">
+        <rect x="0" y="0" width={barWidth * 2} height={height} className="histogram-clip-zone" />
+        <rect x={width - barWidth * 2} y="0" width={barWidth * 2} height={height} className="histogram-clip-zone" />
+        {histogram.map((value, index) => {
+          const barHeight = Math.max(value > 0 ? 1 : 0, (value / max) * height);
+          return <rect key={index} x={index * barWidth} y={height - barHeight} width={Math.max(0.5, barWidth - 0.6)} height={barHeight} className="histogram-bar" />;
+        })}
+      </svg>
+      <small>基于 JPG 亮度，不代表 RAW 动态余量 · 暗部剪切 {shadowClip == null ? "—" : `${shadowClip.toFixed(1)}%`} · 高光剪切 {highlightClip == null ? "—" : `${highlightClip.toFixed(1)}%`}</small>
+    </div>
+  );
+}
+
+function ScoreBar({ label, score }: { label: string; score: number | null }) {
+  return (
+    <div className="score-bar">
+      <span>{label}</span>
+      <div className="score-bar-track"><i style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }} className={score != null && score < 60 ? "low" : ""} /></div>
+      <b>{score == null ? "—" : Math.round(score)}</b>
+    </div>
+  );
+}
+
 function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate, hasPrev, hasNext }: {
   detail: CaptureDetail;
   close: () => void;
@@ -847,7 +905,10 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
       {hasNext && <button className="detail-nav next" aria-label="下一张" onClick={(event) => { event.stopPropagation(); navigate(1); }}>›</button>}
       <section className="detail-panel" onClick={(event) => event.stopPropagation()}>
         <button className="detail-close" onClick={close} aria-label="关闭详情">×</button>
-        <div className="detail-image"><img src={detail.thumbnail_url} alt={`${detail.stem} 大图预览`} /></div>
+        <div className="detail-image">
+          <img src={detail.thumbnail_url} alt={`${detail.stem} 大图预览`} />
+          {detail.files.some((file) => file.role === "raw") && <span className="raw-badge">JPG + RAW</span>}
+        </div>
         <div className="detail-copy">
           <span className="section-kicker">{detail.category ?? "未分类"}</span>
           <h2>{detail.stem}</h2>
@@ -864,9 +925,33 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
             <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门</span></div>
             <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈</span></div>
             <div><strong>{exif?.iso ? `ISO ${exif.iso}` : "—"}</strong><span>感光度</span></div>
-            <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距</span></div>
+            <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""}</span></div>
           </div>
-          <div className="detail-section"><h3>技术评分</h3><p>{detail.technical_score == null ? "尚未运行技术质量分析。" : `总分 ${Math.round(detail.technical_score)} · 曝光 ${Math.round(detail.exposure_score ?? 0)} · 清晰度 ${Math.round(detail.sharpness_score ?? 0)} · 参数 ${Math.round(detail.exif_score ?? 0)}`}</p></div>
+          <div className="detail-section detail-exif-section"><h3>拍摄参数</h3>
+            <dl className="exif-grid">
+              <div><dt>相机</dt><dd>{exif?.camera_model ?? "—"}</dd></div>
+              <div><dt>镜头</dt><dd>{exif?.lens_model ?? "—"}</dd></div>
+              <div><dt>拍摄时间</dt><dd>{detail.captured_at ? detail.captured_at.replace("T", " ") : "—"}</dd></div>
+              <div><dt>尺寸</dt><dd>{exif?.width && exif?.height ? `${exif.width} × ${exif.height}` : "—"}</dd></div>
+              <div><dt>曝光补偿</dt><dd>{exif?.exposure_compensation == null ? "—" : `${exif.exposure_compensation > 0 ? "+" : ""}${exif.exposure_compensation} EV`}</dd></div>
+              <div><dt>测光模式</dt><dd>{exif?.metering_mode ?? "—"}</dd></div>
+              <div><dt>白平衡</dt><dd>{exif?.white_balance ?? "—"}</dd></div>
+              <div><dt>闪光灯</dt><dd>{exif?.flash ?? "—"}</dd></div>
+              <div><dt>对焦模式</dt><dd>{exif?.focus_mode ?? "—"}</dd></div>
+              <div><dt>胶片模拟</dt><dd>{exif?.film_simulation ?? "—"}</dd></div>
+              <div><dt>动态范围</dt><dd>{exif?.dynamic_range ?? "—"}</dd></div>
+              <div><dt>GPS</dt><dd>{exif?.gps_latitude != null && exif?.gps_longitude != null ? `${exif.gps_latitude.toFixed(5)}, ${exif.gps_longitude.toFixed(5)}` : "—"}</dd></div>
+            </dl>
+          </div>
+          <div className="detail-section"><h3>技术面板</h3>
+            {detail.histogram && detail.histogram.length > 0 && <LuminanceHistogram histogram={detail.histogram} shadowClip={detail.shadow_clip_pct} highlightClip={detail.highlight_clip_pct} />}
+            {detail.technical_score == null ? <p>尚未运行技术质量分析。</p> : <div className="score-bars">
+              <ScoreBar label={`总分 ${Math.round(detail.technical_score)}`} score={detail.technical_score} />
+              <ScoreBar label="曝光" score={detail.exposure_score} />
+              <ScoreBar label="清晰度" score={detail.sharpness_score} />
+              <ScoreBar label="参数" score={detail.exif_score} />
+            </div>}
+          </div>
           <div className="detail-section"><h3>问题证据</h3>{detail.issues.length ? <ul>{detail.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}</ul> : <p>尚未发现或尚未分析。</p>}</div>
           <div className="detail-section"><h3>本地模型建议</h3><p>{typeof latestAi?.quality_summary === "string" ? latestAi.quality_summary : "尚未运行本地模型分析。"}</p>
             {latestAnalysis && <small className="ai-result-version">{latestAnalysis.model_id} · {latestAnalysis.prompt_version} · {formatDate(latestAnalysis.finished_at)}</small>}
@@ -1148,7 +1233,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   );
 }
 
-function HomeView({ overview, statistics, archive, activeBaseline, library, task, openPhotos, openAlbums, openUnassigned, openMaintenance, openCapture }: {
+function HomeView({ overview, statistics, archive, activeBaseline, library, task, openPhotos, openAlbums, openUnassigned, openMaintenance, openCapture, openAnalysis, openPendingGroups, openLibraryWith }: {
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
@@ -1160,6 +1245,9 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
   openUnassigned: () => void;
   openMaintenance: () => void;
   openCapture: (captureId: number, context?: number[]) => void;
+  openAnalysis: () => void;
+  openPendingGroups: () => void;
+  openLibraryWith: (changes: Partial<LibraryQuery>) => void;
 }) {
   const pendingEvents = overview?.structure.unconfirmed_event_count ?? 0;
   const unassigned = overview?.structure.unassigned_capture_count ?? 0;
@@ -1174,6 +1262,18 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
       <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个名称待确认</small></article>
       <article><span>最近拍摄月</span><strong>{latestMonth ? numberFormat.format(latestMonth.count) : "—"}</strong><small>{latestMonth?.month ?? "暂无拍摄日期"}</small></article>
     </section>
+    {overview?.workflow && <section className="panel workflow-funnel-panel">
+      <div className="panel-heading"><div><span className="section-kicker">选片工作流</span><h3>今天从哪里继续</h3></div></div>
+      <div className="workflow-funnel">
+        <button onClick={openAnalysis}><strong>{numberFormat.format(overview.workflow.unanalyzed_captures)}</strong><span>待技术分析</span><small>先跑质量分析</small></button>
+        <b className="funnel-arrow">→</b>
+        <button onClick={openPendingGroups}><strong>{numberFormat.format(overview.workflow.pending_similarity_groups)}</strong><span>相似组待选</span><small>进入对比选片</small></button>
+        <b className="funnel-arrow">→</b>
+        <button onClick={() => openLibraryWith({ selection: "picked" })}><strong>{numberFormat.format(overview.workflow.user_picks)}</strong><span>已入选</span><small>待进入 Lightroom</small></button>
+        <b className="funnel-arrow">→</b>
+        <button onClick={() => openLibraryWith({ selection: "rejected" })}><strong>{numberFormat.format(overview.workflow.user_rejects)}</strong><span>待淘汰候选</span><small>只标记，不删除</small></button>
+      </div>
+    </section>}
     <section className="home-management-grid">
       <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={openPhotos}>查看全部</button></div><div className="recent-photo-grid">
         {(library?.items ?? []).slice(0, 8).map((item, _index, recent) => <button key={item.id} onClick={() => openCapture(item.id, recent.map((entry) => entry.id))}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></button>)}
@@ -1493,6 +1593,7 @@ function StatisticsView({ statistics, openLibraryWith }: {
   openLibraryWith: (changes: Partial<LibraryQuery>) => void;
 }) {
   const summary = statistics?.summary;
+  const selection = statistics?.selection;
   const openMonth = (month: string) => {
     const [year, monthPart] = month.split("-").map(Number);
     if (!year || !monthPart) return;
@@ -1510,6 +1611,7 @@ function StatisticsView({ statistics, openLibraryWith }: {
         <article><span>已完成质量分析</span><strong>{summary ? numberFormat.format(summary.quality_analyzed) : "—"}</strong><small>平均分 {summary?.average_technical_score ?? "—"}</small></article>
         <article><span>连拍入选</span><strong>{summary ? numberFormat.format(summary.user_picks) : "—"}</strong><small>组内最终选择</small></article>
         <article><span>连拍排除</span><strong>{summary ? numberFormat.format(summary.user_rejects) : "—"}</strong><small>不会删除原片</small></article>
+        <article><span>选片进度</span><strong>{selection ? `${numberFormat.format(selection.groups_reviewed ?? 0)}/${numberFormat.format(selection.group_total)}` : "—"}</strong><small>已处理相似组 · 平均每组入选 {selection?.average_picks_per_group ?? "—"} 张</small></article>
       </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" onSelect={(category) => openLibraryWith({ category })} />
@@ -1517,6 +1619,31 @@ function StatisticsView({ statistics, openLibraryWith }: {
         <Distribution title="焦段习惯" rows={statistics?.focal_ranges ?? []} labelKey="bucket" />
         <Distribution title="ISO分布" rows={statistics?.iso_ranges ?? []} labelKey="bucket" />
         <Distribution title="光圈分布" rows={statistics?.aperture_ranges ?? []} labelKey="bucket" />
+        <Distribution title="快门分布" rows={statistics?.shutter_ranges ?? []} labelKey="bucket" />
+        <Distribution title="曝光补偿" rows={statistics?.exposure_compensation_ranges ?? []} labelKey="bucket" />
+      </section>
+      <section className="statistics-grid">
+        <section className="panel lens-efficiency-panel">
+          <div className="panel-heading"><div><span className="section-kicker">器材效能</span><h3>镜头出片率</h3></div></div>
+          <div className="lens-efficiency-list">
+            {(statistics?.lenses ?? []).map((lens) => <button key={lens.lens_model} onClick={() => openLibraryWith({ lens: lens.lens_model })}>
+              <span>{lens.lens_model}</span>
+              <em>{numberFormat.format(lens.count)} 张 · 均分 {lens.average_score ?? "—"}</em>
+              <b>{lens.pick_rate == null ? "—" : `入选率 ${lens.pick_rate}%`}</b>
+            </button>)}
+            {!(statistics?.lenses ?? []).length && <div className="empty-state">暂无镜头数据。</div>}
+          </div>
+        </section>
+        <section className="panel issue-stats-panel">
+          <div className="panel-heading"><div><span className="section-kicker">拍摄复盘</span><h3>高频问题</h3></div><span className="batch-count">点击查看有问题的照片</span></div>
+          <div className="issue-stats-list">
+            {(statistics?.issues ?? []).slice(0, 8).map((issue) => <button key={issue.code} onClick={() => openLibraryWith({ quality: "problems" })}>
+              <span>{issue.message}</span>
+              <b>{numberFormat.format(issue.count)}</b>
+            </button>)}
+            {!(statistics?.issues ?? []).length && <div className="empty-state">尚未发现技术问题，或还没有运行质量分析。</div>}
+          </div>
+        </section>
       </section>
       <section className="panel month-panel">
         <div className="panel-heading"><div><span className="section-kicker">时间趋势</span><h3>最近拍摄月份</h3></div><span className="batch-count">点击月份跳到对应照片</span></div>
@@ -1897,6 +2024,14 @@ function App() {
     }
   };
 
+  const openLibraryWith = (changes: Partial<LibraryQuery>) => {
+    setLibraryLandingSection("photos");
+    setLibraryOffset(0);
+    setLibraryCaptures(null);
+    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", ...changes }));
+    setView("library");
+  };
+
   const openCapture = async (captureId: number, context?: number[]) => {
     setError(null);
     try {
@@ -2116,7 +2251,7 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} task={task} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} task={task} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} openAnalysis={() => setView("analysis")} openPendingGroups={() => { setGroupOffset(0); setGroupReviewFilter("pending"); setView("bursts"); }} openLibraryWith={openLibraryWith} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
           requestedSection={libraryLandingSection}
@@ -2129,7 +2264,7 @@ function App() {
         />}
         {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
-        {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={(changes) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", ...changes })); setView("library"); }} />}
+        {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} generateManifest={generateManifest} />}

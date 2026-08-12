@@ -1085,3 +1085,43 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .album-row .event-measure, .album-row .album-date { display: none; }
   .album-row-actions { grid-column: 2; grid-row: 2; justify-content: start; }
 }
+
+/* Workflow funnel (home) */
+.workflow-funnel-panel { margin-bottom: 18px; }
+.workflow-funnel { display: flex; align-items: stretch; gap: 8px; padding: 0 14px 14px; overflow-x: auto; }
+.workflow-funnel button { flex: 1; min-width: 120px; padding: 12px 10px; border: 1px solid var(--line); border-radius: 10px; color: inherit; background: transparent; display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer; }
+.workflow-funnel button:hover { border-color: var(--orange); }
+.workflow-funnel button strong { font-size: 19px; }
+.workflow-funnel button span { font-size: 11px; }
+.workflow-funnel button small { color: var(--muted); font-size: 9px; }
+.workflow-funnel .funnel-arrow { align-self: center; color: var(--muted); font-weight: 400; }
+
+/* Capture detail: RAW badge, EXIF grid, histogram, score bars */
+.detail-image { position: relative; }
+.raw-badge { position: absolute; top: 10px; left: 10px; padding: 3px 8px; border-radius: 6px; color: #15110d; background: var(--orange); font-size: 9px; font-weight: 700; letter-spacing: .05em; }
+.exif-grid { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+.exif-grid > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.exif-grid dt { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.exif-grid dd { margin: 0; font-size: 10px; text-align: right; overflow-wrap: anywhere; }
+.detail-histogram { margin-bottom: 10px; }
+.detail-histogram svg { display: block; width: 100%; height: 72px; border: 1px solid var(--line); border-radius: 8px; background: #0d0c0a; }
+.detail-histogram .histogram-bar { fill: var(--orange-soft, #d9a05b); opacity: .85; }
+.detail-histogram .histogram-clip-zone { fill: #ffffff; opacity: .07; }
+.detail-histogram small { display: block; margin-top: 4px; color: var(--muted); font-size: 8.5px; }
+.score-bars { display: flex; flex-direction: column; gap: 6px; }
+.score-bar { display: grid; grid-template-columns: 72px minmax(0, 1fr) 28px; align-items: center; gap: 8px; }
+.score-bar > span { color: var(--muted); font-size: 9px; }
+.score-bar b { font-size: 10px; text-align: right; }
+.score-bar-track { height: 6px; border-radius: 4px; background: rgba(128, 118, 105, .25); overflow: hidden; }
+.score-bar-track i { display: block; height: 100%; border-radius: 4px; background: var(--orange); }
+.score-bar-track i.low { background: #b0563f; }
+
+/* Statistics: lens efficiency + issue frequency */
+.lens-efficiency-list, .issue-stats-list { padding: 0 14px 14px; }
+.lens-efficiency-list button, .issue-stats-list button { width: 100%; padding: 11px 8px; border: 0; border-top: 1px solid var(--line); color: inherit; background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; cursor: pointer; }
+.lens-efficiency-list button span, .issue-stats-list button span { flex: 1; min-width: 0; font-size: 10.5px; overflow-wrap: anywhere; }
+.lens-efficiency-list button em { color: var(--muted); font-size: 9px; font-style: normal; white-space: nowrap; }
+.lens-efficiency-list button b, .issue-stats-list button b { color: var(--orange-soft, #d9a05b); font-size: 10.5px; white-space: nowrap; }
+
+:root[data-theme="light"] .detail-histogram svg { background: #f6efe6; }
+:root[data-theme="light"] .detail-histogram .histogram-clip-zone { fill: #4a3e31; opacity: .08; }
