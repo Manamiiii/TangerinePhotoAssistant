@@ -1004,6 +1004,7 @@ def _query_library_captures(
     lens_model: str | None = None,
     rating: int | None = None,
     selection: str | None = None,
+    quality: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -1040,6 +1041,16 @@ def _query_library_captures(
             conditions.append("COALESCE(cr.user_reject, 0) = 1")
         elif selection == "unreviewed":
             conditions.append("cr.user_rating IS NULL AND COALESCE(cr.user_pick, 0) = 0 AND COALESCE(cr.user_reject, 0) = 0")
+        if quality == "problems":
+            conditions.append(
+                "qm.issue_json IS NOT NULL AND qm.issue_json NOT IN ('', '[]')"
+            )
+        elif quality == "low":
+            conditions.append("qm.technical_score < 70")
+        elif quality == "high":
+            conditions.append("qm.technical_score >= 85")
+        elif quality == "unanalyzed":
+            conditions.append("qm.technical_score IS NULL")
         if date_from:
             conditions.append("substr(c.captured_at, 1, 10) >= ?")
             parameters.append(date_from)
@@ -1477,19 +1488,40 @@ def _query_quality(
         connection.close()
 
 
-def _query_similarity_groups(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
+def _query_similarity_groups(
+    settings: Settings, limit: int, offset: int, review_filter: str = "all"
+) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
         total = connection.execute("SELECT COUNT(*) FROM similarity_groups").fetchone()[0]
-        rows = connection.execute(
+        pending_count = connection.execute(
             """
+            SELECT COUNT(*) FROM similarity_groups sg
+            WHERE NOT EXISTS (
+                SELECT 1 FROM similarity_group_captures sgc
+                JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+                WHERE sgc.group_id = sg.id
+                  AND (COALESCE(cr.user_pick, 0) = 1 OR COALESCE(cr.user_reject, 0) = 1)
+            )
+            """
+        ).fetchone()[0]
+        having_sql = ""
+        if review_filter == "pending":
+            having_sql = (
+                "HAVING SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1"
+                " OR COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) = 0"
+            )
+        rows = connection.execute(
+            f"""
             SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
                    b.start_at, b.end_at, e.id AS event_id,
                    e.proposed_name AS event_name, e.category,
                    ROUND(AVG(qm.technical_score), 1) AS average_score,
                    MAX(CASE WHEN cr.auto_pick = 1 THEN c.id END) AS recommended_capture_id,
                    MAX(CASE WHEN cr.auto_pick = 1 THEN c.stem END) AS recommended_stem,
-                   MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END) AS cover_capture_id
+                   MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END) AS cover_capture_id,
+                   SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
+                   SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) AS reject_count
             FROM similarity_groups sg
             JOIN bursts b ON b.id = sg.burst_id
             JOIN events e ON e.id = b.event_id
@@ -1498,6 +1530,7 @@ def _query_similarity_groups(settings: Settings, limit: int, offset: int) -> dic
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
             GROUP BY sg.id
+            {having_sql}
             ORDER BY sg.capture_count DESC, b.start_at DESC
             LIMIT ? OFFSET ?
             """,
@@ -1506,7 +1539,15 @@ def _query_similarity_groups(settings: Settings, limit: int, offset: int) -> dic
         items = [dict(row) for row in rows]
         for item in items:
             item["thumbnail_url"] = f"/api/thumbnails/{item['cover_capture_id']}?size=320"
-        return {"count": total, "limit": limit, "offset": offset, "items": items}
+            item["review_status"] = (
+                "picked" if item["pick_count"] else
+                "skipped" if item["reject_count"] else "pending"
+            )
+        count = pending_count if review_filter == "pending" else total
+        return {
+            "count": count, "limit": limit, "offset": offset, "items": items,
+            "total_count": total, "pending_count": pending_count,
+        }
     finally:
         connection.close()
 
@@ -1698,6 +1739,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         lens_model: str | None = Query(default=None, max_length=240),
         rating: int | None = Query(default=None, ge=1, le=5),
         selection: Literal["picked", "rejected", "unreviewed"] | None = None,
+        quality: Literal["problems", "low", "high", "unanalyzed"] | None = None,
         date_from: str | None = Query(default=None, max_length=10),
         date_to: str | None = Query(default=None, max_length=10),
         search: str | None = Query(default=None, max_length=120),
@@ -1707,7 +1749,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         return _query_library_captures(
             settings, limit, offset, album_id=album_id, category=category,
             camera_model=camera_model, lens_model=lens_model, rating=rating,
-            selection=selection, date_from=date_from, date_to=date_to,
+            selection=selection, quality=quality, date_from=date_from, date_to=date_to,
             search=search, sort=sort, collapse_groups=collapse_groups,
             unassigned_only=unassigned,
         )
@@ -1835,8 +1877,9 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def similarity_groups(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
+        review_filter: Literal["all", "pending"] = "all",
     ) -> dict[str, Any]:
-        return _query_similarity_groups(settings, limit, offset)
+        return _query_similarity_groups(settings, limit, offset, review_filter=review_filter)
 
     @app.get("/api/similarity-groups/{group_id}")
     def similarity_group(group_id: int) -> dict[str, Any]:

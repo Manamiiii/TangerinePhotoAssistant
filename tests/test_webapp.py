@@ -30,6 +30,7 @@ from tangerine_photo_assistant.webapp import (
     _query_library_filters,
     _query_overview,
     _query_quality,
+    _query_similarity_groups,
 )
 
 
@@ -255,6 +256,73 @@ class WebAppQueryTests(unittest.TestCase):
                 selection="picked", collapse_groups=True,
             )
             self.assertEqual(picked["count"], 2)
+
+    def test_quality_filter_and_similarity_review_progress(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            source = settings.originals / "2026-08-12_质量筛选"
+            source.mkdir(parents=True)
+            for stem in ("DSCF0101", "DSCF0102", "DSCF0103"):
+                Image.new("RGB", (48, 32), "orange").save(source / f"{stem}.JPG")
+            connection = connect(settings.database_path)
+            scan_library(connection, settings)
+            for stem, second in (("DSCF0101", 1), ("DSCF0102", 2), ("DSCF0103", 3)):
+                connection.execute(
+                    "UPDATE files SET captured_at=? WHERE stem=?",
+                    (f"2026-08-12T09:00:{second:02d}", stem),
+                )
+            connection.commit()
+            rebuild_captures(connection)
+            rebuild_structure(connection, settings.burst_time_gap_seconds)
+            build_visual_fingerprints(connection)
+            rebuild_similarity_groups(connection)
+            low_id, high_id = (
+                connection.execute(
+                    "SELECT id FROM captures WHERE stem=?", (stem,)
+                ).fetchone()[0]
+                for stem in ("DSCF0101", "DSCF0102")
+            )
+            connection.executemany(
+                """INSERT INTO quality_metrics(
+                       capture_id, source_file_id, algorithm_version, technical_score,
+                       issue_json, size_bytes, modified_ns, computed_at
+                   ) VALUES (?, (SELECT file_id FROM capture_files WHERE capture_id=?),
+                             'test', ?, ?, 1, 1, 'now')""",
+                (
+                    (low_id, low_id, 55.0, '[{"code": "soft_focus"}]'),
+                    (high_id, high_id, 92.0, "[]"),
+                ),
+            )
+            connection.commit()
+
+            problems = _query_library_captures(settings, 20, 0, quality="problems")
+            self.assertEqual([item["id"] for item in problems["items"]], [low_id])
+            low = _query_library_captures(settings, 20, 0, quality="low")
+            self.assertEqual([item["id"] for item in low["items"]], [low_id])
+            high = _query_library_captures(settings, 20, 0, quality="high")
+            self.assertEqual([item["id"] for item in high["items"]], [high_id])
+            unanalyzed = _query_library_captures(settings, 20, 0, quality="unanalyzed")
+            self.assertEqual(unanalyzed["count"], 1)
+
+            groups = _query_similarity_groups(settings, 20, 0)
+            self.assertEqual(groups["pending_count"], 1)
+            self.assertEqual(groups["items"][0]["review_status"], "pending")
+            connection.execute(
+                """INSERT INTO capture_reviews(capture_id, user_pick, user_reject, updated_at)
+                   VALUES (?, 1, 0, 'now')""",
+                (high_id,),
+            )
+            connection.commit()
+            connection.close()
+            groups = _query_similarity_groups(settings, 20, 0)
+            self.assertEqual(groups["pending_count"], 0)
+            self.assertEqual(groups["items"][0]["review_status"], "picked")
+            self.assertEqual(groups["items"][0]["pick_count"], 1)
+            pending_only = _query_similarity_groups(settings, 20, 0, review_filter="pending")
+            self.assertEqual(pending_only["count"], 0)
+            self.assertEqual(pending_only["items"], [])
+            self.assertEqual(pending_only["total_count"], 1)
 
 
 if __name__ == "__main__":
