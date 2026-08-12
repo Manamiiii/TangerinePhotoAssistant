@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from hashlib import sha1
 import os
-from pathlib import Path
 import sqlite3
+from hashlib import sha1
+from pathlib import Path
 from threading import Lock
 from uuid import uuid4
 
@@ -11,7 +11,6 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .database import connect_readonly
 from .settings import Settings
-
 
 ALLOWED_EDGES = (320, 640, 1280)
 

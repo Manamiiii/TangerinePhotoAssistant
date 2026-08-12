@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
 import math
-from pathlib import Path
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageFile, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
 
 from .database import transaction
 from .inventory import utc_now
 
-
-ALGORITHM_VERSION = "technical-v1"
+ALGORITHM_VERSION = "technical-v2"
+HISTOGRAM_BUCKETS = 64
 Progress = Callable[[int, int], None]
 
 
@@ -25,7 +26,16 @@ class ImageMetrics:
     edge_strength: float
     exposure_score: float
     sharpness_score: float
+    histogram: tuple[int, ...] = ()
     decode_warning: str | None = None
+
+
+def _downsample_histogram(histogram: list[int]) -> tuple[int, ...]:
+    """Fold a 256-bucket luminance histogram into HISTOGRAM_BUCKETS buckets."""
+    step = 256 // HISTOGRAM_BUCKETS
+    return tuple(
+        sum(histogram[start:start + step]) for start in range(0, 256, step)
+    )
 
 
 def _measure_image_once(path: Path) -> ImageMetrics:
@@ -53,6 +63,7 @@ def _measure_image_once(path: Path) -> ImageMetrics:
         edge_strength=round(edge_strength, 3),
         exposure_score=round(exposure_score, 2),
         sharpness_score=round(sharpness_score, 2),
+        histogram=_downsample_histogram(histogram),
     )
 
 
@@ -263,8 +274,9 @@ def analyze_quality(
                     capture_id, source_file_id, algorithm_version,
                     luminance_mean, shadow_clip_pct, highlight_clip_pct,
                     edge_strength, exposure_score, sharpness_score, exif_score,
-                    technical_score, issue_json, size_bytes, modified_ns, computed_at, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    technical_score, issue_json, histogram_json,
+                    size_bytes, modified_ns, computed_at, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(capture_id) DO UPDATE SET
                     source_file_id=excluded.source_file_id,
                     algorithm_version=excluded.algorithm_version,
@@ -277,6 +289,7 @@ def analyze_quality(
                     exif_score=excluded.exif_score,
                     technical_score=excluded.technical_score,
                     issue_json=excluded.issue_json,
+                    histogram_json=excluded.histogram_json,
                     size_bytes=excluded.size_bytes,
                     modified_ns=excluded.modified_ns,
                     computed_at=excluded.computed_at,
@@ -291,6 +304,7 @@ def analyze_quality(
                     metrics.exposure_score if metrics else None,
                     metrics.sharpness_score if metrics else None,
                     exif_score, technical, json.dumps(issues, ensure_ascii=False),
+                    json.dumps(list(metrics.histogram)) if metrics and metrics.histogram else None,
                     row["size_bytes"], row["modified_ns"], utc_now(), error,
                 ),
             )

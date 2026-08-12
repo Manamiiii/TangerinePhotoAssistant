@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
 import json
-from pathlib import Path, PureWindowsPath
 import re
 import sqlite3
+from datetime import datetime
+from pathlib import Path, PureWindowsPath
 from typing import Any
-
 
 INVALID_COMPONENT = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 

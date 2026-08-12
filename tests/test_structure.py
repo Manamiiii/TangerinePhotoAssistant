@@ -1,6 +1,6 @@
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library

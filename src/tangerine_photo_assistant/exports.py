@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from io import BytesIO
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import sqlite3
+from datetime import UTC, datetime
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-
 
 ALLOWED_SHARE_EDGES = (1080, 2048, 3840)
 
@@ -67,7 +66,7 @@ def write_phone_share_export(
     required_free = sum(int(row["size_bytes"]) for row in rows) + 256 * 1024**2
     if shutil.disk_usage(reports_path).free < required_free:
         raise ValueError("报告目录空间不足，未创建手机分享包")
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"phone-share-{timestamp}-{uuid4().hex[:8]}.zip"
     target = (reports_path / filename).resolve()
     temporary = (reports_path / f".{filename}.{uuid4().hex}.partial").resolve()

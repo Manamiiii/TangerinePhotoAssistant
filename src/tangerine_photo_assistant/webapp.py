@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import subprocess
-import tomllib
-from threading import Event, Lock, Thread
 import time
+import tomllib
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
+from threading import Event, Lock, Thread
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -22,10 +22,10 @@ from .ai_analysis import (
     PROMPT_VERSION,
     _decorate_ai_run,
     _process_exists,
+    ai_results_page,
     ai_run_failures,
     ai_run_history,
     ai_run_status,
-    ai_results_page,
     ai_summary,
     create_ai_failure_retry_run,
     create_ai_run,
@@ -933,6 +933,34 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
         dated_captures = connection.execute(
             "SELECT COUNT(*) FROM captures WHERE captured_at IS NOT NULL"
         ).fetchone()[0]
+        unanalyzed = connection.execute(
+            """
+            SELECT COUNT(DISTINCT c.id) FROM captures c
+            JOIN event_captures ec ON ec.capture_id = c.id
+            JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
+            JOIN files f ON f.id = cf.file_id AND f.present = 1
+            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
+            WHERE qm.capture_id IS NULL
+            """
+        ).fetchone()[0]
+        pending_groups = connection.execute(
+            """
+            SELECT COUNT(*) FROM similarity_groups sg
+            WHERE NOT EXISTS (
+                SELECT 1 FROM similarity_group_captures sgc
+                JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+                WHERE sgc.group_id = sg.id
+                  AND (COALESCE(cr.user_pick, 0) = 1 OR COALESCE(cr.user_reject, 0) = 1)
+            )
+            """
+        ).fetchone()[0]
+        review_totals = connection.execute(
+            """
+            SELECT SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS picks,
+                   SUM(CASE WHEN user_reject = 1 THEN 1 ELSE 0 END) AS rejects
+            FROM capture_reviews
+            """
+        ).fetchone()
         return {
             **report,
             "capture_total": capture_total,
@@ -942,6 +970,12 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
             "lenses": report["lenses"][:8],
             "structure": structure_summary(connection),
             "visual": _visual_summary(connection),
+            "workflow": {
+                "unanalyzed_captures": unanalyzed,
+                "pending_similarity_groups": pending_groups,
+                "user_picks": review_totals["picks"] or 0,
+                "user_rejects": review_totals["rejects"] or 0,
+            },
         }
     finally:
         connection.close()
@@ -1004,6 +1038,7 @@ def _query_library_captures(
     lens_model: str | None = None,
     rating: int | None = None,
     selection: str | None = None,
+    quality: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -1040,6 +1075,16 @@ def _query_library_captures(
             conditions.append("COALESCE(cr.user_reject, 0) = 1")
         elif selection == "unreviewed":
             conditions.append("cr.user_rating IS NULL AND COALESCE(cr.user_pick, 0) = 0 AND COALESCE(cr.user_reject, 0) = 0")
+        if quality == "problems":
+            conditions.append(
+                "qm.issue_json IS NOT NULL AND qm.issue_json NOT IN ('', '[]')"
+            )
+        elif quality == "low":
+            conditions.append("qm.technical_score < 70")
+        elif quality == "high":
+            conditions.append("qm.technical_score >= 85")
+        elif quality == "unanalyzed":
+            conditions.append("qm.technical_score IS NULL")
         if date_from:
             conditions.append("substr(c.captured_at, 1, 10) >= ?")
             parameters.append(date_from)
@@ -1477,19 +1522,40 @@ def _query_quality(
         connection.close()
 
 
-def _query_similarity_groups(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
+def _query_similarity_groups(
+    settings: Settings, limit: int, offset: int, review_filter: str = "all"
+) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
         total = connection.execute("SELECT COUNT(*) FROM similarity_groups").fetchone()[0]
-        rows = connection.execute(
+        pending_count = connection.execute(
             """
+            SELECT COUNT(*) FROM similarity_groups sg
+            WHERE NOT EXISTS (
+                SELECT 1 FROM similarity_group_captures sgc
+                JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+                WHERE sgc.group_id = sg.id
+                  AND (COALESCE(cr.user_pick, 0) = 1 OR COALESCE(cr.user_reject, 0) = 1)
+            )
+            """
+        ).fetchone()[0]
+        having_sql = ""
+        if review_filter == "pending":
+            having_sql = (
+                "HAVING SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1"
+                " OR COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) = 0"
+            )
+        rows = connection.execute(
+            f"""
             SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
                    b.start_at, b.end_at, e.id AS event_id,
                    e.proposed_name AS event_name, e.category,
                    ROUND(AVG(qm.technical_score), 1) AS average_score,
                    MAX(CASE WHEN cr.auto_pick = 1 THEN c.id END) AS recommended_capture_id,
                    MAX(CASE WHEN cr.auto_pick = 1 THEN c.stem END) AS recommended_stem,
-                   MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END) AS cover_capture_id
+                   MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END) AS cover_capture_id,
+                   SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
+                   SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) AS reject_count
             FROM similarity_groups sg
             JOIN bursts b ON b.id = sg.burst_id
             JOIN events e ON e.id = b.event_id
@@ -1498,6 +1564,7 @@ def _query_similarity_groups(settings: Settings, limit: int, offset: int) -> dic
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
             GROUP BY sg.id
+            {having_sql}
             ORDER BY sg.capture_count DESC, b.start_at DESC
             LIMIT ? OFFSET ?
             """,
@@ -1506,7 +1573,15 @@ def _query_similarity_groups(settings: Settings, limit: int, offset: int) -> dic
         items = [dict(row) for row in rows]
         for item in items:
             item["thumbnail_url"] = f"/api/thumbnails/{item['cover_capture_id']}?size=320"
-        return {"count": total, "limit": limit, "offset": offset, "items": items}
+            item["review_status"] = (
+                "picked" if item["pick_count"] else
+                "skipped" if item["reject_count"] else "pending"
+            )
+        count = pending_count if review_filter == "pending" else total
+        return {
+            "count": count, "limit": limit, "offset": offset, "items": items,
+            "total_count": total, "pending_count": pending_count,
+        }
     finally:
         connection.close()
 
@@ -1563,6 +1638,60 @@ def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]
         connection.close()
 
 
+METERING_MODE_LABELS = {
+    0: "未知", 1: "平均", 2: "中央重点", 3: "点测光",
+    4: "多点", 5: "评价测光", 6: "局部", 255: "其他",
+}
+WHITE_BALANCE_LABELS = {0: "自动", 1: "手动"}
+FILM_MODE_LABELS = {
+    0x000: "PROVIA / 标准", 0x100: "彩色高饱和", 0x110: "彩色柔和",
+    0x120: "ASTIA / 柔和", 0x200: "Velvia / 鲜艳", 0x300: "PRO Neg. Std",
+    0x310: "PRO Neg. Hi", 0x400: "CLASSIC CHROME", 0x500: "ETERNA / 影院",
+    0x510: "CLASSIC Neg.", 0x520: "ETERNA 漂白", 0x530: "NOSTALGIC Neg.",
+    0x600: "REALA ACE",
+}
+DYNAMIC_RANGE_LABELS = {0x000: "自动", 0x001: "手动", 0x100: "DR100", 0x200: "DR200", 0x400: "DR400"}
+
+
+def _exif_label(value: Any, labels: dict[int, str]) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip().lstrip("-").isdigit():
+        return value
+    try:
+        code = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return labels.get(code, str(value))
+
+
+def _exif_extras(exif_json: str | None) -> dict[str, Any]:
+    if not exif_json:
+        return {}
+    try:
+        values = json.loads(exif_json)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    flash = values.get("Flash")
+    flash_label = None
+    if flash is not None:
+        try:
+            flash_label = "已闪光" if int(flash) & 0x1 else "未闪光"
+        except (TypeError, ValueError):
+            flash_label = str(flash)
+    return {
+        "metering_mode": _exif_label(values.get("MeteringMode"), METERING_MODE_LABELS),
+        "white_balance": _exif_label(values.get("WhiteBalance"), WHITE_BALANCE_LABELS),
+        "flash": flash_label,
+        "focus_mode": values.get("FocusMode"),
+        "film_simulation": _exif_label(values.get("FilmMode"), FILM_MODE_LABELS),
+        "dynamic_range": _exif_label(
+            values.get("DynamicRangeSetting", values.get("DynamicRange")),
+            DYNAMIC_RANGE_LABELS,
+        ),
+    }
+
+
 def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
@@ -1572,7 +1701,8 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
                    e.id AS event_id, e.proposed_name AS event_name, e.category,
                    qm.luminance_mean, qm.shadow_clip_pct, qm.highlight_clip_pct,
                    qm.edge_strength, qm.exposure_score, qm.sharpness_score,
-                   qm.exif_score, qm.technical_score, qm.issue_json, qm.error,
+                   qm.exif_score, qm.technical_score, qm.issue_json,
+                   qm.histogram_json, qm.error,
                    cr.auto_rating, cr.auto_pick, cr.similarity_rank,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note
             FROM captures c
@@ -1589,17 +1719,22 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
         item = dict(row)
         raw_issues = item.pop("issue_json")
         item["issues"] = json.loads(raw_issues) if raw_issues else []
+        raw_histogram = item.pop("histogram_json")
+        item["histogram"] = json.loads(raw_histogram) if raw_histogram else None
         item["files"] = [dict(file) for file in connection.execute(
             """
             SELECT f.id, f.file_name, f.path, f.extension, f.media_kind, f.size_bytes,
                    cf.role, f.camera_make, f.camera_model, f.lens_model,
                    f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
-                   f.focal_length_35mm, f.exposure_compensation, f.width, f.height
+                   f.focal_length_35mm, f.exposure_compensation, f.width, f.height,
+                   f.gps_latitude, f.gps_longitude, f.exif_json
             FROM capture_files cf JOIN files f ON f.id = cf.file_id
             WHERE cf.capture_id = ? AND f.present = 1 ORDER BY cf.role, f.id
             """,
             (capture_id,),
         )]
+        for file in item["files"]:
+            file.update(_exif_extras(file.pop("exif_json")))
         analyses = connection.execute(
             """
             SELECT id, model_id, prompt_version, result_json, finished_at,
@@ -1698,6 +1833,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         lens_model: str | None = Query(default=None, max_length=240),
         rating: int | None = Query(default=None, ge=1, le=5),
         selection: Literal["picked", "rejected", "unreviewed"] | None = None,
+        quality: Literal["problems", "low", "high", "unanalyzed"] | None = None,
         date_from: str | None = Query(default=None, max_length=10),
         date_to: str | None = Query(default=None, max_length=10),
         search: str | None = Query(default=None, max_length=120),
@@ -1707,7 +1843,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         return _query_library_captures(
             settings, limit, offset, album_id=album_id, category=category,
             camera_model=camera_model, lens_model=lens_model, rating=rating,
-            selection=selection, date_from=date_from, date_to=date_to,
+            selection=selection, quality=quality, date_from=date_from, date_to=date_to,
             search=search, sort=sort, collapse_groups=collapse_groups,
             unassigned_only=unassigned,
         )
@@ -1835,8 +1971,9 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def similarity_groups(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
+        review_filter: Literal["all", "pending"] = "all",
     ) -> dict[str, Any]:
-        return _query_similarity_groups(settings, limit, offset)
+        return _query_similarity_groups(settings, limit, offset, review_filter=review_filter)
 
     @app.get("/api/similarity-groups/{group_id}")
     def similarity_group(group_id: int) -> dict[str, Any]:

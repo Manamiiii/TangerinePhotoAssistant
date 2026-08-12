@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass
-from hashlib import sha256
-from io import BytesIO
-from pathlib import Path
 import base64
 import json
 import sqlite3
 import subprocess
-from typing import Callable
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
+from hashlib import sha256
+from io import BytesIO
+from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .database import transaction
 from .inventory import utc_now
-
 
 Progress = Callable[[str, int, int], None]
 
@@ -296,7 +295,7 @@ def rebuild_similarity_groups(
     for burst_id, captures in by_burst.items():
         segment: list[tuple[sqlite3.Row, int | None]] = []
         max_seen = 0
-        def finish_segment() -> None:
+        def finish_segment(burst_id: int = burst_id) -> None:
             nonlocal segment, max_seen
             if len(segment) >= 2:
                 groups.append((burst_id, segment, max_seen))

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from pathlib import Path
 import sqlite3
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
-
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -38,7 +37,7 @@ def backup_before_schema_upgrade(path: Path, from_version: int) -> Path:
     """Create and verify a consistent SQLite backup before an in-place upgrade."""
     backup_directory = _schema_backup_directory(path)
     backup_directory.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
     target = backup_directory / (
         f"{path.stem}-pre-schema{SCHEMA_VERSION}-from{from_version}-{timestamp}{path.suffix}"
     )
@@ -350,6 +349,7 @@ def connect(path: Path) -> sqlite3.Connection:
             exif_score REAL,
             technical_score REAL,
             issue_json TEXT NOT NULL,
+            histogram_json TEXT,
             size_bytes INTEGER NOT NULL,
             modified_ns INTEGER NOT NULL,
             computed_at TEXT NOT NULL,
@@ -586,6 +586,7 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(connection, "ai_runs", "heartbeat_at", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_batch_key", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_group_key", "TEXT")
+    _ensure_column(connection, "quality_metrics", "histogram_json", "TEXT")
     connection.execute(
         """CREATE INDEX IF NOT EXISTS idx_similarity_group_overrides_batch
            ON similarity_group_overrides(manual_batch_key)"""
