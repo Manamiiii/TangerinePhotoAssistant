@@ -7,7 +7,7 @@ CAPTURE_CTE = """
 WITH capture_exif AS (
     SELECT c.id, c.captured_at, e.category, e.id AS event_id,
            f.camera_model, f.lens_model, f.exposure_time, f.f_number, f.iso,
-           f.focal_length_mm, f.focal_length_35mm,
+           f.focal_length_mm, f.focal_length_35mm, f.exposure_compensation,
            qm.technical_score, cr.auto_rating, cr.user_rating,
            cr.user_pick, cr.user_reject
     FROM captures c
@@ -51,6 +51,23 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         GROUP BY code, message ORDER BY count DESC
         """
     ).fetchall()]
+    selection = connection.execute(
+        """
+        SELECT COUNT(*) AS group_total,
+               SUM(reviewed) AS groups_reviewed,
+               ROUND(AVG(CASE WHEN reviewed = 1 THEN picks END), 2) AS average_picks_per_group
+        FROM (
+            SELECT sg.id,
+                   MAX(CASE WHEN COALESCE(cr.user_pick, 0) = 1
+                        OR COALESCE(cr.user_reject, 0) = 1 THEN 1 ELSE 0 END) AS reviewed,
+                   SUM(CASE WHEN COALESCE(cr.user_pick, 0) = 1 THEN 1 ELSE 0 END) AS picks
+            FROM similarity_groups sg
+            JOIN similarity_group_captures sgc ON sgc.group_id = sg.id
+            LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+            GROUP BY sg.id
+        )
+        """
+    ).fetchone()
     return {
         "summary": dict(summary),
         "categories": _rows(
@@ -70,7 +87,10 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         "lenses": _rows(
             connection,
             """SELECT COALESCE(lens_model, '未知镜头') AS lens_model, COUNT(*) AS count,
-                      ROUND(AVG(technical_score), 1) AS average_score
+                      ROUND(AVG(technical_score), 1) AS average_score,
+                      SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS user_picks,
+                      ROUND(100.0 * SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END)
+                            / COUNT(*), 1) AS pick_rate
                FROM capture_exif GROUP BY lens_model ORDER BY count DESC LIMIT 12""",
         ),
         "focal_ranges": _rows(
@@ -111,6 +131,33 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                     COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(f_number, 99))""",
         ),
+        "shutter_ranges": _rows(
+            connection,
+            """SELECT CASE
+                    WHEN exposure_time IS NULL THEN '未知'
+                    WHEN exposure_time <= 0.001 THEN '≥1/1000s'
+                    WHEN exposure_time <= 0.004 THEN '1/999–1/250s'
+                    WHEN exposure_time <= 0.008 THEN '1/249–1/125s'
+                    WHEN exposure_time <= 1.0/60 THEN '1/124–1/60s'
+                    WHEN exposure_time <= 1.0/15 THEN '1/59–1/15s'
+                    ELSE '慢于1/15s' END AS bucket,
+                    COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
+               FROM capture_exif GROUP BY bucket
+               ORDER BY MIN(COALESCE(exposure_time, 9999))""",
+        ),
+        "exposure_compensation_ranges": _rows(
+            connection,
+            """SELECT CASE
+                    WHEN exposure_compensation IS NULL THEN '未知'
+                    WHEN exposure_compensation <= -1.0 THEN '≤-1EV'
+                    WHEN exposure_compensation < -0.3 THEN '-0.9–-0.4EV'
+                    WHEN exposure_compensation <= 0.3 THEN '-0.3–+0.3EV'
+                    WHEN exposure_compensation < 1.0 THEN '+0.4–+0.9EV'
+                    ELSE '≥+1EV' END AS bucket,
+                    COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
+               FROM capture_exif GROUP BY bucket
+               ORDER BY MIN(COALESCE(exposure_compensation, 9999))""",
+        ),
         "ratings": _rows(
             connection,
             """SELECT COALESCE(user_rating, auto_rating) AS rating, COUNT(*) AS count,
@@ -119,4 +166,5 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                GROUP BY rating ORDER BY rating DESC""",
         ),
         "issues": issues,
+        "selection": dict(selection) if selection else None,
     }

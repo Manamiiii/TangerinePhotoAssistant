@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -349,6 +349,7 @@ def connect(path: Path) -> sqlite3.Connection:
             exif_score REAL,
             technical_score REAL,
             issue_json TEXT NOT NULL,
+            histogram_json TEXT,
             size_bytes INTEGER NOT NULL,
             modified_ns INTEGER NOT NULL,
             computed_at TEXT NOT NULL,
@@ -585,6 +586,7 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(connection, "ai_runs", "heartbeat_at", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_batch_key", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_group_key", "TEXT")
+    _ensure_column(connection, "quality_metrics", "histogram_json", "TEXT")
     connection.execute(
         """CREATE INDEX IF NOT EXISTS idx_similarity_group_overrides_batch
            ON similarity_group_overrides(manual_batch_key)"""

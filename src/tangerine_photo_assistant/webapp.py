@@ -933,6 +933,34 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
         dated_captures = connection.execute(
             "SELECT COUNT(*) FROM captures WHERE captured_at IS NOT NULL"
         ).fetchone()[0]
+        unanalyzed = connection.execute(
+            """
+            SELECT COUNT(DISTINCT c.id) FROM captures c
+            JOIN event_captures ec ON ec.capture_id = c.id
+            JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
+            JOIN files f ON f.id = cf.file_id AND f.present = 1
+            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
+            WHERE qm.capture_id IS NULL
+            """
+        ).fetchone()[0]
+        pending_groups = connection.execute(
+            """
+            SELECT COUNT(*) FROM similarity_groups sg
+            WHERE NOT EXISTS (
+                SELECT 1 FROM similarity_group_captures sgc
+                JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+                WHERE sgc.group_id = sg.id
+                  AND (COALESCE(cr.user_pick, 0) = 1 OR COALESCE(cr.user_reject, 0) = 1)
+            )
+            """
+        ).fetchone()[0]
+        review_totals = connection.execute(
+            """
+            SELECT SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS picks,
+                   SUM(CASE WHEN user_reject = 1 THEN 1 ELSE 0 END) AS rejects
+            FROM capture_reviews
+            """
+        ).fetchone()
         return {
             **report,
             "capture_total": capture_total,
@@ -942,6 +970,12 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
             "lenses": report["lenses"][:8],
             "structure": structure_summary(connection),
             "visual": _visual_summary(connection),
+            "workflow": {
+                "unanalyzed_captures": unanalyzed,
+                "pending_similarity_groups": pending_groups,
+                "user_picks": review_totals["picks"] or 0,
+                "user_rejects": review_totals["rejects"] or 0,
+            },
         }
     finally:
         connection.close()
@@ -1604,6 +1638,60 @@ def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]
         connection.close()
 
 
+METERING_MODE_LABELS = {
+    0: "未知", 1: "平均", 2: "中央重点", 3: "点测光",
+    4: "多点", 5: "评价测光", 6: "局部", 255: "其他",
+}
+WHITE_BALANCE_LABELS = {0: "自动", 1: "手动"}
+FILM_MODE_LABELS = {
+    0x000: "PROVIA / 标准", 0x100: "彩色高饱和", 0x110: "彩色柔和",
+    0x120: "ASTIA / 柔和", 0x200: "Velvia / 鲜艳", 0x300: "PRO Neg. Std",
+    0x310: "PRO Neg. Hi", 0x400: "CLASSIC CHROME", 0x500: "ETERNA / 影院",
+    0x510: "CLASSIC Neg.", 0x520: "ETERNA 漂白", 0x530: "NOSTALGIC Neg.",
+    0x600: "REALA ACE",
+}
+DYNAMIC_RANGE_LABELS = {0x000: "自动", 0x001: "手动", 0x100: "DR100", 0x200: "DR200", 0x400: "DR400"}
+
+
+def _exif_label(value: Any, labels: dict[int, str]) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip().lstrip("-").isdigit():
+        return value
+    try:
+        code = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return labels.get(code, str(value))
+
+
+def _exif_extras(exif_json: str | None) -> dict[str, Any]:
+    if not exif_json:
+        return {}
+    try:
+        values = json.loads(exif_json)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    flash = values.get("Flash")
+    flash_label = None
+    if flash is not None:
+        try:
+            flash_label = "已闪光" if int(flash) & 0x1 else "未闪光"
+        except (TypeError, ValueError):
+            flash_label = str(flash)
+    return {
+        "metering_mode": _exif_label(values.get("MeteringMode"), METERING_MODE_LABELS),
+        "white_balance": _exif_label(values.get("WhiteBalance"), WHITE_BALANCE_LABELS),
+        "flash": flash_label,
+        "focus_mode": values.get("FocusMode"),
+        "film_simulation": _exif_label(values.get("FilmMode"), FILM_MODE_LABELS),
+        "dynamic_range": _exif_label(
+            values.get("DynamicRangeSetting", values.get("DynamicRange")),
+            DYNAMIC_RANGE_LABELS,
+        ),
+    }
+
+
 def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
@@ -1613,7 +1701,8 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
                    e.id AS event_id, e.proposed_name AS event_name, e.category,
                    qm.luminance_mean, qm.shadow_clip_pct, qm.highlight_clip_pct,
                    qm.edge_strength, qm.exposure_score, qm.sharpness_score,
-                   qm.exif_score, qm.technical_score, qm.issue_json, qm.error,
+                   qm.exif_score, qm.technical_score, qm.issue_json,
+                   qm.histogram_json, qm.error,
                    cr.auto_rating, cr.auto_pick, cr.similarity_rank,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note
             FROM captures c
@@ -1630,17 +1719,22 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
         item = dict(row)
         raw_issues = item.pop("issue_json")
         item["issues"] = json.loads(raw_issues) if raw_issues else []
+        raw_histogram = item.pop("histogram_json")
+        item["histogram"] = json.loads(raw_histogram) if raw_histogram else None
         item["files"] = [dict(file) for file in connection.execute(
             """
             SELECT f.id, f.file_name, f.path, f.extension, f.media_kind, f.size_bytes,
                    cf.role, f.camera_make, f.camera_model, f.lens_model,
                    f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
-                   f.focal_length_35mm, f.exposure_compensation, f.width, f.height
+                   f.focal_length_35mm, f.exposure_compensation, f.width, f.height,
+                   f.gps_latitude, f.gps_longitude, f.exif_json
             FROM capture_files cf JOIN files f ON f.id = cf.file_id
             WHERE cf.capture_id = ? AND f.present = 1 ORDER BY cf.role, f.id
             """,
             (capture_id,),
         )]
+        for file in item["files"]:
+            file.update(_exif_extras(file.pop("exif_json")))
         analyses = connection.execute(
             """
             SELECT id, model_id, prompt_version, result_json, finished_at,
