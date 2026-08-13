@@ -2,7 +2,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState, type DragEvent, t
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive";
+type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
 type LibrarySection = "photos" | "albums";
 type PhotoLayout = "list" | "small" | "medium" | "large";
 type Theme = "light" | "dark";
@@ -455,6 +455,27 @@ type SystemCapabilities = {
     allow_delete: boolean;
     allow_original_metadata_write: boolean;
   };
+};
+type EditableSettings = {
+  library: { originals: string; workspace: string };
+  cache: { root: string; max_size_gb: number; thumbnail_max_size_gb: number };
+  analysis: { raw_extensions: string[]; burst_time_gap_seconds: number; metadata_batch_size: number };
+  tools: { exiftool: string };
+  models: {
+    python: string;
+    vision_language_model: string;
+    quantization: "none" | "int8";
+    gpu_memory_limit_gb: number;
+    max_new_tokens: number;
+    image_max_edge: number;
+  };
+};
+type SettingsStatus = {
+  configured: EditableSettings;
+  effective: SystemCapabilities;
+  restart_required: boolean;
+  backup_path: string | null;
+  message?: string;
 };
 type ReviewPayload = {
   user_rating: number | null;
@@ -1758,6 +1779,70 @@ function LightroomView({ status, manifest, capabilities, generateManifest }: {
   );
 }
 
+function SettingsView({ status, task, save }: {
+  status: SettingsStatus | null;
+  task: Task | null;
+  save: (settings: EditableSettings) => Promise<SettingsStatus>;
+}) {
+  const [draft, setDraft] = useState<EditableSettings | null>(status?.configured ?? null);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => setDraft(status?.configured ?? null), [status?.configured]);
+  if (!draft) return <div className="empty-state">正在读取配置…</div>;
+  const update = <S extends keyof EditableSettings, K extends keyof EditableSettings[S]>(section: S, key: K, value: EditableSettings[S][K]) => {
+    setDraft((current) => current ? { ...current, [section]: { ...current[section], [key]: value } } : current);
+  };
+  const submit = async () => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      const result = await save(draft);
+      setNotice(result.message ?? "配置已保存，重启应用后生效。");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const busy = task?.status === "running" || task?.status === "paused";
+  return <div className="settings-page">
+    {status?.restart_required && <section className="settings-restart-banner"><strong>配置已保存，等待重启生效</strong><span>当前服务仍使用原配置；不会自动搬运照片或数据库。{status.backup_path ? ` 旧配置：${status.backup_path}` : ""}</span></section>}
+    <section className="panel settings-section">
+      <div className="panel-heading"><div><span className="section-kicker">存储位置</span><h3>图库与应用数据</h3></div></div>
+      <div className="settings-form-grid">
+        <label className="wide"><span>照片目录</span><input value={draft.library.originals} onChange={(event) => update("library", "originals", event.target.value)} /><small>必须是已存在目录。应用只读取照片，不会自动复制或迁移。</small></label>
+        <label className="wide"><span>工作目录</span><input value={draft.library.workspace} onChange={(event) => update("library", "workspace", event.target.value)} /><small>数据库、报告和用户选择保存在这里；修改路径不会移动旧数据。</small></label>
+        <label className="wide"><span>缓存目录</span><input value={draft.cache.root} onChange={(event) => update("cache", "root", event.target.value)} /><small>只保存可重建的缩略图和临时数据。</small></label>
+        <label><span>缓存上限 GB</span><input type="number" min="1" value={draft.cache.max_size_gb} onChange={(event) => update("cache", "max_size_gb", Number(event.target.value))} /></label>
+        <label><span>缩略图上限 GB</span><input type="number" min="1" value={draft.cache.thumbnail_max_size_gb} onChange={(event) => update("cache", "thumbnail_max_size_gb", Number(event.target.value))} /></label>
+      </div>
+      <div className="effective-settings"><span>当前实际图库 <b>{status?.effective.library_root}</b></span><span>当前实际工作目录 <b>{status?.effective.workspace_root}</b></span><small>已迁移的数据库会优先使用其活动图库记录。要连接一套全新图库，建议同时选择新的工作目录。</small></div>
+    </section>
+    <section className="panel settings-section">
+      <div className="panel-heading"><div><span className="section-kicker">分析参数</span><h3>元数据、RAW 与连拍</h3></div></div>
+      <div className="settings-form-grid">
+        <label className="wide"><span>ExifTool 路径（可留空自动发现）</span><input value={draft.tools.exiftool} onChange={(event) => update("tools", "exiftool", event.target.value)} /></label>
+        <label className="wide"><span>RAW 扩展名</span><input value={draft.analysis.raw_extensions.join(", ")} onChange={(event) => update("analysis", "raw_extensions", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /><small>使用英文逗号分隔，例如 .raf, .dng, .cr3。</small></label>
+        <label><span>连拍间隔秒</span><input type="number" min="0.1" max="60" step="0.1" value={draft.analysis.burst_time_gap_seconds} onChange={(event) => update("analysis", "burst_time_gap_seconds", Number(event.target.value))} /></label>
+        <label><span>元数据批量大小</span><input type="number" min="1" max="1000" value={draft.analysis.metadata_batch_size} onChange={(event) => update("analysis", "metadata_batch_size", Number(event.target.value))} /></label>
+      </div>
+    </section>
+    <section className="panel settings-section">
+      <div className="panel-heading"><div><span className="section-kicker">可选能力</span><h3>本地模型</h3></div></div>
+      <div className="settings-form-grid">
+        <label className="wide"><span>模型 Python</span><input value={draft.models.python} onChange={(event) => update("models", "python", event.target.value)} placeholder="留空则关闭本地模型" /></label>
+        <label className="wide"><span>模型目录</span><input value={draft.models.vision_language_model} onChange={(event) => update("models", "vision_language_model", event.target.value)} placeholder="留空则关闭本地模型" /></label>
+        <label><span>量化方式</span><select value={draft.models.quantization} onChange={(event) => update("models", "quantization", event.target.value as "none" | "int8")}><option value="none">不量化</option><option value="int8">INT8</option></select></label>
+        <label><span>显存上限 GB</span><input type="number" min="1" value={draft.models.gpu_memory_limit_gb} onChange={(event) => update("models", "gpu_memory_limit_gb", Number(event.target.value))} /></label>
+        <label><span>最大输出 Tokens</span><input type="number" min="1" value={draft.models.max_new_tokens} onChange={(event) => update("models", "max_new_tokens", Number(event.target.value))} /></label>
+        <label><span>图像最长边</span><input type="number" min="512" max="2048" value={draft.models.image_max_edge} onChange={(event) => update("models", "image_max_edge", Number(event.target.value))} /></label>
+      </div>
+    </section>
+    <section className="panel settings-section safety-settings">
+      <div><span className="section-kicker">固定安全边界</span><h3>这些开关不会因设置编辑而放宽</h3><p>本地离线、图库只读、禁止移动删除、禁止写入原片元数据与 XMP。</p></div>
+      <div className="settings-actions"><span>{notice ?? (busy ? "后台任务运行或暂停期间不能保存配置。" : "保存时会备份旧配置，并在完整校验后原子替换。")}</span><button className="toolbar-button" onClick={() => setDraft(status?.configured ?? draft)} disabled={saving}>撤销修改</button><button className="toolbar-button primary" onClick={() => void submit()} disabled={saving || busy}>{saving ? "正在校验…" : "保存配置"}</button></div>
+    </section>
+  </div>;
+}
+
 function App() {
   const [view, setView] = useState<View>("home");
   const [theme, setTheme] = useState<Theme>(() => {
@@ -1797,6 +1882,7 @@ function App() {
   const [lightroomStatus, setLightroomStatus] = useState<LightroomStatus | null>(null);
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1853,9 +1939,10 @@ function App() {
       getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
       getJson<SystemCapabilities>("/api/system/capabilities"),
+      getJson<SettingsStatus>("/api/settings"),
     ] as const);
     if (requestSequence !== refreshSequence.current) return;
-    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData] = results;
+    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData, settingsData] = results;
     if (overviewData.status === "fulfilled") setOverview(overviewData.value);
     if (libraryData.status === "fulfilled") setLibraryCaptures(libraryData.value);
     if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
@@ -1870,6 +1957,7 @@ function App() {
     if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
     if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
     if (capabilitiesData.status === "fulfilled") setCapabilities(capabilitiesData.value);
+    if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
   }, [albumOffset, albumPageSize, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
@@ -2391,6 +2479,23 @@ function App() {
     }
   };
 
+  const saveSettings = async (next: EditableSettings) => {
+    setError(null);
+    try {
+      const result = await getJson<SettingsStatus>("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      setSettingsStatus(result);
+      pushToast("success", "配置已保存，重启应用后生效");
+      return result;
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const exportPhoneShare = async (captureIds: number[], maxEdge: number) => {
     setError(null);
     try {
@@ -2414,6 +2519,7 @@ function App() {
     equipment: ["EQUIPMENT", "设备管理", "器材档案与实际使用统计"],
     lightroom: ["OUTPUT", "后期输出", "检查评分与相册后生成 Lightroom 只读准备清单"],
     archive: ["SYSTEM / MAINTENANCE", "系统维护", "按需检查活动图库与历史存档完整性"],
+    settings: ["SETTINGS", "应用设置", "随时调整目录与本地能力；保存不会移动任何照片或数据库"],
   }[view];
 
   return (
@@ -2433,6 +2539,7 @@ function App() {
           <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
           <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>维</span>系统维护</button>
+          <button className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>设</span>应用设置</button>
         </nav>
         <div className="privacy-note"><span className="status-dot" /><div><strong>本地离线</strong><small>照片与人脸数据不离开电脑</small></div></div>
       </aside>
@@ -2466,6 +2573,7 @@ function App() {
         {view === "equipment" && <EquipmentView equipment={equipment} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
+        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.message}</div>)}

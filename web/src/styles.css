@@ -615,6 +615,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .recent-photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .welcome-panel, .welcome-capabilities { width: 100%; min-width: 0; align-items: stretch; flex-direction: column; }
   .welcome-capabilities { justify-content: flex-start; }
+  .settings-form-grid { grid-template-columns: 1fr; }
+  .safety-settings, .settings-actions, .settings-restart-banner { align-items: stretch; flex-direction: column; }
+  .settings-actions > span { text-align: left; }
   .similarity-picker-grid { grid-template-columns: 1fr; }
 }
 .burst-hero { background: linear-gradient(125deg, #201d1a, #151718 72%); }
@@ -1086,6 +1089,29 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .welcome-capabilities { min-width: min(480px, 55%); display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
 .welcome-capabilities span { min-width: 0; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .welcome-capabilities b { display: block; margin-bottom: 3px; color: var(--text); font-size: 8px; text-transform: uppercase; }
+
+/* Settings edit configuration only; moving data remains a separate reviewed workflow. */
+.settings-page { display: flex; flex-direction: column; gap: 16px; }
+.settings-restart-banner { padding: 14px 18px; border: 1px solid rgba(242, 113, 34, .45); border-radius: 12px; background: rgba(242, 113, 34, .08); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.settings-restart-banner strong { font-size: 11px; }
+.settings-restart-banner span { color: var(--muted); font-size: 9px; }
+.settings-section { padding-bottom: 18px; }
+.settings-form-grid { padding: 0 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.settings-form-grid label { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.settings-form-grid label.wide { grid-column: 1 / -1; }
+.settings-form-grid label > span { color: var(--muted); font-size: 9px; }
+.settings-form-grid input, .settings-form-grid select { width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface); font: inherit; font-size: 10px; }
+.settings-form-grid input:focus, .settings-form-grid select:focus { border-color: var(--orange); outline: none; }
+.settings-form-grid small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.effective-settings { margin: 16px 18px 0; padding: 12px; border-radius: 8px; background: rgba(128, 118, 105, .08); display: grid; gap: 6px; }
+.effective-settings span { color: var(--muted); font-size: 8.5px; overflow-wrap: anywhere; }
+.effective-settings b { color: var(--text); font-weight: 500; }
+.effective-settings small { color: var(--orange-soft); font-size: 8px; }
+.safety-settings { padding: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.safety-settings h3 { margin: 5px 0; }
+.safety-settings p { margin: 0; color: var(--muted); font-size: 9px; }
+.settings-actions { max-width: 620px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.settings-actions > span { color: var(--muted); font-size: 8.5px; line-height: 1.5; text-align: right; }
 
 /* Capture detail: RAW badge, EXIF grid, histogram, score bars */
 .detail-image { position: relative; }

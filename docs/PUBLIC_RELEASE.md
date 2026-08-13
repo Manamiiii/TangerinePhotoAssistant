@@ -24,6 +24,9 @@ integrations as capabilities, not assumptions.
   existing file and does not create, scan, copy, or modify photos.
 - `/api/system/capabilities` reports platform, metadata level, optional local AI,
   export features, paths, and active safety switches for future setup screens.
+- The web settings center edits the same portable configuration used by the CLI.
+  It validates a temporary file, backs up the previous config, then replaces it
+  atomically. Directory changes take effect after restart and never imply moving data.
 - Opening the inbox uses Explorer, Finder, or `xdg-open` when available.
 - Shared safety copy uses configured paths rather than one developer's drives.
 - The home page contains no prescribed selection funnel. Empty libraries receive
@@ -35,7 +38,8 @@ integrations as capabilities, not assumptions.
 1. Choose the public license and contribution policy. The project metadata stays
    proprietary until the owner makes that explicit legal decision.
 2. Add signed Windows and macOS packages around the existing local web service.
-3. Build a graphical setup screen on top of the stable config/capability APIs.
+3. Extend the settings center into a first-launch wizard and add native directory
+   pickers when a desktop shell is selected.
 4. Add vendor-neutral metadata fixtures for Canon, Nikon, Sony, Panasonic, OM
    System, Apple, and common no-EXIF/corrupt-file cases.
 5. Add migration fixtures for every supported schema and an explicit restore UI

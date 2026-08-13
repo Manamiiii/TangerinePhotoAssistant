@@ -78,7 +78,7 @@ from .quality import (
     rebuild_group_recommendations,
 )
 from .reporting import build_report, write_report
-from .settings import Settings
+from .settings import Settings, editable_config, save_editable_config
 from .statistics import build_statistics
 from .structure import rebuild_structure, structure_summary
 from .thumbnails import ThumbnailCache
@@ -180,6 +180,44 @@ class MigrationStartRequest(BaseModel):
 class MigrationSwitchRequest(BaseModel):
     run_id: int
     confirmation: str
+
+
+class LibrarySettingsRequest(BaseModel):
+    originals: str = Field(min_length=1, max_length=1000)
+    workspace: str = Field(min_length=1, max_length=1000)
+
+
+class CacheSettingsRequest(BaseModel):
+    root: str = Field(min_length=1, max_length=1000)
+    max_size_gb: int = Field(ge=1, le=4096)
+    thumbnail_max_size_gb: int = Field(ge=1, le=4096)
+
+
+class AnalysisSettingsRequest(BaseModel):
+    raw_extensions: list[str] = Field(min_length=1, max_length=40)
+    burst_time_gap_seconds: float = Field(gt=0, le=60)
+    metadata_batch_size: int = Field(ge=1, le=1000)
+
+
+class ToolSettingsRequest(BaseModel):
+    exiftool: str = Field(default="", max_length=1000)
+
+
+class ModelSettingsRequest(BaseModel):
+    python: str = Field(default="", max_length=1000)
+    vision_language_model: str = Field(default="", max_length=1000)
+    quantization: Literal["none", "int8"] = "none"
+    gpu_memory_limit_gb: int = Field(ge=1, le=256)
+    max_new_tokens: int = Field(ge=1, le=8192)
+    image_max_edge: int = Field(ge=512, le=2048)
+
+
+class AppSettingsRequest(BaseModel):
+    library: LibrarySettingsRequest
+    cache: CacheSettingsRequest
+    analysis: AnalysisSettingsRequest
+    tools: ToolSettingsRequest
+    models: ModelSettingsRequest
 
 
 class TaskCancelled(RuntimeError):
@@ -1982,6 +2020,7 @@ def _ensure_capture_histogram(
 
 
 def create_app(config_path: Path, static_directory: Path | None = None) -> FastAPI:
+    config_path = config_path.resolve()
     settings = Settings.load(config_path)
     bootstrap = connect(settings.database_path)
     try:
@@ -2000,6 +2039,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         manager.attach_ai_run(recovery["still_running"][0])
     thumbnail_cache = ThumbnailCache(settings)
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
+    config_state = {"restart_required": False, "backup_path": None}
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -2014,6 +2054,44 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     @app.get("/api/system/capabilities")
     def system_capabilities() -> dict[str, Any]:
         return _runtime_capabilities(settings)
+
+    @app.get("/api/settings")
+    def get_settings() -> dict[str, Any]:
+        return {
+            "configured": editable_config(config_path),
+            "effective": _runtime_capabilities(settings),
+            "restart_required": config_state["restart_required"],
+            "backup_path": config_state["backup_path"],
+            "fixed_safety": {
+                "offline_only": True,
+                "library_read_only": True,
+                "allow_move": False,
+                "allow_delete": False,
+                "allow_original_metadata_write": False,
+            },
+        }
+
+    @app.put("/api/settings")
+    def update_settings(request: AppSettingsRequest) -> dict[str, Any]:
+        current = manager.snapshot()
+        if current["status"] in {"running", "paused"}:
+            raise HTTPException(
+                status_code=409,
+                detail="后台任务运行或暂停期间不能修改配置，请先完成或安全取消任务",
+            )
+        try:
+            backup = save_editable_config(config_path, request.model_dump())
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        config_state["restart_required"] = True
+        config_state["backup_path"] = str(backup)
+        return {
+            "configured": editable_config(config_path),
+            "effective": _runtime_capabilities(settings),
+            "restart_required": True,
+            "backup_path": str(backup),
+            "message": "配置已安全保存并备份；照片和数据库未移动，重启应用后生效",
+        }
 
     @app.get("/api/overview")
     def overview() -> dict[str, Any]:

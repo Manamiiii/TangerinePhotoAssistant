@@ -2,7 +2,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from tangerine_photo_assistant.settings import Settings, write_safe_config
+from tangerine_photo_assistant.settings import (
+    Settings,
+    editable_config,
+    save_editable_config,
+    write_safe_config,
+)
 
 
 class SettingsTests(unittest.TestCase):
@@ -52,6 +57,36 @@ class SettingsTests(unittest.TestCase):
             self.assertFalse(settings.allow_original_metadata_write)
             with self.assertRaises(FileExistsError):
                 write_safe_config(config, originals, root / "other", root / "other-cache")
+
+    def test_editable_config_is_backed_up_validated_and_atomically_saved(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            originals = root / "photos"
+            originals.mkdir()
+            photo = originals / "sample.jpg"
+            photo.write_bytes(b"unchanged-photo")
+            before = (photo.read_bytes(), photo.stat().st_mtime_ns)
+            config = root / "config.toml"
+            write_safe_config(config, originals, root / "workspace", root / "cache")
+            changes = editable_config(config)
+            changes["cache"]["max_size_gb"] = 30
+            changes["cache"]["thumbnail_max_size_gb"] = 6
+            changes["analysis"]["raw_extensions"] = [".RAF", ".CR3"]
+            changes["analysis"]["metadata_batch_size"] = 64
+            backup = save_editable_config(config, changes)
+
+            self.assertTrue(backup.is_file())
+            self.assertEqual(Settings.load(config).cache_max_size_gb, 30)
+            self.assertEqual(Settings.load(config).raw_extensions, (".raf", ".cr3"))
+            self.assertEqual(editable_config(config)["analysis"]["metadata_batch_size"], 64)
+            self.assertIn("max_size_gb = 20", backup.read_text(encoding="utf-8"))
+            self.assertEqual((photo.read_bytes(), photo.stat().st_mtime_ns), before)
+
+            invalid = editable_config(config)
+            invalid["cache"]["thumbnail_max_size_gb"] = 40
+            with self.assertRaises(ValueError):
+                save_editable_config(config, invalid)
+            self.assertEqual(Settings.load(config).thumbnail_max_size_gb, 6)
 
 
 if __name__ == "__main__":
