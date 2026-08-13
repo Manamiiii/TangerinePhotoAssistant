@@ -1674,7 +1674,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
   const [resultVerdict, setResultVerdict] = useState("all");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
-  const [analysisTab, setAnalysisTab] = useState<"overview" | "quality" | "model" | "history">("overview");
+  const [analysisTab, setAnalysisTab] = useState<"quality" | "model" | "history">("quality");
   const estimatedBatchSeconds = ai?.latest_run?.average_seconds_per_photo
     ? ai.latest_run.average_seconds_per_photo * batchSize
     : null;
@@ -1713,11 +1713,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           {gpu?.available && <small>{gpu.name} · GPU {gpu.utilization_percent}% · 显存 {((gpu.memory_used_mb ?? 0) / 1024).toFixed(1)} / {((gpu.memory_total_mb ?? 0) / 1024).toFixed(1)} GB · {gpu.temperature_c}°C</small>}
         </div>
       </section>
-      <nav className="analysis-tabs" aria-label="质量分析页面">
-        {([['overview', '分析概览'], ['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
-      </nav>
       <TaskCard task={taskBelongsTo(task, "analysis") ? task : null} cancel={cancelTask} pause={pauseTask} />
-      {analysisTab === "overview" && <>
       <section className="analysis-action-grid">
         <article className="panel analysis-action-card"><span className="section-kicker">不使用 GPU</span><h3>技术质量检测</h3><p>检查曝光、清晰度与拍摄参数，未变化的照片会复用已有结果。</p><strong>{summary ? `${numberFormat.format(summary.analyzed)} 张已完成` : "正在读取"}</strong><button className="toolbar-button primary" onClick={startQuality} disabled={running}>检测新增或变化照片</button></article>
         <article className="panel analysis-action-card"><span className="section-kicker">拍摄信息</span><h3>详情数据补全</h3><p>补充扩展 EXIF、机内配方和 JPG 亮度直方图，不修改照片。</p><strong>{analysis ? `元数据待补 ${numberFormat.format(analysis.detail_data.metadata_pending)} · 直方图待补 ${numberFormat.format(analysis.detail_data.histograms_pending)}` : "正在读取"}</strong>{task?.status === "paused" && task.stage.startsWith("detail-") ? <button className="toolbar-button primary" onClick={resumeDetailBackfill}>继续补全</button> : <button className="toolbar-button" onClick={startDetailBackfill} disabled={running || (!analysis?.detail_data.metadata_pending && !analysis?.detail_data.histograms_pending)}>{analysis && !analysis.detail_data.metadata_pending && !analysis.detail_data.histograms_pending ? "当前无需补全" : "补全详情数据"}</button>}</article>
@@ -1731,7 +1727,9 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
         <article><span>组内推荐</span><strong>{summary ? numberFormat.format(summary.recommended_picks) : "—"}</strong><small>每个相似组一个候选</small></article>
         <article><span>模型分析完成</span><strong>{ai ? numberFormat.format(ai.analyzed_capture_count) : "—"}</strong><small>{ai?.latest_run ? `${ai.latest_run.model_id} · ${ai.latest_run.status}${ai.latest_run.average_seconds_per_photo ? ` · ${ai.latest_run.average_seconds_per_photo.toFixed(1)}秒/张` : ""}` : "尚未启动"}</small></article>
       </section>
-      </>}
+      <nav className="analysis-tabs" aria-label="质量分析内容">
+        {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
+      </nav>
       {analysisTab === "history" && ai?.result_audit?.latest && <details className="panel advanced-diagnostics"><summary>模型质量与运行诊断</summary><section className="metric-grid ai-audit-metrics">
         <article><span>当前提示词结果</span><strong>{numberFormat.format(ai.result_audit.latest.result_count)}</strong><small>{ai.result_audit.latest.prompt_version}</small></article>
         <article><span>发现具体问题</span><strong>{numberFormat.format(ai.result_audit.latest.with_visible_problems)}</strong><small>有画面证据才展开建议</small></article>
