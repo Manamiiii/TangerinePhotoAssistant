@@ -159,6 +159,54 @@ class ManualGroupingTests(unittest.TestCase):
             )
             connection.close()
 
+    def test_repeated_splits_share_batch_and_can_be_undone_in_order(self) -> None:
+        with TemporaryDirectory() as directory:
+            connection, group_id, capture_ids = self._catalog(Path(directory))
+            first = save_manual_similarity_grouping(
+                connection, group_id, [capture_ids[:3]], capture_ids[3:]
+            )
+            subgroup_id = connection.execute(
+                """SELECT group_id FROM similarity_group_captures
+                   WHERE capture_id=?""",
+                (capture_ids[0],),
+            ).fetchone()[0]
+            second = save_manual_similarity_grouping(
+                connection, subgroup_id, [capture_ids[:2]], [capture_ids[2]]
+            )
+            self.assertEqual(
+                connection.execute(
+                    """SELECT COUNT(DISTINCT manual_batch_key)
+                       FROM similarity_group_overrides"""
+                ).fetchone()[0],
+                1,
+            )
+            history = list_similarity_group_revisions(connection, capture_ids[0])
+            self.assertEqual(history[0]["id"], second["revision_id"])
+            self.assertTrue(history[0]["can_undo"])
+            restore_similarity_group_revision(
+                connection, second["revision_id"], use_before=True
+            )
+            history = list_similarity_group_revisions(connection, capture_ids[0])
+            self.assertFalse(
+                next(item for item in history if item["id"] == second["revision_id"])[
+                    "can_undo"
+                ]
+            )
+            self.assertTrue(
+                next(item for item in history if item["id"] == first["revision_id"])[
+                    "can_undo"
+                ]
+            )
+            restored = restore_similarity_grouping(connection, capture_ids[0])
+            self.assertEqual(restored["restored_overrides"], 4)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM similarity_group_overrides"
+                ).fetchone()[0],
+                0,
+            )
+            connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()

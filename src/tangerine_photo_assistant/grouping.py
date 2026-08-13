@@ -34,6 +34,18 @@ def _snapshot_overrides(
     ]
 
 
+def _snapshot_state(snapshot: Sequence[dict[str, object]]) -> list[tuple[object, ...]]:
+    return sorted(
+        (
+            int(item["capture_id"]),
+            item.get("action"),
+            item.get("manual_batch_key"),
+            item.get("manual_group_key"),
+        )
+        for item in snapshot
+    )
+
+
 def _record_revision(
     connection: sqlite3.Connection,
     operation: str,
@@ -130,6 +142,15 @@ def list_similarity_group_revisions(
     }
     for row in rows:
         snapshot = json.loads(row["after_json"])
+        revision_capture_ids = [
+            item["capture_id"]
+            for item in connection.execute(
+                """SELECT capture_id FROM similarity_group_revision_captures
+                   WHERE revision_id=? ORDER BY capture_id""",
+                (row["id"],),
+            )
+        ]
+        current = _snapshot_overrides(connection, revision_capture_ids)
         group_keys = {
             item.get("manual_group_key") for item in snapshot
             if item.get("manual_group_key")
@@ -145,6 +166,8 @@ def list_similarity_group_revisions(
             "automatic": not snapshot,
             "representative_capture_id": row["representative_capture_id"],
             "album_names": row["album_names"].split(",") if row["album_names"] else [],
+            "can_undo": row["operation"] == "manual_edit"
+            and _snapshot_state(current) == _snapshot_state(snapshot),
         })
     return result
 
@@ -256,7 +279,20 @@ def save_manual_similarity_grouping(
     if len(submitted) != len(set(submitted)) or set(submitted) != source_ids:
         raise SimilarityGroupingError("每张照片必须且只能放入一个组或移出区")
 
-    batch_key = f"manual:{uuid4().hex}"
+    existing_batch_keys = {
+        row["manual_batch_key"]
+        for row in connection.execute(
+            f"""SELECT DISTINCT manual_batch_key FROM similarity_group_overrides
+                WHERE capture_id IN ({','.join('?' for _ in source_ids)})
+                  AND manual_batch_key IS NOT NULL""",
+            tuple(source_ids),
+        )
+    }
+    batch_key = (
+        next(iter(existing_batch_keys))
+        if len(existing_batch_keys) == 1
+        else f"manual:{uuid4().hex}"
+    )
     now = utc_now()
     placeholders = ",".join("?" for _ in source_ids)
     ordered_ids = sorted(source_ids)

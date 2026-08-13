@@ -495,6 +495,7 @@ type SimilarityRevision = {
   automatic: boolean;
   representative_capture_id: number;
   album_names: string[];
+  can_undo: boolean;
 };
 
 function similarityGroupsUrl(limit: number, offset: number, reviewFilter: "all" | "pending", albumId: string) {
@@ -843,7 +844,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   );
 }
 
-function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, albumId, setAlbumId, openHistory }: {
+function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, albumId, setAlbumId }: {
   groups: SimilarityGroupsResponse | null;
   selectedGroup: SimilarityGroupDetail | null;
   task: Task | null;
@@ -854,7 +855,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
-  restoreGroupingRevision: (revisionId: number) => Promise<void>;
+  restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
   cancelTask: () => void;
   changeGroupPage: (offset: number) => void;
   changeGroupPageSize: (limit: number) => void;
@@ -862,9 +863,9 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   setReviewFilter: (filter: "all" | "pending") => void;
   albumId: string;
   setAlbumId: (albumId: string) => void;
-  openHistory: () => void;
 }) {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [albumUndo, setAlbumUndo] = useState<SimilarityRevision | null>(null);
   const groupItems = groups?.items ?? [];
   const currentIndex = selectedGroup ? groupItems.findIndex((item) => item.id === selectedGroup.id) : -1;
   const nextPending = groupItems.find((item, index) => index > currentIndex && item.review_status === "pending")
@@ -872,6 +873,16 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   const statusLabels = { pending: "待选", picked: "已选定", skipped: "已排除" } as const;
   const completedCount = Math.max(0, (groups?.total_count ?? 0) - (groups?.pending_count ?? 0));
   const completionPercent = groups?.total_count ? Math.round(completedCount / groups.total_count * 100) : 0;
+  const selectedAlbum = groups?.albums.find((album) => String(album.id) === albumId) ?? null;
+  useEffect(() => {
+    setAlbumUndo(null);
+    if (!albumId || selectedGroup) return;
+    const controller = new AbortController();
+    getJson<{ items: SimilarityRevision[] }>(`/api/similarity-group-revisions?album_id=${albumId}&limit=100`, { signal: controller.signal })
+      .then((result) => setAlbumUndo(result.items.find((revision) => revision.can_undo) ?? null))
+      .catch((reason: Error) => { if (reason.name !== "AbortError") setAlbumUndo(null); });
+    return () => controller.abort();
+  }, [albumId, groups, selectedGroup]);
   return (
     <>
       <section className="structure-hero burst-hero">
@@ -883,10 +894,10 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
         <section className="panel comparison-panel">
           <div className="panel-heading comparison-heading">
             <div><button className="back-navigation" onClick={closeGroup}>← 返回相似组</button><span className="section-kicker">组内对比</span><h3>{selectedGroup.event_name}</h3></div>
-            <div className="panel-heading-actions"><button className="toolbar-button" onClick={() => setEditingGroupId(selectedGroup.id)}>调整分组</button>{nextPending && <button className="toolbar-button primary" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}</div>
+            {editingGroupId !== selectedGroup.id && nextPending && <button className="toolbar-button primary next-group-action" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}
           </div>
           {editingGroupId === selectedGroup.id ? <SimilarityGroupingEditor key={selectedGroup.id} group={selectedGroup} cancel={() => setEditingGroupId(null)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
-          <div className="comparison-note">共 {selectedGroup.capture_count} 张 · 按拍摄顺序排列 · 点击图片查看完整参数</div>
+          <div className="comparison-note comparison-context"><span>共 {selectedGroup.capture_count} 张 · 按拍摄顺序排列 · 点击图片查看完整参数</span><button className="toolbar-button" onClick={() => setEditingGroupId(selectedGroup.id)}>调整这一组</button></div>
           <div className="comparison-grid">
             {selectedGroup.items.map((item) => (
               <article className={`comparison-card ${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id} onClick={() => openCapture(item.capture_id, selectedGroup.items.map((member) => member.capture_id))}>
@@ -907,9 +918,17 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
             ))}
           </div></>}
         </section>
+      ) : !albumId ? (
+        <section className="panel album-selection-panel">
+          <div className="panel-heading"><div><span className="section-kicker">第一步</span><h3>选择要处理的相册</h3><p>连拍和相似画面始终在相册内部处理，不会跨相册混合。</p></div><span className="batch-count">{groups?.albums.length ?? 0} 个相册包含相似组</span></div>
+          <div className="similarity-album-grid">{(groups?.albums ?? []).map((album) => { const done = album.total_count - album.pending_count; const percent = album.total_count ? Math.round(done / album.total_count * 100) : 0; return <button key={album.id} onClick={() => setAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><b>{album.pending_count}<small>组待选 / 共 {album.total_count} 组</small></b><i><span style={{ width: `${percent}%` }} /></i><em>已完成 {percent}%</em></button>; })}</div>
+          {!groups?.albums.length && <div className="empty-state">还没有可处理的相似组，请先更新相似分组。</div>}
+        </section>
       ) : (
         <section className="panel similarity-panel">
-          <div className="panel-heading"><div><span className="section-kicker">画面相似组</span><h3>开始选片</h3></div><div className="panel-heading-actions similarity-toolbar"><label><span>相册</span><select value={albumId} onChange={(event) => setAlbumId(event.target.value)}><option value="">全部相册</option>{(groups?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name} · {album.pending_count}/{album.total_count} 待选</option>)}</select></label><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选"><button className={reviewFilter === "all" ? "active" : ""} onClick={() => setReviewFilter("all")}>全部</button><button className={reviewFilter === "pending" ? "active" : ""} onClick={() => setReviewFilter("pending")}>只看待选</button></div><button className="toolbar-button" onClick={openHistory}>分组历史</button><span className="batch-count">{numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div></div>
+          <div className="similarity-album-context"><button className="back-navigation" onClick={() => setAlbumId("")}>← 更换相册</button><div><span className="section-kicker">当前相册</span><h3>{selectedAlbum?.name ?? "相册选片"}</h3></div><div><strong>{groups?.pending_count ?? 0}</strong><span>组待选 / 共 {groups?.total_count ?? 0} 组</span></div></div>
+          {albumUndo && <div className="similarity-recovery-bar"><span>本相册最近一次人工分组仍可撤销</span><button className="toolbar-button" onClick={() => { if (window.confirm("撤销本相册最近一次人工分组调整？")) void restoreGroupingRevision(albumUndo.id, true); }}>撤销最近调整</button></div>}
+          <div className="similarity-list-controls"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选"><button className={reviewFilter === "pending" ? "active" : ""} onClick={() => setReviewFilter("pending")}>只看待选</button><button className={reviewFilter === "all" ? "active" : ""} onClick={() => setReviewFilter("all")}>全部分组</button></div><span className="batch-count">当前显示 {numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div>
           <div className="similarity-grid">
             {groupItems.map((group) => (
               <button className="similarity-card" key={group.id} onClick={() => openGroup(group.id)}>
@@ -1228,7 +1247,7 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
   cancel: () => void;
   save: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
   restore: (captureId: number) => Promise<void>;
-  restoreRevision: (revisionId: number) => Promise<void>;
+  restoreRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
 }) {
   const [buckets, setBuckets] = useState<number[][]>([group.items.map((item) => item.capture_id), []]);
   const [excluded, setExcluded] = useState<number[]>([]);
@@ -1263,8 +1282,9 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
   };
   const hasManualGrouping = group.items.some((item) => item.manual_batch_key || item.grouping_override);
   const restoreCaptureId = group.items.find((item) => item.manual_batch_key || item.grouping_override)?.capture_id;
+  const undoableRevision = history.find((revision) => revision.can_undo);
   return <div className="grouping-editor">
-    <div className="grouping-editor-note"><span>拖动照片到不同分组。放入“移出分组”的照片会作为普通单张显示。</span>{hasManualGrouping && restoreCaptureId && <button onClick={() => { if (window.confirm("恢复自动识别会移除这一批人工分组。历史记录仍会保留，是否继续？")) void restore(restoreCaptureId); }}>恢复自动识别</button>}</div>
+    <div className="grouping-editor-note"><span>拖动照片到不同分组。放入“移出分组”的照片会作为普通单张显示。</span><div>{undoableRevision && <button onClick={() => { if (window.confirm("撤销这批照片最近一次人工调整？")) void restoreRevision(undoableRevision.id, true); }}>撤销上一次调整</button>}{hasManualGrouping && restoreCaptureId && <button onClick={() => { if (window.confirm("恢复自动识别会移除这一批照片的全部人工拆分。是否继续？")) void restore(restoreCaptureId); }}>恢复自动识别</button>}</div></div>
     <div className="grouping-board">
       {buckets.map((bucket, bucketIndex) => <section className={`grouping-bucket ${bucket.length ? "" : "empty"}`} key={bucketIndex} onDragOver={(event) => event.preventDefault()} onDrop={(event) => drop(event, bucketIndex)}>
         <header><strong>{bucketIndex === 0 ? "分组 A" : `分组 ${String.fromCharCode(65 + bucketIndex)}`}</strong><span>{bucket.length} 张</span>{bucketIndex > 1 && !bucket.length && <button onClick={() => setBuckets((current) => current.filter((_, index) => index !== bucketIndex))}>删除</button>}</header>
@@ -1275,39 +1295,8 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
         <div>{excluded.map((captureId) => { const item = items.get(captureId)!; return <article draggable key={captureId} onDragStart={(event) => event.dataTransfer.setData("text/capture-id", String(captureId))}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></article>; })}{!excluded.length && <p>拖到这里，确认前不会保存</p>}</div>
       </section>
     </div>
-    {history.length > 0 && <details className="grouping-history"><summary>分组历史 · {history.length} 个版本</summary><div>{history.map((revision) => <article key={revision.id}><span><strong>{revision.label}</strong><small>{formatDate(revision.created_at)} · {revision.automatic ? "自动识别" : `${revision.group_count || 1} 组 · ${revision.excluded_count} 张移出`}</small></span><button className="toolbar-button" onClick={() => void restoreRevision(revision.id)}>恢复此版本</button></article>)}</div></details>}
     <footer className="grouping-editor-footer"><button className="toolbar-button" onClick={() => setBuckets((current) => [...current, []])}>＋ 新增分组</button><span>所有调整只在点击确认后生效</span><button className="toolbar-button" onClick={cancel}>取消</button><button className="toolbar-button primary" disabled={saving} onClick={() => void submit()}>{saving ? "正在保存" : "确认调整"}</button></footer>
   </div>;
-}
-
-function SimilarityHistoryModal({ albums, initialAlbumId, close, restoreRevision }: {
-  albums: SimilarityAlbumSummary[];
-  initialAlbumId: string;
-  close: () => void;
-  restoreRevision: (revisionId: number) => Promise<void>;
-}) {
-  const [albumId, setAlbumId] = useState(initialAlbumId);
-  const [history, setHistory] = useState<SimilarityRevision[]>([]);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const controller = new AbortController();
-    const parameters = new URLSearchParams({ limit: "100" });
-    if (albumId) parameters.set("album_id", albumId);
-    setLoading(true);
-    getJson<{ items: SimilarityRevision[] }>(`/api/similarity-group-revisions?${parameters}`, { signal: controller.signal })
-      .then((result) => setHistory(result.items))
-      .finally(() => setLoading(false))
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [albumId]);
-  return <ModalShell title="分组历史" close={close} wide>
-    <div className="history-browser-toolbar"><label><span>查看范围</span><select value={albumId} onChange={(event) => setAlbumId(event.target.value)}><option value="">全部相册</option>{albums.map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><small>历史保存在本地数据库中，恢复不会移动或修改照片。</small></div>
-    <div className="history-browser-list">
-      {history.map((revision) => <article key={revision.id}><div><strong>{revision.label}</strong><span>{revision.album_names.join("、") || "相册归属已变化"}</span><small>{formatDate(revision.created_at)} · {revision.automatic ? "自动识别" : `${revision.group_count || 1} 组 · ${revision.excluded_count} 张移出`}</small></div><button className="toolbar-button" onClick={() => { if (window.confirm("将当前分组恢复为这个历史版本。恢复操作也会保留为新版本，是否继续？")) void restoreRevision(revision.id).then(close); }}>恢复此版本</button></article>)}
-      {!loading && !history.length && <div className="empty-state">当前范围还没有人工分组历史。</div>}
-      {loading && <div className="empty-state">正在读取分组历史…</div>}
-    </div>
-  </ModalShell>;
 }
 
 function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision }: {
@@ -1317,7 +1306,7 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
-  restoreGroupingRevision: (revisionId: number) => Promise<void>;
+  restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
 }) {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   return <ModalShell title={`${group.event_name} · 相似照片`} close={close} wide>
@@ -1464,7 +1453,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
-  restoreGroupingRevision: (revisionId: number) => Promise<void>;
+  restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
@@ -2089,7 +2078,6 @@ function App() {
   const [groupPageSize, setGroupPageSize] = useState(40);
   const [groupReviewFilter, setGroupReviewFilter] = useState<"all" | "pending">("all");
   const [groupAlbumId, setGroupAlbumId] = useState("");
-  const [groupHistoryOpen, setGroupHistoryOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
   const [detailContext, setDetailContext] = useState<number[]>([]);
@@ -2128,6 +2116,11 @@ function App() {
     if (view === "home") return;
     setLastWorkspaceView(view);
     window.localStorage.setItem("tangerine-last-workspace", view);
+  }, [view]);
+  useEffect(() => {
+    if (view === "bursts") return;
+    setSelectedGroup(null);
+    setGroupAlbumId("");
   }, [view]);
 
   const refreshLibrary = useCallback(async () => {
@@ -2809,9 +2802,9 @@ function App() {
           openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
-          openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }}
+          openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupReviewFilter("pending"); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }}
         />}
-        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupAlbumId(albumId); }} openHistory={() => setGroupHistoryOpen(true)} />}
+        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
@@ -2819,7 +2812,6 @@ function App() {
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
-        {groupHistoryOpen && <SimilarityHistoryModal albums={similarityGroups?.albums ?? []} initialAlbumId={groupAlbumId} close={() => setGroupHistoryOpen(false)} restoreRevision={restoreGroupingRevision} />}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
