@@ -58,7 +58,7 @@ D:\PhotoLibrary\Photos
 
 人物、题材、状态和问题使用标签表示，例如：`女朋友`、`父亲`、`母亲`、`宠物`、`风景`、`星空`、`待选`、`闭眼`、`失焦`。一张照片可以同时拥有多个标签。
 
-完整实施方案见 [docs/PRODUCT_PLAN.md](docs/PRODUCT_PLAN.md)，模型分工与本地部署策略见 [docs/MODEL_STRATEGY.md](docs/MODEL_STRATEGY.md)，当前器材与相关分析规则见 [docs/EQUIPMENT_PROFILE.md](docs/EQUIPMENT_PROFILE.md)。
+完整实施方案见 [docs/PRODUCT_PLAN.md](docs/PRODUCT_PLAN.md)，模型分工与本地部署策略见 [docs/MODEL_STRATEGY.md](docs/MODEL_STRATEGY.md)，当前器材与相关分析规则见 [docs/EQUIPMENT_PROFILE.md](docs/EQUIPMENT_PROFILE.md)。当前开发快照与新会话交接见 [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)，Windows 实机检查见 [docs/WINDOWS_ACCEPTANCE.md](docs/WINDOWS_ACCEPTANCE.md)。
 
 ## 安全检查
 
@@ -169,7 +169,7 @@ Lightroom准备清单使用UTF-8 BOM CSV和完整JSON两种格式，包含相册
 
 ## 新图库安全迁移
 
-数据库 schema 17 在原有迁移恢复、活动图库状态、双重完整性基线和模型审计能力上增加了可管理相册类型、确认式相似组人工覆盖及对应查询索引。任何 schema 升级都会先创建并校验一致的 SQLite 备份，未来版本的数据库会在写入前被拒绝。迁移执行仍必须基于已审查的逐文件计划，并在网页中完整输入计划专属确认文字。任务会先检查全部源文件的大小和修改时间、目标冲突及当前可用空间，未通过时不会创建目标图库。
+数据库 schema 18 在原有迁移恢复、活动图库状态、双重完整性基线和模型审计能力上增加了可管理相册类型、确认式相似组人工覆盖、查询索引及亮度直方图衍生数据。任何 schema 升级都会先创建并校验一致的 SQLite 备份，未来版本的数据库会在写入前被拒绝。迁移执行仍必须基于已审查的逐文件计划，并在网页中完整输入计划专属确认文字。任务会先检查全部源文件的大小和修改时间、目标冲突及当前可用空间，未通过时不会创建目标图库。
 
 复制使用目标文件旁的 `.tangerine-part-*` 临时文件，支持暂停、继续和安全取消。任务可以同时设置每批最大文件数、最大数据量和最长运行时间；任一上限先达到，就在当前文件完成校验后自动暂停。默认值为每批 2,000 个文件、100GB、4 小时，服务重启后仍可继续下一批。每个文件完成写入与 `fsync` 后，分别计算源文件和临时目标的 SHA-256；一致后才原子改名，目标已存在时绝不覆盖。单个文件失败不会中断其他文件，失败记录会保存到数据库，并生成 UTF-8 BOM CSV 与 JSON 清单。
 
