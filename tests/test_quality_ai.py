@@ -38,7 +38,12 @@ from tangerine_photo_assistant.lightroom import (
     write_lightroom_manifest,
 )
 from tangerine_photo_assistant.pairing import rebuild_captures
-from tangerine_photo_assistant.quality import analyze_quality, measure_image
+from tangerine_photo_assistant.quality import (
+    analyze_quality,
+    backfill_histograms,
+    measure_image,
+    measure_luminance_histogram,
+)
 from tangerine_photo_assistant.settings import Settings
 from tangerine_photo_assistant.statistics import build_statistics
 from tangerine_photo_assistant.structure import rebuild_structure
@@ -160,6 +165,16 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertTrue(all(0 <= row[0] <= 100 for row in connection.execute(
                 "SELECT technical_score FROM quality_metrics"
             )))
+            scores_before = connection.execute(
+                "SELECT capture_id, technical_score FROM quality_metrics ORDER BY capture_id"
+            ).fetchall()
+            connection.execute("UPDATE quality_metrics SET histogram_json=NULL")
+            histogram_result = backfill_histograms(connection)
+            scores_after = connection.execute(
+                "SELECT capture_id, technical_score FROM quality_metrics ORDER BY capture_id"
+            ).fetchall()
+            self.assertEqual(histogram_result["histograms_updated"], 3)
+            self.assertEqual([tuple(row) for row in scores_before], [tuple(row) for row in scores_after])
 
             run = create_ai_run(
                 connection, settings.ai_model_path, "benchmark", 2, "int8"
@@ -336,6 +351,9 @@ class QualityAndAiTests(unittest.TestCase):
             photo(path, 0)
             metrics = measure_image(path)
             self.assertGreater(metrics.sharpness_score, 0)
+            histogram = measure_luminance_histogram(path)
+            self.assertEqual(len(histogram), 64)
+            self.assertEqual(sum(histogram), 320 * 240)
             truncated = Path(directory) / "truncated.jpg"
             truncated.write_bytes(path.read_bytes()[:-64])
             recovered = measure_image(truncated)

@@ -1103,6 +1103,12 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .exif-grid > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .exif-grid dt { color: var(--muted); font-size: 9px; white-space: nowrap; }
 .exif-grid dd { margin: 0; font-size: 10px; text-align: right; overflow-wrap: anywhere; }
+.detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.detail-section-heading h3 { margin: 0; }
+.detail-section-heading label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9px; }
+.detail-section-heading select { padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: inherit; background: transparent; font-size: 9px; }
+.metadata-details { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.metadata-details summary { margin-bottom: 8px; color: var(--muted); font-size: 9.5px; cursor: pointer; }
 .detail-histogram { margin-bottom: 10px; }
 .detail-histogram svg { display: block; width: 100%; height: 72px; border: 1px solid var(--line); border-radius: 8px; background: #0d0c0a; }
 .detail-histogram .histogram-bar { fill: var(--orange-soft, #d9a05b); opacity: .85; }

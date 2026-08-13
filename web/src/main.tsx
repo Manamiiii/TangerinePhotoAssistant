@@ -231,6 +231,43 @@ type CaptureDetail = {
     focus_mode: string | null;
     film_simulation: string | null;
     dynamic_range: string | null;
+    exposure_program: string | number | null;
+    exposure_mode: string | number | null;
+    shutter_type: string | number | null;
+    orientation: string | number | null;
+    captured_at_precise: string | null;
+    timezone_offset: string | null;
+    color_space: string | number | null;
+    bits_per_sample: string | number | number[] | null;
+    image_quality: string | number | null;
+    image_stabilization: string | number | number[] | null;
+    drive_mode: string | number | null;
+    drive_speed: string | number | null;
+    sequence_number: string | number | null;
+    auto_bracketing: string | number | null;
+    af_mode: string | number | null;
+    af_area_mode: string | number | null;
+    focus_pixel: string | number | number[] | null;
+    blur_warning: string | number | null;
+    focus_warning: string | number | null;
+    exposure_warning: string | number | null;
+    faces_detected: string | number | null;
+    roll_angle: string | number | null;
+    camera_elevation_angle: string | number | null;
+    white_balance_fine_tune: string | number | number[] | null;
+    highlight_tone: string | number | null;
+    shadow_tone: string | number | null;
+    saturation: string | number | null;
+    camera_sharpness: string | number | null;
+    noise_reduction: string | number | null;
+    clarity: string | number | null;
+    color_chrome_effect: string | number | null;
+    color_chrome_fx_blue: string | number | null;
+    grain_effect_roughness: string | number | null;
+    grain_effect_size: string | number | null;
+    lens_modulation_optimizer: string | number | null;
+    auto_dynamic_range: string | number | null;
+    raw_compression: string | number | null;
   }>;
   ai_analyses: Array<{
     id: number;
@@ -372,6 +409,7 @@ type AnalysisOverview = {
     candidates: { benchmark_available: number; recommended_available: number } | null;
   };
   runtime: { ready: boolean; message: string };
+  detail_data: { metadata_profile_version: number; metadata_pending: number; histograms_pending: number };
 };
 
 type QualityItem = {
@@ -657,7 +695,7 @@ function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => v
         </div>
       </div>
       {task.status === "running" && (
-        <div className="task-actions"><div className="progress-track"><span style={{ width: `${progress ?? 22}%` }} className={progress === null ? "indeterminate" : ""} /></div>{pause && task.pausable && <button onClick={pause}>安全暂停</button>}{cancel && <button onClick={cancel}>安全取消</button>}</div>
+        <div className="task-actions"><div className="progress-track"><span style={{ width: `${progress ?? 22}%` }} className={progress === null ? "indeterminate" : ""} /></div>{pause && task.pausable && task.status === "running" && <button onClick={pause}>安全暂停</button>}{cancel && <button onClick={cancel}>安全取消</button>}</div>
       )}
       {task.status === "paused" && cancel && (
         <div className="task-actions"><div className="progress-track"><span style={{ width: `${progress ?? 0}%` }} /></div><button onClick={cancel}>取消剩余任务</button></div>
@@ -870,7 +908,16 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
   const shootingAdvice = Array.isArray(latestAi?.shooting_advice) ? latestAi.shooting_advice as Array<Record<string, unknown>> : [];
   const lightroomSuggestions = Array.isArray(latestAi?.lightroom_suggestions) ? latestAi.lightroom_suggestions as Array<Record<string, unknown>> : [];
   const [aiNote, setAiNote] = useState(latestAnalysis?.user_note ?? "");
+  const [informationLevel, setInformationLevel] = useState<"compact" | "standard" | "full">(() => {
+    const saved = window.localStorage.getItem("tangerine-detail-information");
+    return saved === "compact" || saved === "full" ? saved : "standard";
+  });
   useEffect(() => setAiNote(latestAnalysis?.user_note ?? ""), [latestAnalysis?.id, latestAnalysis?.user_note]);
+  useEffect(() => window.localStorage.setItem("tangerine-detail-information", informationLevel), [informationLevel]);
+  const metadataText = (value: unknown) => {
+    if (value == null || value === "") return "—";
+    return Array.isArray(value) ? value.join(" · ") : String(value);
+  };
   const review = (changes: Partial<ReviewPayload>) => saveReview(detail.id, {
     user_rating: detail.user_rating,
     user_pick: Boolean(detail.user_pick),
@@ -928,21 +975,43 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
             <div><strong>{exif?.iso ? `ISO ${exif.iso}` : "—"}</strong><span>感光度</span></div>
             <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""}</span></div>
           </div>
-          <div className="detail-section detail-exif-section"><h3>拍摄参数</h3>
+          <div className="detail-section detail-exif-section">
+            <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
             <dl className="exif-grid">
               <div><dt>相机</dt><dd>{exif?.camera_model ?? "—"}</dd></div>
               <div><dt>镜头</dt><dd>{exif?.lens_model ?? "—"}</dd></div>
               <div><dt>拍摄时间</dt><dd>{detail.captured_at ? detail.captured_at.replace("T", " ") : "—"}</dd></div>
               <div><dt>尺寸</dt><dd>{exif?.width && exif?.height ? `${exif.width} × ${exif.height}` : "—"}</dd></div>
               <div><dt>曝光补偿</dt><dd>{exif?.exposure_compensation == null ? "—" : `${exif.exposure_compensation > 0 ? "+" : ""}${exif.exposure_compensation} EV`}</dd></div>
-              <div><dt>测光模式</dt><dd>{exif?.metering_mode ?? "—"}</dd></div>
-              <div><dt>白平衡</dt><dd>{exif?.white_balance ?? "—"}</dd></div>
-              <div><dt>闪光灯</dt><dd>{exif?.flash ?? "—"}</dd></div>
-              <div><dt>对焦模式</dt><dd>{exif?.focus_mode ?? "—"}</dd></div>
               <div><dt>胶片模拟</dt><dd>{exif?.film_simulation ?? "—"}</dd></div>
-              <div><dt>动态范围</dt><dd>{exif?.dynamic_range ?? "—"}</dd></div>
               <div><dt>GPS</dt><dd>{exif?.gps_latitude != null && exif?.gps_longitude != null ? `${exif.gps_latitude.toFixed(5)}, ${exif.gps_longitude.toFixed(5)}` : "—"}</dd></div>
             </dl>
+            {informationLevel !== "compact" && <details className="metadata-details" open={informationLevel === "full"}><summary>拍摄方式与对焦</summary><dl className="exif-grid">
+              <div><dt>曝光程序</dt><dd>{metadataText(exif?.exposure_program)}</dd></div><div><dt>曝光模式</dt><dd>{metadataText(exif?.exposure_mode)}</dd></div>
+              <div><dt>快门类型</dt><dd>{metadataText(exif?.shutter_type)}</dd></div><div><dt>测光模式</dt><dd>{metadataText(exif?.metering_mode)}</dd></div>
+              <div><dt>白平衡</dt><dd>{metadataText(exif?.white_balance)}</dd></div><div><dt>闪光灯</dt><dd>{metadataText(exif?.flash)}</dd></div>
+              <div><dt>对焦模式</dt><dd>{metadataText(exif?.focus_mode ?? exif?.af_mode)}</dd></div><div><dt>AF 区域</dt><dd>{metadataText(exif?.af_area_mode)}</dd></div>
+              <div><dt>对焦点</dt><dd>{metadataText(exif?.focus_pixel)}</dd></div><div><dt>防抖</dt><dd>{metadataText(exif?.image_stabilization)}</dd></div>
+              <div><dt>驱动模式</dt><dd>{metadataText(exif?.drive_mode)}</dd></div><div><dt>连拍速度</dt><dd>{metadataText(exif?.drive_speed)}</dd></div>
+              <div><dt>序列编号</dt><dd>{metadataText(exif?.sequence_number)}</dd></div><div><dt>包围曝光</dt><dd>{metadataText(exif?.auto_bracketing)}</dd></div>
+              <div><dt>精确时间</dt><dd>{metadataText(exif?.captured_at_precise)}</dd></div><div><dt>时区</dt><dd>{metadataText(exif?.timezone_offset)}</dd></div>
+            </dl></details>}
+            {informationLevel === "full" && <><details className="metadata-details" open><summary>富士机内配方</summary><dl className="exif-grid">
+              <div><dt>动态范围</dt><dd>{metadataText(exif?.dynamic_range)}</dd></div><div><dt>自动动态范围</dt><dd>{metadataText(exif?.auto_dynamic_range)}</dd></div>
+              <div><dt>白平衡微调</dt><dd>{metadataText(exif?.white_balance_fine_tune)}</dd></div><div><dt>高光色调</dt><dd>{metadataText(exif?.highlight_tone)}</dd></div>
+              <div><dt>阴影色调</dt><dd>{metadataText(exif?.shadow_tone)}</dd></div><div><dt>色彩</dt><dd>{metadataText(exif?.saturation)}</dd></div>
+              <div><dt>机内锐度</dt><dd>{metadataText(exif?.camera_sharpness)}</dd></div><div><dt>降噪</dt><dd>{metadataText(exif?.noise_reduction)}</dd></div>
+              <div><dt>清晰度</dt><dd>{metadataText(exif?.clarity)}</dd></div><div><dt>Color Chrome</dt><dd>{metadataText(exif?.color_chrome_effect)}</dd></div>
+              <div><dt>Chrome FX Blue</dt><dd>{metadataText(exif?.color_chrome_fx_blue)}</dd></div><div><dt>颗粒</dt><dd>{[exif?.grain_effect_roughness, exif?.grain_effect_size].filter((value) => value != null).map(String).join(" · ") || "—"}</dd></div>
+              <div><dt>镜头优化</dt><dd>{metadataText(exif?.lens_modulation_optimizer)}</dd></div>
+            </dl></details><details className="metadata-details"><summary>文件与拍摄诊断</summary><dl className="exif-grid">
+              <div><dt>方向</dt><dd>{metadataText(exif?.orientation)}</dd></div><div><dt>色彩空间</dt><dd>{metadataText(exif?.color_space)}</dd></div>
+              <div><dt>位深</dt><dd>{metadataText(exif?.bits_per_sample)}</dd></div><div><dt>图像质量</dt><dd>{metadataText(exif?.image_quality)}</dd></div>
+              <div><dt>RAW 压缩</dt><dd>{metadataText(exif?.raw_compression)}</dd></div><div><dt>检测人脸</dt><dd>{metadataText(exif?.faces_detected)}</dd></div>
+              <div><dt>水平倾角</dt><dd>{metadataText(exif?.roll_angle)}</dd></div><div><dt>俯仰角</dt><dd>{metadataText(exif?.camera_elevation_angle)}</dd></div>
+              <div><dt>模糊警告</dt><dd>{metadataText(exif?.blur_warning)}</dd></div><div><dt>对焦警告</dt><dd>{metadataText(exif?.focus_warning)}</dd></div>
+              <div><dt>曝光警告</dt><dd>{metadataText(exif?.exposure_warning)}</dd></div>
+            </dl></details></>}
           </div>
           <div className="detail-section"><h3>技术面板</h3>
             {detail.histogram && detail.histogram.length > 0 && <LuminanceHistogram histogram={detail.histogram} shadowClip={detail.shadow_clip_pct} highlightClip={detail.highlight_clip_pct} />}
@@ -1291,7 +1360,7 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
   </>;
 }
 
-function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, task, startQuality, startAi, saveReview, cancelTask, pauseAi, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
+function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
   quality: QualityResponse | null;
@@ -1301,10 +1370,12 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
   setQualitySearch: (search: string) => void;
   task: Task | null;
   startQuality: () => void;
+  startDetailBackfill: () => void;
+  resumeDetailBackfill: () => void;
   startAi: (mode: "benchmark" | "recommended", limit: number) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   cancelTask: () => void;
-  pauseAi: () => void;
+  pauseTask: () => void;
   resumeAi: (runId: number) => void;
   retryAiFailures: (runId: number) => void;
   openCapture: (captureId: number, context?: number[]) => void;
@@ -1313,7 +1384,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
 }) {
   const summary = analysis?.quality;
   const ai = analysis?.ai;
-  const running = task?.status === "running";
+  const running = task?.status === "running" || task?.status === "paused";
   const [batchSize, setBatchSize] = useState(100);
   const [resultOffset, setResultOffset] = useState(0);
   const [resultLimit, setResultLimit] = useState(40);
@@ -1356,6 +1427,8 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           <div className="analysis-command-panel">
             <div className="analysis-command-group"><span>技术检测</span><button className="toolbar-button primary" onClick={startQuality} disabled={running}>分析新增照片</button></div>
             <div className="analysis-command-divider" />
+            <div className="analysis-command-group"><span>详情数据</span><button className="toolbar-button" onClick={startDetailBackfill} disabled={running || (!analysis?.detail_data.metadata_pending && !analysis?.detail_data.histograms_pending)}>补全拍摄信息与直方图</button>{task?.status === "paused" && task.stage.startsWith("detail-") && <button className="toolbar-button primary" onClick={resumeDetailBackfill}>继续补全</button>}<small>{analysis ? `元数据待补 ${numberFormat.format(analysis.detail_data.metadata_pending)} · 直方图待补 ${numberFormat.format(analysis.detail_data.histograms_pending)}` : "正在读取状态"}</small></div>
+            <div className="analysis-command-divider" />
             <div className="analysis-command-group model"><span>本地模型</span><button className="toolbar-button" onClick={() => startAi("benchmark", 10)} disabled={running || !summary?.analyzed || !preflight?.ready}>快速验证 · 10 张</button><label><select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} disabled={running}>{[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} 张</option>)}</select><small>{estimatedBatchSeconds ? `约 ${formatDuration(estimatedBatchSeconds)}` : "每批数量"}</small></label><button className="toolbar-button primary" onClick={() => startAi("recommended", batchSize)} disabled={running || !summary?.analyzed || !preflight?.ready}>运行所选批次</button></div>
             {ai?.latest_run && ["failed", "cancelled", "paused"].includes(ai.latest_run.status) && <button className="toolbar-button" onClick={() => resumeAi(ai.latest_run!.id)} disabled={running}>继续上次任务</button>}
             {ai?.latest_run && ai.latest_run.status === "complete" && ai.latest_run.failed_count > 0 && <button className="toolbar-button" onClick={() => retryAiFailures(ai.latest_run!.id)} disabled={running || !preflight?.ready}>重试失败项</button>}
@@ -1366,7 +1439,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           {gpu?.available && <small>{gpu.name} · GPU {gpu.utilization_percent}% · 显存 {((gpu.memory_used_mb ?? 0) / 1024).toFixed(1)} / {((gpu.memory_total_mb ?? 0) / 1024).toFixed(1)} GB · {gpu.temperature_c}°C</small>}
         </div>
       </section>
-      <TaskCard task={task} cancel={cancelTask} pause={pauseAi} />
+      <TaskCard task={task} cancel={cancelTask} pause={pauseTask} />
       <section className="metric-grid">
         <article><span>技术分析完成</span><strong>{summary ? numberFormat.format(summary.analyzed) : "—"}</strong><small>{summary?.errors ?? 0} 个读取错误</small></article>
         <article><span>平均技术分</span><strong>{summary?.average_score ?? "—"}</strong><small>算法证据，不代表审美</small></article>
@@ -1723,6 +1796,9 @@ function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const refreshSequence = useRef(0);
   const toastSequence = useRef(0);
+  const reviewQueues = useRef(new Map<number, Promise<void>>());
+  const reviewVersions = useRef(new Map<number, number>());
+  const reviewAggregateTimer = useRef<number | null>(null);
 
   const pushToast = useCallback((kind: Toast["kind"], message: string) => {
     const id = ++toastSequence.current;
@@ -1756,7 +1832,7 @@ function App() {
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
     if (libraryQuery.albumId && libraryQuery.collapseGroups) libraryParameters.set("collapse_groups", "true");
-    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = await Promise.all([
+    const results = await Promise.allSettled([
       getJson<Overview>("/api/overview"),
       getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
       getJson<LibraryFilters>("/api/library/filters"),
@@ -1770,28 +1846,83 @@ function App() {
       getJson<ArchiveStatus>("/api/archive/status"),
       getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
-    ]);
+    ] as const);
     if (requestSequence !== refreshSequence.current) return;
-    setOverview(overviewData);
-    setLibraryCaptures(libraryData);
-    setLibraryFilters(filterData);
-    setEvents(eventData);
-    setAnalysis(analysisData);
-    setAiPreflight(preflightData);
-    setQuality(qualityData);
-    setSimilarityGroups(groupData);
-    setStatistics(statisticsData);
-    setEquipment(equipmentData);
-    setArchive(archiveData);
-    setActiveLibraryBaseline(activeBaselineData);
-    setLightroomStatus(lightroomData);
+    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = results;
+    if (overviewData.status === "fulfilled") setOverview(overviewData.value);
+    if (libraryData.status === "fulfilled") setLibraryCaptures(libraryData.value);
+    if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
+    if (eventData.status === "fulfilled") setEvents(eventData.value);
+    if (analysisData.status === "fulfilled") setAnalysis(analysisData.value);
+    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
+    if (qualityData.status === "fulfilled") setQuality(qualityData.value);
+    if (groupData.status === "fulfilled") setSimilarityGroups(groupData.value);
+    if (statisticsData.status === "fulfilled") setStatistics(statisticsData.value);
+    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
+    if (archiveData.status === "fulfilled") setArchive(archiveData.value);
+    if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
+    if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
   }, [albumOffset, albumPageSize, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
 
   useEffect(() => {
     Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then(setTask)]).catch(
       (reason: Error) => setError(reason.message),
     );
-  }, [refreshLibrary]);
+    // Initial full snapshot only. Page filters have scoped effects below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const parameters = new URLSearchParams({
+        limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
+      });
+      if (libraryQuery.albumId === "__unassigned__") parameters.set("unassigned", "true");
+      else if (libraryQuery.albumId) parameters.set("album_id", libraryQuery.albumId);
+      if (libraryQuery.category) parameters.set("category", libraryQuery.category);
+      if (libraryQuery.camera) parameters.set("camera_model", libraryQuery.camera);
+      if (libraryQuery.lens) parameters.set("lens_model", libraryQuery.lens);
+      if (libraryQuery.rating) parameters.set("rating", libraryQuery.rating);
+      if (libraryQuery.selection) parameters.set("selection", libraryQuery.selection);
+      if (libraryQuery.quality) parameters.set("quality", libraryQuery.quality);
+      if (libraryQuery.dateFrom) parameters.set("date_from", libraryQuery.dateFrom);
+      if (libraryQuery.dateTo) parameters.set("date_to", libraryQuery.dateTo);
+      if (libraryQuery.search.trim()) parameters.set("search", libraryQuery.search.trim());
+      if (libraryQuery.albumId && libraryQuery.collapseGroups) parameters.set("collapse_groups", "true");
+      getJson<LibraryCapturesResponse>(`/api/library/captures?${parameters}`, { signal: controller.signal })
+        .then(setLibraryCaptures)
+        .catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
+    }, libraryQuery.search ? 250 : 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [libraryOffset, libraryQuery]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`, { signal: controller.signal })
+      .then(setEvents).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
+    return () => controller.abort();
+  }, [albumOffset, albumPageSize]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const parameters = new URLSearchParams({ limit: String(qualityPageSize), offset: String(qualityOffset), review_filter: qualityFilter });
+      if (qualitySearch.trim()) parameters.set("search", qualitySearch.trim());
+      getJson<QualityResponse>(`/api/quality?${parameters}`, { signal: controller.signal })
+        .then(setQuality).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
+    }, qualitySearch ? 250 : 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getJson<SimilarityGroupsResponse>(`/api/similarity-groups?limit=${groupPageSize}&offset=${groupOffset}&review_filter=${groupReviewFilter}`, { signal: controller.signal })
+      .then(setSimilarityGroups).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
+    return () => controller.abort();
+  }, [groupOffset, groupPageSize, groupReviewFilter]);
 
   useEffect(() => {
     if (task?.status !== "running") return;
@@ -1848,6 +1979,24 @@ function App() {
     }
   };
 
+  const startDetailBackfill = async () => {
+    setError(null);
+    try {
+      setTask(await getJson<Task>("/api/detail-data/backfill", { method: "POST" }));
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
+  const resumeDetailBackfill = async () => {
+    setError(null);
+    try {
+      setTask(await getJson<Task>("/api/detail-data/backfill/resume", { method: "POST" }));
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
   const startAi = async (mode: "benchmark" | "recommended", limit: number) => {
     if (mode === "recommended" && !window.confirm(`将分析最多 ${limit} 张推荐照片。任务可暂停、继续和取消，确认现在加载本地模型吗？`)) return;
     setError(null);
@@ -1866,6 +2015,19 @@ function App() {
     setError(null);
     try {
       setTask(await getJson<Task>("/api/ai/runs/current/pause", { method: "POST" }));
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
+  const pauseTask = async () => {
+    if (!task?.stage.startsWith("detail-")) {
+      await pauseAi();
+      return;
+    }
+    setError(null);
+    try {
+      setTask(await getJson<Task>("/api/detail-data/backfill/pause", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -1925,10 +2087,24 @@ function App() {
     } : current);
   }, []);
 
+  const scheduleReviewAggregateRefresh = () => {
+    if (reviewAggregateTimer.current != null) window.clearTimeout(reviewAggregateTimer.current);
+    reviewAggregateTimer.current = window.setTimeout(() => {
+      Promise.all([
+        getJson<Overview>("/api/overview"),
+        getJson<Statistics>("/api/statistics"),
+        getJson<LightroomStatus>("/api/lightroom/status"),
+        getJson<SimilarityGroupsResponse>(`/api/similarity-groups?limit=${groupPageSize}&offset=${groupOffset}&review_filter=${groupReviewFilter}`),
+      ]).then(([nextOverview, nextStatistics, nextLightroom, nextGroups]) => {
+        setOverview(nextOverview);
+        setStatistics(nextStatistics);
+        setLightroomStatus(nextLightroom);
+        setSimilarityGroups(nextGroups);
+      }).catch((reason: Error) => setError(reason.message));
+    }, 250);
+  };
+
   const saveReview = async (captureId: number, review: ReviewPayload) => {
-    const previous = {
-      quality, selectedGroup, libraryCaptures, captureDetail, similarityGroups,
-    };
     applyReview(captureId, review);
     setSimilarityGroups((current) => {
       if (!current || !selectedGroup?.items.some((item) => item.capture_id === captureId)) return current;
@@ -1938,7 +2114,9 @@ function App() {
       const rejectCount = selectedGroup.items.reduce((total, item) => total + Number(
         item.capture_id === captureId ? review.user_reject : Boolean(item.user_reject),
       ), 0);
-      const status = pickCount ? "picked" as const : rejectCount ? "skipped" as const : "pending" as const;
+      const status = pickCount
+        ? "picked" as const
+        : rejectCount >= selectedGroup.items.length ? "skipped" as const : "pending" as const;
       const before = current.items.find((item) => item.id === selectedGroup.id);
       const pendingDelta = before
         ? Number(status === "pending") - Number(before.review_status === "pending")
@@ -1951,21 +2129,31 @@ function App() {
           : item),
       };
     });
-    try {
-      await getJson(`/api/reviews/${captureId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(review),
-      });
-      pushToast("success", "已保存评价");
-    } catch (reason) {
-      setQuality(previous.quality);
-      setSelectedGroup(previous.selectedGroup);
-      setLibraryCaptures(previous.libraryCaptures);
-      setCaptureDetail(previous.captureDetail);
-      setSimilarityGroups(previous.similarityGroups);
-      pushToast("error", `保存失败：${(reason as Error).message}`);
-    }
+    const version = (reviewVersions.current.get(captureId) ?? 0) + 1;
+    reviewVersions.current.set(captureId, version);
+    const previousRequest = reviewQueues.current.get(captureId) ?? Promise.resolve();
+    const request = previousRequest.catch(() => undefined).then(async () => {
+      try {
+        await getJson(`/api/reviews/${captureId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(review),
+        });
+        if (reviewVersions.current.get(captureId) === version) {
+          pushToast("success", "已保存评价");
+          scheduleReviewAggregateRefresh();
+        }
+      } catch (reason) {
+        if (reviewVersions.current.get(captureId) === version) {
+          pushToast("error", `保存失败：${(reason as Error).message}`);
+          await refreshLibrary();
+        }
+      }
+    });
+    reviewQueues.current.set(captureId, request);
+    void request.finally(() => {
+      if (reviewQueues.current.get(captureId) === request) reviewQueues.current.delete(captureId);
+    });
   };
 
   const saveAiReview = async (analysisId: number, verdict: "accurate" | "partial" | "inaccurate" | null, note: string | null) => {
@@ -2265,7 +2453,7 @@ function App() {
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
         />}
         {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} />}
-        {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseAi={pauseAi} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
+        {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}

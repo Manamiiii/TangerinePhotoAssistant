@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .database import transaction
-from .metadata import MetadataReader, database_fields
+from .metadata import METADATA_PROFILE_VERSION, MetadataReader, database_fields
 from .settings import Settings
 
 JPEG_EXTENSIONS = frozenset({".jpg", ".jpeg"})
@@ -225,10 +225,16 @@ def enrich_metadata(
                     focal_length_35mm = :focal_length_35mm,
                     exposure_compensation = :exposure_compensation,
                     width = :width, height = :height,
-                    gps_latitude = :gps_latitude, gps_longitude = :gps_longitude
+                    gps_latitude = :gps_latitude, gps_longitude = :gps_longitude,
+                    metadata_profile_version = :metadata_profile_version,
+                    metadata_refreshed_at = :metadata_refreshed_at
                 WHERE id = :file_id
                 """,
-                {**values, "file_id": file_id},
+                {
+                    **values, "file_id": file_id,
+                    "metadata_profile_version": int(getattr(reader, "profile_version", 0)),
+                    "metadata_refreshed_at": utc_now(),
+                },
             )
         updated += 1
         if progress and (updated % 100 == 0 or updated == total):
@@ -237,3 +243,81 @@ def enrich_metadata(
             connection.commit()
     connection.commit()
     return updated
+
+
+def refresh_metadata_profile(
+    connection: sqlite3.Connection,
+    reader: MetadataReader,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, int]:
+    """Read the current safe metadata profile without modifying source files."""
+    rows = connection.execute(
+        """
+        SELECT f.id, f.path FROM files f
+        JOIN capture_files cf ON cf.file_id=f.id
+        WHERE f.present = 1 AND COALESCE(f.metadata_profile_version, 0) < ?
+          AND (
+            cf.role='jpeg' OR (
+              cf.role='raw' AND NOT EXISTS (
+                SELECT 1 FROM capture_files jpeg_cf
+                JOIN files jpeg_f ON jpeg_f.id=jpeg_cf.file_id
+                WHERE jpeg_cf.capture_id=cf.capture_id AND jpeg_cf.role='jpeg'
+                  AND jpeg_f.present=1
+              )
+            )
+          )
+        ORDER BY f.id
+        """,
+        (METADATA_PROFILE_VERSION,),
+    ).fetchall()
+    path_to_id = {str(Path(row["path"]).resolve()).casefold(): row["id"] for row in rows}
+    updated = 0
+    errors = 0
+    total = len(rows)
+    for result in reader.read(Path(row["path"]) for row in rows):
+        file_id = path_to_id.get(str(result.path.resolve()).casefold())
+        if file_id is None:
+            continue
+        if result.values is None:
+            errors += 1
+            connection.execute(
+                "UPDATE files SET metadata_error=? WHERE id=?",
+                (result.error or "Unknown metadata error", file_id),
+            )
+        else:
+            values: dict[str, Any] = database_fields(result.values)
+            connection.execute(
+                """
+                UPDATE files SET
+                    metadata_status='complete', metadata_error=NULL,
+                    exif_json=:exif_json, captured_at=:captured_at,
+                    camera_make=:camera_make, camera_model=:camera_model,
+                    lens_model=:lens_model, exposure_time=:exposure_time,
+                    f_number=:f_number, iso=:iso,
+                    focal_length_mm=:focal_length_mm,
+                    focal_length_35mm=:focal_length_35mm,
+                    exposure_compensation=:exposure_compensation,
+                    width=:width, height=:height,
+                    gps_latitude=:gps_latitude, gps_longitude=:gps_longitude,
+                    metadata_profile_version=:metadata_profile_version,
+                    metadata_refreshed_at=:metadata_refreshed_at
+                WHERE id=:file_id
+                """,
+                {
+                    **values, "file_id": file_id,
+                    "metadata_profile_version": METADATA_PROFILE_VERSION,
+                    "metadata_refreshed_at": utc_now(),
+                },
+            )
+            updated += 1
+        processed = updated + errors
+        if processed % 100 == 0 or processed == total:
+            connection.commit()
+            if progress:
+                progress(processed, total)
+    connection.commit()
+    return {
+        "metadata_updated": updated,
+        "metadata_errors": errors,
+        "metadata_total": total,
+    }

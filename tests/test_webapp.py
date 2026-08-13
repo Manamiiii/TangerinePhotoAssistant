@@ -310,6 +310,15 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(groups["items"][0]["review_status"], "pending")
             connection.execute(
                 """INSERT INTO capture_reviews(capture_id, user_pick, user_reject, updated_at)
+                   VALUES (?, 0, 1, 'now')""",
+                (low_id,),
+            )
+            connection.commit()
+            partially_rejected = _query_similarity_groups(settings, 20, 0)
+            self.assertEqual(partially_rejected["pending_count"], 1)
+            self.assertEqual(partially_rejected["items"][0]["review_status"], "pending")
+            connection.execute(
+                """INSERT INTO capture_reviews(capture_id, user_pick, user_reject, updated_at)
                    VALUES (?, 1, 0, 'now')""",
                 (high_id,),
             )

@@ -5,8 +5,13 @@ from tempfile import TemporaryDirectory
 from PIL import Image
 
 from tangerine_photo_assistant.database import connect
-from tangerine_photo_assistant.inventory import scan_library
-from tangerine_photo_assistant.metadata import MetadataResult, PillowMetadataReader, database_fields
+from tangerine_photo_assistant.inventory import refresh_metadata_profile, scan_library
+from tangerine_photo_assistant.metadata import (
+    METADATA_PROFILE_VERSION,
+    MetadataResult,
+    PillowMetadataReader,
+    database_fields,
+)
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.reporting import build_report
 from tangerine_photo_assistant.settings import Settings
@@ -27,6 +32,17 @@ class FakeMetadataReader:
                     "ISO": 400,
                     "FocalLength": 23.0,
                 },
+            )
+
+
+class CurrentProfileMetadataReader(FakeMetadataReader):
+    profile_version = METADATA_PROFILE_VERSION
+
+    def read(self, paths):
+        for result in super().read(paths):
+            yield MetadataResult(
+                path=result.path,
+                values={**(result.values or {}), "ShutterType": "Mechanical", "AFMode": "AF-C"},
             )
 
 
@@ -118,6 +134,27 @@ class InventoryTests(unittest.TestCase):
                 "SELECT present FROM files WHERE file_name = 'DSCF0001.JPG'"
             ).fetchone()
             self.assertEqual(row["present"], 0)
+            connection.close()
+
+    def test_current_metadata_profile_backfills_complete_files(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            photo = settings.originals / "DSCF0001.JPG"
+            photo.write_bytes(b"photo")
+            connection = connect(settings.database_path)
+            scan_library(connection, settings, FakeMetadataReader())
+            rebuild_captures(connection)
+
+            result = refresh_metadata_profile(connection, CurrentProfileMetadataReader())
+
+            row = connection.execute(
+                "SELECT metadata_profile_version, exif_json FROM files WHERE file_name=?",
+                (photo.name,),
+            ).fetchone()
+            self.assertEqual(result["metadata_updated"], 1)
+            self.assertEqual(row["metadata_profile_version"], METADATA_PROFILE_VERSION)
+            self.assertIn('"ShutterType": "Mechanical"', row["exif_json"])
             connection.close()
 
 

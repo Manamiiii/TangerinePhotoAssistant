@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
 import json
 import math
 import sqlite3
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +39,20 @@ def _downsample_histogram(histogram: list[int]) -> tuple[int, ...]:
     return tuple(
         sum(histogram[start:start + step]) for start in range(0, 256, step)
     )
+
+
+def measure_luminance_histogram(path: Path, max_edge: int = 1280) -> tuple[int, ...]:
+    """Decode only enough JPEG data for a display histogram, without rescoring."""
+    with Image.open(path) as image:
+        image.draft("RGB", (max_edge, max_edge))
+        gray = ImageOps.grayscale(image)
+        gray.thumbnail((max_edge, max_edge), Image.Resampling.BILINEAR)
+        return _downsample_histogram(gray.histogram())
+
+
+def _histogram_from_jpeg_bytes(data: bytes) -> tuple[int, ...]:
+    with Image.open(BytesIO(data)) as image:
+        return _downsample_histogram(ImageOps.grayscale(image).histogram())
 
 
 def _measure_image_once(path: Path) -> ImageMetrics:
@@ -332,3 +349,67 @@ def analyze_quality(
     if limit is None:
         result.update(rebuild_group_recommendations(connection))
     return result
+
+
+def backfill_histograms(
+    connection: sqlite3.Connection,
+    progress: Progress | None = None,
+    exiftool: Path | None = None,
+    batch_size: int = 64,
+) -> dict[str, int]:
+    """Fill display histograms from embedded JPEG previews without rescoring."""
+    rows = connection.execute(
+        """
+        SELECT qm.capture_id, f.path
+        FROM quality_metrics qm
+        JOIN files f ON f.id = qm.source_file_id
+        WHERE qm.error IS NULL AND qm.histogram_json IS NULL AND f.present = 1
+        ORDER BY qm.capture_id
+        """
+    ).fetchall()
+    updated = 0
+    errors = 0
+    total = len(rows)
+    size = max(1, min(batch_size, 96))
+    for start in range(0, total, size):
+        batch = rows[start:start + size]
+        records: list[dict[str, Any]] = []
+        if exiftool is not None:
+            completed = subprocess.run(
+                [
+                    str(exiftool), "-j", "-b", "-ThumbnailImage",
+                    *[row["path"] for row in batch],
+                ],
+                capture_output=True, check=False,
+            )
+            try:
+                records = json.loads(completed.stdout) if completed.returncode == 0 else []
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                records = []
+        for position, row in enumerate(batch):
+            try:
+                thumbnail = (
+                    records[position].get("ThumbnailImage")
+                    if position < len(records) else None
+                )
+                if isinstance(thumbnail, str) and thumbnail.startswith("base64:"):
+                    histogram = _histogram_from_jpeg_bytes(base64.b64decode(thumbnail[7:]))
+                else:
+                    histogram = measure_luminance_histogram(Path(row["path"]))
+                connection.execute(
+                    """UPDATE quality_metrics SET histogram_json=?
+                       WHERE capture_id=? AND histogram_json IS NULL""",
+                    (json.dumps(list(histogram)), row["capture_id"]),
+                )
+                updated += 1
+            except (OSError, UnidentifiedImageError, ValueError):
+                errors += 1
+        connection.commit()
+        if progress:
+            progress(min(start + len(batch), total), total)
+    connection.commit()
+    return {
+        "histograms_updated": updated,
+        "histogram_errors": errors,
+        "histogram_total": total,
+    }

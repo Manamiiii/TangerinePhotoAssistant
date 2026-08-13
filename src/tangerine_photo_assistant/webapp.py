@@ -55,9 +55,9 @@ from .grouping import (
     restore_similarity_grouping,
     save_manual_similarity_grouping,
 )
-from .inventory import enrich_metadata, scan_library, utc_now
+from .inventory import enrich_metadata, refresh_metadata_profile, scan_library, utc_now
 from .lightroom import lightroom_status, write_lightroom_manifest
-from .metadata import ExifToolMetadataReader, PillowMetadataReader
+from .metadata import METADATA_PROFILE_VERSION, ExifToolMetadataReader, PillowMetadataReader
 from .migration import (
     active_library_root,
     create_migration_plan,
@@ -68,7 +68,13 @@ from .migration import (
     switch_active_library,
 )
 from .pairing import rebuild_captures
-from .quality import analyze_quality, measure_image, rebuild_group_recommendations
+from .quality import (
+    analyze_quality,
+    backfill_histograms,
+    measure_image,
+    measure_luminance_histogram,
+    rebuild_group_recommendations,
+)
 from .reporting import build_report, write_report
 from .settings import Settings
 from .statistics import build_statistics
@@ -381,7 +387,20 @@ class ScanTaskManager:
             if self._state.status != "running" or not self._state.pausable:
                 raise RuntimeError("当前任务不支持暂停")
             self._pause.set()
-            self._state.message = "正在安全暂停迁移任务…"
+            self._state.message = (
+                "正在暂停详情数据补全…"
+                if self._state.stage.startswith("detail-")
+                else "正在安全暂停迁移任务…"
+            )
+        return self.snapshot()
+
+    def resume_detail_backfill(self) -> dict[str, Any]:
+        with self._lock:
+            if self._state.status != "paused" or not self._state.stage.startswith("detail-"):
+                raise RuntimeError("当前没有已暂停的详情数据补全任务")
+            self._pause.clear()
+            self._state.status = "running"
+            self._state.message = "正在继续补全详情数据…"
         return self.snapshot()
 
     def start_migration(
@@ -614,6 +633,84 @@ class ScanTaskManager:
         except Exception as exc:
             self._update(
                 status="failed", stage="failed", message="技术质量分析失败", error=str(exc)
+            )
+        finally:
+            connection.close()
+
+    def start_detail_backfill(self) -> dict[str, Any]:
+        exiftool = self.settings.find_exiftool()
+        if exiftool is None:
+            raise RuntimeError("扩展元数据补全需要 ExifTool")
+        with self._lock:
+            if self._state.status in {"running", "paused"}:
+                raise RuntimeError("已有后台任务正在运行")
+            task_id = uuid4().hex
+            self._state = TaskState(
+                id=task_id, status="running", stage="detail-metadata",
+                message="正在准备扩展拍摄信息补全…", pausable=True,
+            )
+            self._cancel.clear()
+            self._pause.clear()
+        Thread(
+            target=self._run_detail_backfill, args=(task_id, exiftool), daemon=True
+        ).start()
+        return self.snapshot()
+
+    def _detail_progress(self, stage: str, current: int, total: int) -> None:
+        if self._cancel.is_set():
+            raise TaskCancelled("详情数据补全已由用户取消")
+        while self._pause.is_set():
+            self._update(
+                status="paused", stage=stage, current=current, total=total,
+                message=f"详情数据补全已暂停：{current:,} / {total:,}",
+            )
+            if self._cancel.wait(0.2):
+                raise TaskCancelled("详情数据补全已由用户取消")
+        self._update(
+            status="running", stage=stage, current=current, total=total,
+            message=f"详情数据补全：{current:,} / {total:,}",
+        )
+
+    def _run_detail_backfill(self, task_id: str, exiftool: Path) -> None:
+        connection = connect(self.settings.database_path)
+        try:
+            metadata = refresh_metadata_profile(
+                connection,
+                ExifToolMetadataReader(exiftool, self.settings.metadata_batch_size),
+                progress=lambda current, total: self._detail_progress(
+                    "detail-metadata", current, total
+                ),
+            )
+            self._update(
+                stage="detail-histograms", current=0, total=None,
+                message="扩展拍摄信息已完成，正在补全 JPG 亮度直方图…",
+            )
+            histograms = backfill_histograms(
+                connection,
+                progress=lambda current, total: self._detail_progress(
+                    "detail-histograms", current, total
+                ),
+                exiftool=exiftool,
+                batch_size=self.settings.metadata_batch_size,
+            )
+            result = {**metadata, **histograms}
+            self._update(
+                status="complete", stage="complete", pausable=False,
+                current=1, total=1, result=result,
+                message=(
+                    f"详情数据补全完成：{metadata['metadata_updated']:,} 个文件元数据，"
+                    f"{histograms['histograms_updated']:,} 张直方图"
+                ),
+            )
+        except TaskCancelled:
+            self._update(
+                status="cancelled", stage="cancelled", pausable=False,
+                message="详情数据补全已取消；已完成的数据已保留",
+            )
+        except Exception as exc:
+            self._update(
+                status="failed", stage="failed", pausable=False,
+                message="详情数据补全失败", error=str(exc),
             )
         finally:
             connection.close()
@@ -920,7 +1017,7 @@ class ScanTaskManager:
 
 
 def _query_overview(settings: Settings) -> dict[str, Any]:
-    connection = connect(settings.database_path)
+    connection = connect_readonly(settings.database_path)
     try:
         report = build_report(connection)
         latest = connection.execute(
@@ -950,7 +1047,11 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
                 SELECT 1 FROM similarity_group_captures sgc
                 JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
                 WHERE sgc.group_id = sg.id
-                  AND (COALESCE(cr.user_pick, 0) = 1 OR COALESCE(cr.user_reject, 0) = 1)
+                  AND COALESCE(cr.user_pick, 0) = 1
+            ) AND EXISTS (
+                SELECT 1 FROM similarity_group_captures sgc
+                LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+                WHERE sgc.group_id = sg.id AND COALESCE(cr.user_reject, 0) = 0
             )
             """
         ).fetchone()[0]
@@ -982,7 +1083,7 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
 
 
 def _query_inbox(settings: Settings, limit: int) -> dict[str, Any]:
-    connection = connect(settings.database_path)
+    connection = connect_readonly(settings.database_path)
     try:
         # Keep showing the most recent batch that actually introduced files.
         # A no-op incremental scan should not make the inbox appear empty.
@@ -1305,7 +1406,7 @@ def _assign_captures_to_album(
 
 
 def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    connection = connect(settings.database_path)
+    connection = connect_readonly(settings.database_path)
     try:
         total = connection.execute(
             "SELECT COUNT(*) FROM events WHERE status != 'archived'"
@@ -1349,7 +1450,7 @@ def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]
 
 
 def _query_bursts(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    connection = connect(settings.database_path)
+    connection = connect_readonly(settings.database_path)
     try:
         total = connection.execute("SELECT COUNT(*) FROM bursts").fetchone()[0]
         rows = connection.execute(
@@ -1408,7 +1509,7 @@ def _visual_summary(connection: Any) -> dict[str, int]:
 
 
 def _query_duplicates(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    connection = connect(settings.database_path)
+    connection = connect_readonly(settings.database_path)
     try:
         total = connection.execute("SELECT COUNT(*) FROM duplicate_groups").fetchone()[0]
         rows = connection.execute(
@@ -1439,7 +1540,7 @@ def _query_duplicates(settings: Settings, limit: int, offset: int) -> dict[str, 
 
 
 def _query_analysis_overview(settings: Settings) -> dict[str, Any]:
-    connection = connect(settings.database_path)
+    connection = connect_readonly(settings.database_path)
     try:
         ready, runtime_message = settings.ai_runtime_status()
         return {
@@ -1448,6 +1549,27 @@ def _query_analysis_overview(settings: Settings) -> dict[str, Any]:
                 connection, settings.ai_model_path, settings.ai_quantization
             ),
             "runtime": {"ready": ready, "message": runtime_message},
+            "detail_data": {
+                "metadata_profile_version": METADATA_PROFILE_VERSION,
+                "metadata_pending": connection.execute(
+                    """SELECT COUNT(*) FROM files f
+                       JOIN capture_files cf ON cf.file_id=f.id
+                       WHERE f.present=1 AND COALESCE(f.metadata_profile_version, 0) < ?
+                         AND (cf.role='jpeg' OR (cf.role='raw' AND NOT EXISTS (
+                           SELECT 1 FROM capture_files jpeg_cf
+                           JOIN files jpeg_f ON jpeg_f.id=jpeg_cf.file_id
+                           WHERE jpeg_cf.capture_id=cf.capture_id
+                             AND jpeg_cf.role='jpeg' AND jpeg_f.present=1
+                         )))""",
+                    (METADATA_PROFILE_VERSION,),
+                ).fetchone()[0],
+                "histograms_pending": connection.execute(
+                    """SELECT COUNT(*) FROM quality_metrics qm
+                       JOIN files f ON f.id=qm.source_file_id
+                       WHERE qm.error IS NULL AND qm.histogram_json IS NULL
+                         AND f.present=1"""
+                ).fetchone()[0],
+            },
         }
     finally:
         connection.close()
@@ -1535,15 +1657,20 @@ def _query_similarity_groups(
                 SELECT 1 FROM similarity_group_captures sgc
                 JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
                 WHERE sgc.group_id = sg.id
-                  AND (COALESCE(cr.user_pick, 0) = 1 OR COALESCE(cr.user_reject, 0) = 1)
+                  AND COALESCE(cr.user_pick, 0) = 1
+            ) AND EXISTS (
+                SELECT 1 FROM similarity_group_captures sgc
+                LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
+                WHERE sgc.group_id = sg.id AND COALESCE(cr.user_reject, 0) = 0
             )
             """
         ).fetchone()[0]
         having_sql = ""
         if review_filter == "pending":
             having_sql = (
-                "HAVING SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1"
-                " OR COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) = 0"
+                "HAVING SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) = 0"
+                " AND SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END)"
+                " < COUNT(*)"
             )
         rows = connection.execute(
             f"""
@@ -1575,7 +1702,7 @@ def _query_similarity_groups(
             item["thumbnail_url"] = f"/api/thumbnails/{item['cover_capture_id']}?size=320"
             item["review_status"] = (
                 "picked" if item["pick_count"] else
-                "skipped" if item["reject_count"] else "pending"
+                "skipped" if item["reject_count"] >= item["capture_count"] else "pending"
             )
         count = pending_count if review_filter == "pending" else total
         return {
@@ -1689,6 +1816,43 @@ def _exif_extras(exif_json: str | None) -> dict[str, Any]:
             values.get("DynamicRangeSetting", values.get("DynamicRange")),
             DYNAMIC_RANGE_LABELS,
         ),
+        "exposure_program": values.get("ExposureProgram"),
+        "exposure_mode": values.get("ExposureMode"),
+        "shutter_type": values.get("ShutterType"),
+        "orientation": values.get("Orientation"),
+        "captured_at_precise": values.get("SubSecDateTimeOriginal"),
+        "timezone_offset": values.get("OffsetTimeOriginal"),
+        "color_space": values.get("ColorSpace"),
+        "bits_per_sample": values.get("BitsPerSample"),
+        "image_quality": values.get("Quality"),
+        "image_stabilization": values.get("ImageStabilization"),
+        "drive_mode": values.get("DriveMode"),
+        "drive_speed": values.get("DriveSpeed"),
+        "sequence_number": values.get("SequenceNumber"),
+        "auto_bracketing": values.get("AutoBracketing"),
+        "af_mode": values.get("AFMode"),
+        "af_area_mode": values.get("AFAreaMode"),
+        "focus_pixel": values.get("FocusPixel"),
+        "blur_warning": values.get("BlurWarning"),
+        "focus_warning": values.get("FocusWarning"),
+        "exposure_warning": values.get("ExposureWarning"),
+        "faces_detected": values.get("FacesDetected"),
+        "roll_angle": values.get("RollAngle"),
+        "camera_elevation_angle": values.get("CameraElevationAngle"),
+        "white_balance_fine_tune": values.get("WhiteBalanceFineTune"),
+        "highlight_tone": values.get("HighlightTone"),
+        "shadow_tone": values.get("ShadowTone"),
+        "saturation": values.get("Saturation"),
+        "camera_sharpness": values.get("Sharpness"),
+        "noise_reduction": values.get("NoiseReduction"),
+        "clarity": values.get("Clarity"),
+        "color_chrome_effect": values.get("ColorChromeEffect"),
+        "color_chrome_fx_blue": values.get("ColorChromeFXBlue"),
+        "grain_effect_roughness": values.get("GrainEffectRoughness"),
+        "grain_effect_size": values.get("GrainEffectSize"),
+        "lens_modulation_optimizer": values.get("LensModulationOptimizer"),
+        "auto_dynamic_range": values.get("AutoDynamicRange"),
+        "raw_compression": values.get("RAFCompression"),
     }
 
 
@@ -1765,7 +1929,7 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
 def _ensure_capture_histogram(
     settings: Settings, capture_id: int
 ) -> list[int] | None:
-    """Lazily fill schema-18 histogram data without changing existing scores."""
+    """Lazily fill a missing histogram without changing existing scores."""
     connection = connect_readonly(settings.database_path)
     try:
         row = connection.execute(
@@ -1782,7 +1946,7 @@ def _ensure_capture_histogram(
     if row is None or row["histogram_json"]:
         return json.loads(row["histogram_json"]) if row is not None else None
     try:
-        histogram = measure_image(Path(row["path"])).histogram
+        histogram = measure_luminance_histogram(Path(row["path"]))
     except (OSError, ValueError):
         return None
     if not histogram:
@@ -2526,6 +2690,27 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def start_quality_analysis() -> dict[str, Any]:
         try:
             return manager.start_quality()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/detail-data/backfill", status_code=202)
+    def start_detail_data_backfill() -> dict[str, Any]:
+        try:
+            return manager.start_detail_backfill()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/detail-data/backfill/resume", status_code=202)
+    def resume_detail_data_backfill() -> dict[str, Any]:
+        try:
+            return manager.resume_detail_backfill()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/detail-data/backfill/pause", status_code=202)
+    def pause_detail_data_backfill() -> dict[str, Any]:
+        try:
+            return manager.pause()
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

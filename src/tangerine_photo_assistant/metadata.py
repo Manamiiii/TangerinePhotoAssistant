@@ -10,6 +10,10 @@ from typing import Any, ClassVar, Protocol
 
 from PIL import Image, UnidentifiedImageError
 
+METADATA_PROFILE_VERSION = 2
+
+# Intentionally useful metadata only. Hardware/internal serial numbers, face
+# coordinates and low-level RAW calibration matrices are excluded.
 EXIF_TAGS = (
     "DateTimeOriginal",
     "CreateDate",
@@ -23,6 +27,9 @@ EXIF_TAGS = (
     "FocalLength",
     "FocalLengthIn35mmFormat",
     "ExposureCompensation",
+    "ExposureProgram",
+    "ExposureMode",
+    "ShutterType",
     "MeteringMode",
     "WhiteBalance",
     "Flash",
@@ -30,6 +37,40 @@ EXIF_TAGS = (
     "FilmMode",
     "DynamicRange",
     "DynamicRangeSetting",
+    "Orientation",
+    "OffsetTimeOriginal",
+    "SubSecDateTimeOriginal",
+    "ColorSpace",
+    "BitsPerSample",
+    "Quality",
+    "ImageStabilization",
+    "DriveMode",
+    "DriveSpeed",
+    "SequenceNumber",
+    "AutoBracketing",
+    "AFMode",
+    "AFAreaMode",
+    "FocusPixel",
+    "BlurWarning",
+    "FocusWarning",
+    "ExposureWarning",
+    "FacesDetected",
+    "RollAngle",
+    "CameraElevationAngle",
+    "WhiteBalanceFineTune",
+    "HighlightTone",
+    "ShadowTone",
+    "Saturation",
+    "Sharpness",
+    "NoiseReduction",
+    "Clarity",
+    "ColorChromeEffect",
+    "ColorChromeFXBlue",
+    "GrainEffectRoughness",
+    "GrainEffectSize",
+    "LensModulationOptimizer",
+    "AutoDynamicRange",
+    "RAFCompression",
     "ImageWidth",
     "ImageHeight",
     "ExifImageWidth",
@@ -37,6 +78,13 @@ EXIF_TAGS = (
     "GPSLatitude",
     "GPSLongitude",
 )
+
+NUMERIC_EXIF_TAGS = frozenset({
+    "ExposureTime", "FNumber", "ISO", "FocalLength",
+    "FocalLengthIn35mmFormat", "ExposureCompensation",
+    "ImageWidth", "ImageHeight", "ExifImageWidth", "ExifImageHeight",
+    "GPSLatitude", "GPSLongitude",
+})
 
 
 @dataclass(frozen=True)
@@ -114,6 +162,8 @@ def _plain_exif_value(value: Any) -> Any:
 
 
 class ExifToolMetadataReader:
+    profile_version = METADATA_PROFILE_VERSION
+
     def __init__(self, executable: Path, batch_size: int = 32) -> None:
         self.executable = executable
         self.batch_size = batch_size
@@ -171,12 +221,14 @@ class ExifToolMetadataReader:
 
         arguments = [
             "-json",
-            "-n",
             "-q",
             "-q",
             "-charset",
             "filename=UTF8",
-            *[f"-{tag}" for tag in EXIF_TAGS],
+            *[
+                f"-{tag}#" if tag in NUMERIC_EXIF_TAGS else f"-{tag}"
+                for tag in EXIF_TAGS
+            ],
             *[str(path) for path in paths],
             f"-execute{batch_number}",
         ]
