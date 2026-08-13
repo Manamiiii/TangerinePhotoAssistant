@@ -141,9 +141,9 @@ class QualityAndAiTests(unittest.TestCase):
             scan_library(connection, settings)
             for index in range(3):
                 connection.execute(
-                    "UPDATE files SET captured_at=?, exposure_time=?, iso=?, focal_length_35mm=? "
+                    "UPDATE files SET captured_at=?, exposure_time=?, iso=?, focal_length_35mm=?, camera_model=? "
                     "WHERE stem=?",
-                    (f"2026-08-06T10:00:0{index}", 1 / 250, 400, 35, f"DSCF{index + 1:04d}"),
+                    (f"2026-08-06T10:00:0{index}", 1 / 250, 400, 35, "X-Test", f"DSCF{index + 1:04d}"),
                 )
             connection.commit()
             rebuild_captures(connection)
@@ -281,6 +281,8 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(
                 _apply_control_request(connection, run["run_id"]), "cancelled"
             )
+            connection.execute("UPDATE quality_metrics SET histogram_json=NULL")
+            connection.commit()
             connection.close()
 
             groups = _query_similarity_groups(settings, 10, 0)
@@ -289,6 +291,7 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(len(group["items"]), 3)
             capture = _query_capture_detail(settings, group["items"][0]["capture_id"])
             self.assertEqual(capture["pairing_status"], "jpeg_only")
+            self.assertEqual(len(capture["histogram"]), 64)
             reviewed = [item for item in capture["ai_analyses"] if item["user_verdict"]]
             if reviewed:
                 self.assertEqual(reviewed[0]["user_verdict"], "partial")
@@ -304,6 +307,8 @@ class QualityAndAiTests(unittest.TestCase):
             connection = connect(settings.database_path)
             statistics = build_statistics(connection)
             self.assertEqual(statistics["summary"]["capture_count"], 3)
+            self.assertEqual(statistics["cameras"][0]["camera_model"], "X-Test")
+            self.assertEqual(statistics["cameras"][0]["count"], 3)
             self.assertEqual(lightroom_status(connection)["capture_count"], 3)
             self.assertEqual(len(build_lightroom_rows(connection)), 3)
             manifest = write_lightroom_manifest(connection, settings.reports_path)

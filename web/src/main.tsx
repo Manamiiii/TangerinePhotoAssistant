@@ -425,6 +425,7 @@ type Statistics = {
   };
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
+  cameras: Array<StatisticRow & { camera_model: string }>;
   lenses: Array<StatisticRow & { lens_model: string; user_picks: number; pick_rate: number | null }>;
   focal_ranges: Array<StatisticRow & { bucket: string }>;
   iso_ranges: Array<StatisticRow & { bucket: string }>;
@@ -1615,6 +1616,7 @@ function StatisticsView({ statistics, openLibraryWith }: {
       </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" onSelect={(category) => openLibraryWith({ category })} />
+        <Distribution title="主要相机" rows={statistics?.cameras ?? []} labelKey="camera_model" onSelect={(camera) => openLibraryWith({ camera })} />
         <Distribution title="主要镜头" rows={statistics?.lenses ?? []} labelKey="lens_model" onSelect={(lens) => openLibraryWith({ lens })} />
         <Distribution title="焦段习惯" rows={statistics?.focal_ranges ?? []} labelKey="bucket" />
         <Distribution title="ISO分布" rows={statistics?.iso_ranges ?? []} labelKey="bucket" />

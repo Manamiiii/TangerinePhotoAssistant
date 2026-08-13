@@ -68,7 +68,7 @@ from .migration import (
     switch_active_library,
 )
 from .pairing import rebuild_captures
-from .quality import analyze_quality, rebuild_group_recommendations
+from .quality import analyze_quality, measure_image, rebuild_group_recommendations
 from .reporting import build_report, write_report
 from .settings import Settings
 from .statistics import build_statistics
@@ -1755,9 +1755,51 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
         for analysis in item["ai_analyses"]:
             analysis.pop("result_json", None)
         item["thumbnail_url"] = f"/api/thumbnails/{capture_id}?size=1280"
-        return item
     finally:
         connection.close()
+    if item["histogram"] is None and item["error"] is None:
+        item["histogram"] = _ensure_capture_histogram(settings, capture_id)
+    return item
+
+
+def _ensure_capture_histogram(
+    settings: Settings, capture_id: int
+) -> list[int] | None:
+    """Lazily fill schema-18 histogram data without changing existing scores."""
+    connection = connect_readonly(settings.database_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT qm.histogram_json, f.path
+            FROM quality_metrics qm
+            JOIN files f ON f.id = qm.source_file_id
+            WHERE qm.capture_id = ? AND qm.error IS NULL AND f.present = 1
+            """,
+            (capture_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None or row["histogram_json"]:
+        return json.loads(row["histogram_json"]) if row is not None else None
+    try:
+        histogram = measure_image(Path(row["path"])).histogram
+    except (OSError, ValueError):
+        return None
+    if not histogram:
+        return None
+    connection = connect(settings.database_path)
+    try:
+        connection.execute(
+            """
+            UPDATE quality_metrics SET histogram_json = ?
+            WHERE capture_id = ? AND histogram_json IS NULL
+            """,
+            (json.dumps(list(histogram)), capture_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return list(histogram)
 
 
 def create_app(config_path: Path, static_directory: Path | None = None) -> FastAPI:

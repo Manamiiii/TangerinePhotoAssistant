@@ -84,6 +84,14 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                FROM capture_exif WHERE captured_at IS NOT NULL
                GROUP BY month ORDER BY month""",
         ),
+        "cameras": _rows(
+            connection,
+            """SELECT camera_model, COUNT(*) AS count,
+                      ROUND(AVG(technical_score), 1) AS average_score
+               FROM capture_exif
+               WHERE camera_model IS NOT NULL AND camera_model != ''
+               GROUP BY camera_model ORDER BY count DESC LIMIT 12""",
+        ),
         "lenses": _rows(
             connection,
             """SELECT COALESCE(lens_model, '未知镜头') AS lens_model, COUNT(*) AS count,
