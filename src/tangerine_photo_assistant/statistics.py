@@ -34,6 +34,9 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         + """
         SELECT COUNT(*) AS capture_count, MIN(captured_at) AS first_capture,
                MAX(captured_at) AS last_capture,
+               COUNT(DISTINCT CASE WHEN captured_at IS NOT NULL
+                                    THEN substr(captured_at, 1, 10) END) AS shooting_days,
+               COUNT(DISTINCT event_id) AS album_count,
                COUNT(technical_score) AS quality_analyzed,
                ROUND(AVG(technical_score), 2) AS average_technical_score,
                SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS user_picks,
@@ -51,23 +54,6 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         GROUP BY code, message ORDER BY count DESC
         """
     ).fetchall()]
-    selection = connection.execute(
-        """
-        SELECT COUNT(*) AS group_total,
-               SUM(reviewed) AS groups_reviewed,
-               ROUND(AVG(CASE WHEN reviewed = 1 THEN picks END), 2) AS average_picks_per_group
-        FROM (
-            SELECT sg.id,
-                   MAX(CASE WHEN COALESCE(cr.user_pick, 0) = 1
-                        OR COALESCE(cr.user_reject, 0) = 1 THEN 1 ELSE 0 END) AS reviewed,
-                   SUM(CASE WHEN COALESCE(cr.user_pick, 0) = 1 THEN 1 ELSE 0 END) AS picks
-            FROM similarity_groups sg
-            JOIN similarity_group_captures sgc ON sgc.group_id = sg.id
-            LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
-            GROUP BY sg.id
-        )
-        """
-    ).fetchone()
     return {
         "summary": dict(summary),
         "categories": _rows(
@@ -174,5 +160,4 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                GROUP BY rating ORDER BY rating DESC""",
         ),
         "issues": issues,
-        "selection": dict(selection) if selection else None,
     }

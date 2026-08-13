@@ -50,7 +50,7 @@ from .archive import (
     run_integrity_check,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
-from .equipment import build_equipment_catalog
+from .equipment import build_equipment_catalog, save_equipment_ownership
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityGroupingError,
@@ -116,6 +116,12 @@ class ReviewUpdateRequest(BaseModel):
     user_pick: bool | None = None
     user_reject: bool = False
     user_note: str | None = None
+
+
+class EquipmentOwnershipRequest(BaseModel):
+    kind: Literal["camera", "lens", "accessory"]
+    key: str = Field(min_length=1, max_length=300)
+    owned: bool
 
 
 class PhoneShareExportRequest(BaseModel):
@@ -2460,11 +2466,26 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             return build_equipment_catalog(
                 connection,
                 project_root / "equipment" / "profile.toml",
+                project_root / "equipment" / "catalogs" / "fujifilm-x.toml",
+                settings.workspace / "Equipment" / "inventory.json",
             )
-        except (FileNotFoundError, tomllib.TOMLDecodeError) as exc:
+        except (FileNotFoundError, tomllib.TOMLDecodeError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             connection.close()
+
+    @app.put("/api/equipment/ownership")
+    def update_equipment_ownership(request: EquipmentOwnershipRequest) -> dict[str, Any]:
+        try:
+            save_equipment_ownership(
+                settings.workspace / "Equipment" / "inventory.json",
+                request.kind,
+                request.key,
+                request.owned,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return equipment()
 
     @app.get("/api/lightroom/status")
     def get_lightroom_status() -> dict[str, int]:

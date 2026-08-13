@@ -510,6 +510,8 @@ type Statistics = {
     capture_count: number;
     first_capture: string | null;
     last_capture: string | null;
+    shooting_days: number;
+    album_count: number;
     quality_analyzed: number;
     average_technical_score: number | null;
     user_picks: number;
@@ -526,11 +528,6 @@ type Statistics = {
   exposure_compensation_ranges: Array<StatisticRow & { bucket: string }>;
   ratings: Array<{ rating: number; count: number; user_rated: number }>;
   issues: Array<{ code: string; message: string; count: number }>;
-  selection: {
-    group_total: number;
-    groups_reviewed: number | null;
-    average_picks_per_group: number | null;
-  } | null;
 };
 
 type EquipmentItem = {
@@ -545,14 +542,21 @@ type EquipmentItem = {
   lens_thread_mm?: number;
   stops?: number;
   capture_count?: number;
+  category?: string;
+  source?: string;
+  inventory_key: string;
+  owned: boolean;
   status: string;
 };
 type EquipmentCatalog = {
   schema_version: number;
   profile_file: string;
+  catalog: { name?: string; source_url?: string; checked_at?: string };
   summary: {
     camera_count: number;
     lens_count: number;
+    catalog_lens_count: number;
+    unowned_lens_count: number;
     accessory_count: number;
     detected_camera_count: number;
     detected_lens_count: number;
@@ -722,7 +726,15 @@ function Pagination({ count, limit, offset, onChange, onLimitChange }: {
 }
 
 function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => void; pause?: () => void }) {
-  if (!task || task.status === "idle") return null;
+  const taskSignature = `${task?.id ?? "idle"}:${task?.status ?? "idle"}:${task?.message ?? ""}`;
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    setDismissed(false);
+    if (task?.status !== "complete" && task?.status !== "cancelled") return;
+    const timer = window.setTimeout(() => setDismissed(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [taskSignature, task?.status]);
+  if (!task || task.status === "idle" || dismissed) return null;
   const progress = task.total ? Math.min(100, (task.current / task.total) * 100) : null;
   const itemProgress = task.total
     ? `${numberFormat.format(task.current)} / ${numberFormat.format(task.total)}`
@@ -754,6 +766,7 @@ function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => v
       {task.status === "paused" && cancel && (
         <div className="task-actions"><div className="progress-track"><span style={{ width: `${progress ?? 0}%` }} /></div><button onClick={cancel}>取消剩余任务</button></div>
       )}
+      {["complete", "failed", "cancelled"].includes(task.status) && <button className="task-dismiss" onClick={() => setDismissed(true)} aria-label="关闭任务结果">×</button>}
     </section>
   );
 }
@@ -1802,7 +1815,13 @@ function Distribution({ title, rows, labelKey, onSelect, selectHint }: {
   );
 }
 
-function EquipmentView({ equipment }: { equipment: EquipmentCatalog | null }) {
+function EquipmentView({ equipment, changeOwnership }: {
+  equipment: EquipmentCatalog | null;
+  changeOwnership: (kind: "camera" | "lens" | "accessory", key: string, owned: boolean) => Promise<void>;
+}) {
+  const [lensFilter, setLensFilter] = useState<"all" | "owned" | "unowned">("all");
+  const [lensSearch, setLensSearch] = useState("");
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const accessoryLabels: Record<string, string> = {
     supports: "支撑设备",
     remotes: "快门控制",
@@ -1811,27 +1830,39 @@ function EquipmentView({ equipment }: { equipment: EquipmentCatalog | null }) {
     adapters: "转接环",
     accessories: "其他配件",
   };
+  const categoryLabels: Record<string, string> = { prime: "定焦", zoom: "变焦", macro: "微距", teleconverter: "增距镜", cinema: "电影镜头" };
+  const visibleLenses = (equipment?.lenses ?? []).filter((item) => {
+    if (lensFilter === "owned" && !item.owned) return false;
+    if (lensFilter === "unowned" && item.owned) return false;
+    const query = lensSearch.trim().toLocaleLowerCase();
+    return !query || `${item.display_name ?? ""} ${item.model ?? ""}`.toLocaleLowerCase().includes(query);
+  });
+  const toggle = async (kind: "camera" | "lens" | "accessory", item: EquipmentItem) => {
+    setSavingKey(`${kind}:${item.inventory_key}`);
+    try { await changeOwnership(kind, item.inventory_key, !item.owned); }
+    finally { setSavingKey(null); }
+  };
   return (
     <>
       <section className="compact-summary">
         <div><span className="section-kicker">器材档案</span><h2>设备管理</h2><p>统一查看已拥有器材、滤镜兼容关系和图库中的实际使用量。</p></div>
-        <div className="compact-actions"><span>档案来源</span><strong>{equipment?.profile_file ?? "读取中"}</strong></div>
+        <div className="compact-actions"><span>库存保存在当前工作目录</span><strong>{equipment?.profile_file ?? "读取中"}</strong></div>
       </section>
       <section className="metric-grid">
-        <article><span>相机</span><strong>{equipment?.summary.camera_count ?? "—"}</strong><small>已登记机身</small></article>
-        <article><span>镜头</span><strong>{equipment?.summary.lens_count ?? "—"}</strong><small>{equipment?.summary.detected_lens_count ?? "—"} 种出现在 EXIF</small></article>
+        <article><span>已拥有相机</span><strong>{equipment?.summary.camera_count ?? "—"}</strong><small>{equipment?.summary.detected_camera_count ?? "—"} 种出现在 EXIF</small></article>
+        <article><span>已拥有镜头</span><strong>{equipment?.summary.lens_count ?? "—"}</strong><small>官方目录共 {equipment?.summary.catalog_lens_count ?? "—"} 款</small></article>
         <article><span>附件</span><strong>{equipment?.summary.accessory_count ?? "—"}</strong><small>灯光、滤镜与支撑设备</small></article>
-        <article><span>滤镜系统</span><strong className="text-value">全镜头兼容</strong><small>通过转接环使用</small></article>
+        <article><span>未拥有镜头</span><strong>{equipment?.summary.unowned_lens_count ?? "—"}</strong><small>可作为选购和了解目录</small></article>
       </section>
       <section className="equipment-layout">
         <section className="panel equipment-panel">
-          <div className="panel-heading"><div><span className="section-kicker">相机系统</span><h3>机身与镜头</h3></div><span className="batch-count">拍摄量按拍摄单元计算</span></div>
+          <div className="panel-heading"><div><span className="section-kicker">我的相机</span><h3>机身</h3></div><span className="batch-count">拍摄量按拍摄单元计算</span></div>
           <div className="equipment-list">
-            {[...(equipment?.cameras ?? []), ...(equipment?.lenses ?? [])].map((item) => (
-              <article className="equipment-row" key={`${item.model}-${item.filter_thread_mm ?? "body"}`}>
-                <div className="equipment-icon">{item.filter_thread_mm ? "L" : "C"}</div>
-                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm 滤镜口径` : " · 相机机身"}</span></div>
-                <div className="equipment-usage"><strong>{numberFormat.format(item.capture_count ?? 0)}</strong><span>拍摄单元</span></div>
+            {(equipment?.cameras ?? []).map((item) => (
+              <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
+                <div className="equipment-icon">C</div>
+                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"} · {numberFormat.format(item.capture_count ?? 0)} 个拍摄单元{item.status === "detected" ? " · EXIF 发现" : ""}</span></div>
+                <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `camera:${item.inventory_key}`} onClick={() => void toggle("camera", item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
               </article>
             ))}
           </div>
@@ -1843,15 +1874,33 @@ function EquipmentView({ equipment }: { equipment: EquipmentCatalog | null }) {
               <article className="equipment-row" key={`${item.section}-${item.model ?? index}`}>
                 <div className="equipment-icon accessory">{String(accessoryLabels[item.section ?? ""] ?? "附件").slice(0, 1)}</div>
                 <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}</span></div>
-                <span className="owned-badge">在用</span>
+                <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `accessory:${item.inventory_key}`} onClick={() => void toggle("accessory", item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
               </article>
             ))}
           </div>
         </section>
       </section>
+      <section className="panel equipment-panel equipment-catalog-panel">
+        <div className="panel-heading equipment-catalog-heading"><div><span className="section-kicker">富士 X 卡口</span><h3>官方镜头目录</h3></div><div className="equipment-source"><span>资料核对 {equipment?.catalog.checked_at ?? "—"}</span>{equipment?.catalog.source_url && <a href={equipment.catalog.source_url} target="_blank" rel="noreferrer">查看官方页面 ↗</a>}</div></div>
+        <div className="equipment-catalog-tools">
+          <div className="section-tabs" role="group" aria-label="镜头拥有状态">
+            {([['all', '全部'], ['owned', '已拥有'], ['unowned', '未拥有']] as const).map(([value, label]) => <button key={value} className={lensFilter === value ? "active" : ""} onClick={() => setLensFilter(value)}>{label}</button>)}
+          </div>
+          <input aria-label="搜索镜头" placeholder="搜索型号" value={lensSearch} onChange={(event) => setLensSearch(event.target.value)} />
+          <span>{visibleLenses.length} 款</span>
+        </div>
+        <div className="equipment-list equipment-catalog-list">
+          {visibleLenses.map((item) => <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
+            <div className="equipment-icon">L</div>
+            <div><strong>{item.display_name ?? item.model}</strong><span>{categoryLabels[item.category ?? ""] ?? "镜头"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm 滤镜口径` : ""}{item.capture_count ? ` · ${numberFormat.format(item.capture_count)} 个拍摄单元` : ""}{item.status === "detected" ? " · EXIF 发现" : ""}</span></div>
+            <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `lens:${item.inventory_key}`} onClick={() => void toggle("lens", item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
+          </article>)}
+          {!visibleLenses.length && <div className="empty-state">当前条件下没有镜头。</div>}
+        </div>
+      </section>
       <section className="panel equipment-note">
-        <strong>这一版先把器材档案与照片使用统计放到同一个界面。</strong>
-        <span>下一步可加入购买日期、序列号、保修、借出状态、维护记录和自定义备注；这些信息只进入本地数据库。</span>
+        <strong>目录与个人库存彼此分开。</strong>
+        <span>官方目录随应用更新；“已拥有 / 未拥有”只保存在当前设置所选的工作目录。切换工作目录会切换设备库存，不会修改照片或 EXIF。</span>
       </section>
     </>
   );
@@ -1897,7 +1946,9 @@ function StatisticsView({ statistics, openLibraryWith }: {
   openLibraryWith: (changes: Partial<LibraryQuery>) => void;
 }) {
   const summary = statistics?.summary;
-  const selection = statistics?.selection;
+  const qualityCoverage = summary?.capture_count
+    ? Math.round(summary.quality_analyzed / summary.capture_count * 100)
+    : 0;
   const openMonth = (month: string) => {
     const [year, monthPart] = month.split("-").map(Number);
     if (!year || !monthPart) return;
@@ -1911,11 +1962,10 @@ function StatisticsView({ statistics, openLibraryWith }: {
         <div className="structure-stat"><strong>{summary ? numberFormat.format(summary.capture_count) : "—"}</strong><span>个个人拍摄单元</span></div>
       </section>
       <section className="metric-grid">
-        <article><span>拍摄时间跨度</span><strong className="text-value">{summary?.first_capture?.slice(0, 10) ?? "—"}</strong><small>至 {summary?.last_capture?.slice(0, 10) ?? "—"}</small></article>
-        <article><span>已完成质量分析</span><strong>{summary ? numberFormat.format(summary.quality_analyzed) : "—"}</strong><small>平均分 {summary?.average_technical_score ?? "—"}</small></article>
-        <article><span>连拍入选</span><strong>{summary ? numberFormat.format(summary.user_picks) : "—"}</strong><small>组内最终选择</small></article>
-        <article><span>连拍排除</span><strong>{summary ? numberFormat.format(summary.user_rejects) : "—"}</strong><small>不会删除原片</small></article>
-        <article><span>选片进度</span><strong>{selection ? `${numberFormat.format(selection.groups_reviewed ?? 0)}/${numberFormat.format(selection.group_total)}` : "—"}</strong><small>已处理相似组 · 平均每组入选 {selection?.average_picks_per_group ?? "—"} 张</small></article>
+        <article><span>拍摄天数</span><strong>{summary ? numberFormat.format(summary.shooting_days) : "—"}</strong><small>{summary?.first_capture?.slice(0, 10) ?? "—"} 至 {summary?.last_capture?.slice(0, 10) ?? "—"}</small></article>
+        <article><span>相册</span><strong>{summary ? numberFormat.format(summary.album_count) : "—"}</strong><small>按当前图库归属统计</small></article>
+        <article><span>质量分析覆盖</span><strong>{summary ? `${qualityCoverage}%` : "—"}</strong><small>{summary ? `${numberFormat.format(summary.quality_analyzed)} / ${numberFormat.format(summary.capture_count)} 张` : "—"}</small></article>
+        <article><span>平均技术分</span><strong>{summary?.average_technical_score ?? "—"}</strong><small>只计算已有质量分析的照片</small></article>
       </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" onSelect={(category) => openLibraryWith({ category })} />
@@ -1929,12 +1979,12 @@ function StatisticsView({ statistics, openLibraryWith }: {
       </section>
       <section className="statistics-grid">
         <section className="panel lens-efficiency-panel">
-          <div className="panel-heading"><div><span className="section-kicker">器材效能</span><h3>镜头出片率</h3></div></div>
+          <div className="panel-heading"><div><span className="section-kicker">器材使用</span><h3>镜头使用概览</h3></div></div>
           <div className="lens-efficiency-list">
             {(statistics?.lenses ?? []).map((lens) => <button key={lens.lens_model} onClick={() => openLibraryWith({ lens: lens.lens_model })}>
               <span>{lens.lens_model}</span>
               <em>{numberFormat.format(lens.count)} 张 · 均分 {lens.average_score ?? "—"}</em>
-              <b>{lens.pick_rate == null ? "—" : `入选率 ${lens.pick_rate}%`}</b>
+              <b>{lens.average_score == null ? "尚未评分" : `技术均分 ${lens.average_score}`}</b>
             </button>)}
             {!(statistics?.lenses ?? []).length && <div className="empty-state">暂无镜头数据。</div>}
           </div>
@@ -2253,6 +2303,17 @@ function App() {
     }, 1200);
     return () => window.clearInterval(timer);
   }, [task?.status, refreshLibrary]);
+
+  useEffect(() => {
+    if (task?.status !== "complete" && task?.status !== "cancelled") return;
+    const completedId = task.id;
+    const timer = window.setTimeout(() => {
+      setTask((current) => current?.id === completedId && (current.status === "complete" || current.status === "cancelled")
+        ? { ...current, status: "idle", stage: "idle", message: "等待任务" }
+        : current);
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [task?.id, task?.status]);
 
   const startScan = async (albumId?: number) => {
     if (!albumId) return;
@@ -2742,6 +2803,22 @@ function App() {
     }
   };
 
+  const changeEquipmentOwnership = async (kind: "camera" | "lens" | "accessory", key: string, owned: boolean) => {
+    setError(null);
+    try {
+      const result = await getJson<EquipmentCatalog>("/api/equipment/ownership", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, key, owned }),
+      });
+      setEquipment(result);
+      pushToast("success", owned ? "已加入我的设备" : "已标记为未拥有");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const exportPhoneShare = async (captureIds: number[], maxEdge: number) => {
     setError(null);
     try {
@@ -2817,7 +2894,7 @@ function App() {
         {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
-        {view === "equipment" && <EquipmentView equipment={equipment} />}
+        {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}

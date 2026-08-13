@@ -1,0 +1,196 @@
+schema_version = 1
+name = "富士 X 卡口官方镜头目录"
+source_url = "https://www.fujifilm.com.cn/cn/zh-hans/consumer/digitalcameras/X"
+checked_at = "2026-08-13"
+
+# 目录用于浏览和拥有状态管理；个人库存继续保存在工作目录，不写回此文件。
+[[lenses]]
+brand = "Fujifilm"
+model = "XF8mmF3.5 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF14mmF2.8 R"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF16mmF1.4 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF16mmF2.8 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF18mmF1.4 R LM WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF18mmF2 R"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF23mmF1.4 R LM WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF23mmF1.4 R"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF23mmF2 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF23mmF2.8 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF27mmF2.8 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF30mmF2.8 R LM WR Macro"
+category = "macro"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF33mmF1.4 R LM WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF35mmF1.4 R"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF35mmF2 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XC35mmF2"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF50mmF1.0 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF50mmF2 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF56mmF1.2 R WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF56mmF1.2 R APD"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF60mmF2.4 R Macro"
+category = "macro"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF80mmF2.8 R LM OIS WR Macro"
+category = "macro"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF90mmF2 R LM WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF200mmF2 R LM OIS WR"
+category = "prime"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF500mmF5.6 R LM OIS WR"
+category = "prime"
+
+[[lenses]]
+brand = "Fujifilm"
+model = "XF8-16mmF2.8 R LM WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF10-24mmF4 R OIS WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XC13-33mmF3.5-6.3 OIS"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XC15-45mmF3.5-5.6 OIS PZ"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XC16-50mmF3.5-5.6 OIS II"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF16-50mmF2.8-4.8 R LM WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF16-55mmF2.8 R LM WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF16-55mmF2.8 R LM WR II"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF16-80mmF4 R OIS WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF18-55mmF2.8-4 R LM OIS"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF18-120mmF4 LM PZ WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF18-135mmF3.5-5.6 R LM OIS WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XC50-230mmF4.5-6.7 OIS II"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF50-140mmF2.8 R LM OIS WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF55-200mmF3.5-4.8 R LM OIS"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF70-300mmF4-5.6 R LM OIS WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF100-400mmF4.5-5.6 R LM OIS WR"
+category = "zoom"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF150-600mmF5.6-8 R LM OIS WR"
+category = "zoom"
+
+[[lenses]]
+brand = "Fujifilm"
+model = "XF1.4X TC WR"
+category = "teleconverter"
+[[lenses]]
+brand = "Fujifilm"
+model = "XF2X TC WR"
+category = "teleconverter"
+[[lenses]]
+brand = "Fujifilm"
+model = "MKX18-55mmT2.9"
+category = "cinema"
+[[lenses]]
+brand = "Fujifilm"
+model = "MKX50-135mmT2.9"
+category = "cinema"

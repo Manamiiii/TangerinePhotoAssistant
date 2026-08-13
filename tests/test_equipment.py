@@ -3,7 +3,10 @@ import unittest
 from pathlib import Path
 
 from tangerine_photo_assistant.database import connect
-from tangerine_photo_assistant.equipment import build_equipment_catalog
+from tangerine_photo_assistant.equipment import (
+    build_equipment_catalog,
+    save_equipment_ownership,
+)
 
 
 class EquipmentCatalogTests(unittest.TestCase):
@@ -64,6 +67,40 @@ kind = "neutral_density"
                 self.assertEqual(catalog["summary"]["accessory_count"], 1)
                 self.assertEqual(catalog["cameras"][0]["capture_count"], 1)
                 self.assertEqual(catalog["lenses"][0]["capture_count"], 1)
+            finally:
+                connection.close()
+
+    def test_catalog_and_workspace_inventory_are_combined(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            connection = connect(root / "catalog.sqlite3")
+            try:
+                profile = root / "profile.toml"
+                profile.write_text(
+                    'schema_version = 1\n[[lenses]]\nbrand = "Fujifilm"\nmodel = "XF23mmF2 R WR"\n',
+                    encoding="utf-8",
+                )
+                official = root / "official.toml"
+                official.write_text(
+                    'schema_version = 1\nname = "test"\n[[lenses]]\nbrand = "Fujifilm"\nmodel = "XF23mmF2 R WR"\n[[lenses]]\nbrand = "Fujifilm"\nmodel = "XF35mmF2 R WR"\n',
+                    encoding="utf-8",
+                )
+                inventory = root / "Equipment" / "inventory.json"
+
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertEqual(catalog["summary"]["lens_count"], 1)
+                self.assertEqual(catalog["summary"]["catalog_lens_count"], 2)
+                self.assertFalse(catalog["lenses"][1]["owned"])
+
+                save_equipment_ownership(inventory, "lens", "XF35mmF2 R WR", True)
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertEqual(catalog["summary"]["lens_count"], 2)
+                self.assertTrue(catalog["lenses"][1]["owned"])
+
+                save_equipment_ownership(inventory, "lens", "XF23mmF2 R WR", False)
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertFalse(catalog["lenses"][0]["owned"])
+                self.assertEqual(catalog["summary"]["lens_count"], 1)
             finally:
                 connection.close()
 
