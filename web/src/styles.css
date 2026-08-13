@@ -371,9 +371,14 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .ownership-button.owned { color: #bff1cc; border-color: #315d3d; background: #17271c; }
 .ownership-button:disabled { cursor: wait; opacity: .6; }
 .equipment-row-actions { display: flex; align-items: center; gap: 5px; }
-.equipment-row-actions > button:not(.ownership-button) { padding: 5px 6px; border: 0; color: var(--muted); background: transparent; font-size: 8px; cursor: pointer; }
-.equipment-row-actions > button:not(.ownership-button):hover { color: var(--orange-soft); }
-.equipment-row-actions > button.danger:hover { color: #ef968a; }
+.equipment-row-actions details { position: relative; }
+.equipment-row-actions summary { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; color: var(--muted); cursor: pointer; list-style: none; }
+.equipment-row-actions summary::-webkit-details-marker { display: none; }
+.equipment-row-actions details[open] summary { color: var(--orange-soft); background: #2a241e; }
+.equipment-row-actions details > div { position: absolute; z-index: 5; top: 32px; right: 0; min-width: 100px; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); box-shadow: 0 12px 30px rgba(0,0,0,.22); }
+.equipment-row-actions details button { width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 9px; text-align: left; cursor: pointer; }
+.equipment-row-actions details button:hover { color: var(--orange-soft); background: rgba(255,122,26,.08); }
+.equipment-row-actions details button.danger:hover { color: #ef968a; }
 .equipment-catalog-panel { margin: 20px 0; }
 .equipment-catalog-heading { gap: 24px; }
 .equipment-source { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; color: var(--muted); font-size: 9px; }
@@ -399,6 +404,10 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .equipment-note { padding: 18px 22px; display: flex; flex-direction: column; gap: 6px; }
 .equipment-note strong { font-size: 12px; }
 .equipment-note span { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.equipment-hidden-panel { margin-top: 14px; }
+.equipment-hidden-list { padding: 0 20px 18px; display: flex; flex-wrap: wrap; gap: 8px; }
+.equipment-hidden-list > div { padding: 7px 8px 7px 10px; border: 1px solid var(--line); border-radius: 9px; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 9px; }
+.equipment-hidden-list button { padding: 4px 7px; border: 0; border-radius: 6px; color: var(--orange-soft); background: rgba(255,122,26,.08); font-size: 8px; cursor: pointer; }
 .home-welcome { min-height: 174px; padding: 30px 34px; border: 1px solid #3b3027; border-radius: 20px; background: linear-gradient(125deg, #2a2119, #171512 72%); display: flex; align-items: center; justify-content: space-between; gap: 32px; }
 .home-welcome h2 { margin: 7px 0 8px; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.05em; }
 .home-welcome p { margin: 0; color: var(--muted); font-size: 12px; }

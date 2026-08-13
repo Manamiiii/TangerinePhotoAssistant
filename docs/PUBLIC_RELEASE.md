@@ -29,6 +29,8 @@ integrations as capabilities, not assumptions.
   atomically. Directory changes take effect after restart and never imply moving data.
 - Opening the inbox uses Explorer, Finder, or `xdg-open` when available.
 - Shared safety copy uses configured paths rather than one developer's drives.
+- Personal equipment lives only in the configured workspace. The bundled profile
+  is empty and the Fujifilm catalogue contains public reference data only.
 - The home page contains no prescribed selection funnel. Empty libraries receive
   a small first-use explanation; established libraries prioritize recent photos
   and exceptional items that actually require attention.

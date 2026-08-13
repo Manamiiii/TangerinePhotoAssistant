@@ -8,10 +8,31 @@ from tangerine_photo_assistant.equipment import (
     delete_equipment_item,
     save_equipment_item,
     save_equipment_ownership,
+    set_equipment_visibility,
 )
 
 
 class EquipmentCatalogTests(unittest.TestCase):
+    def test_empty_public_profile_does_not_seed_personal_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            connection = connect(root / "catalog.sqlite3")
+            try:
+                profile = root / "profile.toml"
+                profile.write_text("schema_version = 1\n", encoding="utf-8")
+                official = root / "official.toml"
+                official.write_text(
+                    'schema_version = 1\n[[lenses]]\nbrand = "Fujifilm"\nmodel = "XF35mmF2 R WR"\n',
+                    encoding="utf-8",
+                )
+                catalog = build_equipment_catalog(connection, profile, official, root / "missing.json")
+                self.assertEqual(catalog["summary"]["camera_count"], 0)
+                self.assertEqual(catalog["summary"]["lens_count"], 0)
+                self.assertEqual(catalog["summary"]["accessory_count"], 0)
+                self.assertFalse(catalog["lenses"][0]["owned"])
+            finally:
+                connection.close()
+
     def test_profile_and_capture_usage_are_combined(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -128,6 +149,38 @@ kind = "neutral_density"
                 delete_equipment_item(inventory, "camera", custom_key)
                 catalog = build_equipment_catalog(connection, profile, official, inventory)
                 self.assertNotIn(custom_key, {item["inventory_key"] for item in catalog["cameras"]})
+
+                with self.assertRaisesRegex(ValueError, "已存在"):
+                    save_equipment_item(
+                        inventory,
+                        "lens",
+                        {"brand": "Fujifilm", "model": "XF35mmF2 R WR"},
+                        existing_items=catalog["lenses"],
+                    )
+
+                official_item = next(item for item in catalog["lenses"] if item["model"] == "XF35mmF2 R WR")
+                save_equipment_item(
+                    inventory,
+                    "lens",
+                    {"model": "不得覆盖型号", "display_name": "我的 35 定焦", "owned": True},
+                    official_item["inventory_key"],
+                    catalog["lenses"],
+                )
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                official_item = next(item for item in catalog["lenses"] if item["inventory_key"] == official_item["inventory_key"])
+                self.assertEqual(official_item["model"], "XF35mmF2 R WR")
+                self.assertEqual(official_item["display_name"], "我的 35 定焦")
+                with self.assertRaisesRegex(ValueError, "只能删除"):
+                    delete_equipment_item(inventory, "lens", official_item["inventory_key"])
+
+                set_equipment_visibility(inventory, "lens", official_item["inventory_key"], False)
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertNotIn(official_item["inventory_key"], {item["inventory_key"] for item in catalog["lenses"]})
+                self.assertEqual(catalog["hidden"]["lens"][0]["inventory_key"], official_item["inventory_key"])
+                set_equipment_visibility(inventory, "lens", official_item["inventory_key"], True)
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertIn(official_item["inventory_key"], {item["inventory_key"] for item in catalog["lenses"]})
+                self.assertTrue(inventory.with_name("inventory.backup.json").is_file())
             finally:
                 connection.close()
 

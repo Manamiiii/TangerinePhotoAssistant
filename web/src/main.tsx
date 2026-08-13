@@ -565,6 +565,7 @@ type EquipmentCatalog = {
   cameras: EquipmentItem[];
   lenses: EquipmentItem[];
   accessories: EquipmentItem[];
+  hidden: { camera: EquipmentItem[]; lens: EquipmentItem[]; accessory: EquipmentItem[] };
   detected: {
     cameras: Array<{ model: string; capture_count: number }>;
     lenses: Array<{ model: string; capture_count: number }>;
@@ -626,6 +627,14 @@ type Task = {
   pausable: boolean;
   result: { scan_run_id?: number; album_id?: number; assigned_count?: number } | null;
 };
+
+function taskReceipt(task: Task) { return `${task.id ?? "none"}:${task.status}`; }
+function taskForDisplay(task: Task) {
+  if (!["complete", "cancelled"].includes(task.status)) return task;
+  return window.localStorage.getItem("tangerine-task-receipt") === taskReceipt(task)
+    ? { ...task, status: "idle" as const, stage: "idle" }
+    : task;
+}
 
 const numberFormat = new Intl.NumberFormat("zh-CN");
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
@@ -729,10 +738,16 @@ function Pagination({ count, limit, offset, onChange, onLimitChange }: {
 function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => void; pause?: () => void }) {
   const taskSignature = `${task?.id ?? "idle"}:${task?.status ?? "idle"}:${task?.message ?? ""}`;
   const [dismissed, setDismissed] = useState(false);
+  const dismiss = () => {
+    if (task && ["complete", "cancelled"].includes(task.status)) {
+      window.localStorage.setItem("tangerine-task-receipt", taskReceipt(task));
+    }
+    setDismissed(true);
+  };
   useEffect(() => {
     setDismissed(false);
     if (task?.status !== "complete" && task?.status !== "cancelled") return;
-    const timer = window.setTimeout(() => setDismissed(true), 8000);
+    const timer = window.setTimeout(dismiss, 8000);
     return () => window.clearTimeout(timer);
   }, [taskSignature, task?.status]);
   if (!task || task.status === "idle" || dismissed) return null;
@@ -767,7 +782,7 @@ function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => v
       {task.status === "paused" && cancel && (
         <div className="task-actions"><div className="progress-track"><span style={{ width: `${progress ?? 0}%` }} /></div><button onClick={cancel}>取消剩余任务</button></div>
       )}
-      {["complete", "failed", "cancelled"].includes(task.status) && <button className="task-dismiss" onClick={() => setDismissed(true)} aria-label="关闭任务结果">×</button>}
+      {["complete", "failed", "cancelled"].includes(task.status) && <button className="task-dismiss" onClick={dismiss} aria-label="关闭任务结果">×</button>}
     </section>
   );
 }
@@ -1819,14 +1834,15 @@ function Distribution({ title, rows, labelKey, onSelect, selectHint }: {
 type EquipmentKind = "camera" | "lens" | "accessory";
 type EquipmentDraft = {
   kind: EquipmentKind; key?: string; brand: string; model: string; display_name: string;
-  category: string; section: string; notes: string; filter_thread_mm: string; thread_mm: string; owned: boolean;
+  category: string; section: string; notes: string; filter_thread_mm: string; thread_mm: string; owned: boolean; source?: string;
 };
 
-function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem }: {
+function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, changeVisibility }: {
   equipment: EquipmentCatalog | null;
   changeOwnership: (kind: EquipmentKind, key: string, owned: boolean) => Promise<void>;
   saveItem: (draft: EquipmentDraft) => Promise<void>;
   deleteItem: (kind: EquipmentKind, item: EquipmentItem) => Promise<void>;
+  changeVisibility: (kind: EquipmentKind, item: EquipmentItem, visible: boolean) => Promise<void>;
 }) {
   const [lensFilter, setLensFilter] = useState<"all" | "owned" | "unowned">("owned");
   const [lensSearch, setLensSearch] = useState("");
@@ -1843,7 +1859,7 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem }: {
   };
   const categoryLabels: Record<string, string> = { prime: "定焦", zoom: "变焦", macro: "微距", teleconverter: "增距镜", cinema: "电影镜头" };
   const emptyDraft = (kind: EquipmentKind): EquipmentDraft => ({ kind, brand: kind === "lens" ? "Fujifilm" : "", model: "", display_name: "", category: kind === "lens" ? "prime" : "", section: kind === "accessory" ? "accessories" : "", notes: "", filter_thread_mm: "", thread_mm: "", owned: true });
-  const editDraft = (kind: EquipmentKind, item: EquipmentItem): EquipmentDraft => ({ kind, key: item.inventory_key, brand: item.brand ?? "", model: item.model ?? "", display_name: item.display_name ?? "", category: item.category ?? "", section: item.section ?? "", notes: item.notes ?? "", filter_thread_mm: item.filter_thread_mm ? String(item.filter_thread_mm) : "", thread_mm: item.thread_mm ? String(item.thread_mm) : "", owned: item.owned });
+  const editDraft = (kind: EquipmentKind, item: EquipmentItem): EquipmentDraft => ({ kind, key: item.inventory_key, brand: item.brand ?? "", model: item.model ?? "", display_name: item.display_name ?? "", category: item.category ?? "", section: item.section ?? "", notes: item.notes ?? "", filter_thread_mm: item.filter_thread_mm ? String(item.filter_thread_mm) : "", thread_mm: item.thread_mm ? String(item.thread_mm) : "", owned: item.owned, source: item.source });
   const visibleLenses = (equipment?.lenses ?? []).filter((item) => {
     if (lensFilter === "owned" && !item.owned) return false;
     if (lensFilter === "unowned" && item.owned) return false;
@@ -1856,9 +1872,8 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem }: {
     finally { setSavingKey(null); }
   };
   const actions = (kind: EquipmentKind, item: EquipmentItem) => <div className="equipment-row-actions">
-    <button onClick={() => setEditor(editDraft(kind, item))}>编辑</button>
-    {item.source !== "catalog" && !(kind === "lens" && item.source === "profile") && <button className="danger" onClick={() => { if (window.confirm(`从设备管理中删除“${item.display_name ?? item.model}”？不会影响照片和 EXIF。`)) void deleteItem(kind, item); }}>删除</button>}
     <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `${kind}:${item.inventory_key}`} onClick={() => void toggle(kind, item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
+    <details><summary aria-label="更多设备操作">···</summary><div><button onClick={() => setEditor(editDraft(kind, item))}>编辑信息</button>{item.source === "custom" ? <button className="danger" onClick={() => { if (window.confirm(`删除手工添加的“${item.display_name ?? item.model}”？不会影响照片和 EXIF。`)) void deleteItem(kind, item); }}>删除</button> : <button onClick={() => void changeVisibility(kind, item, false)}>隐藏</button>}</div></details>
   </div>;
   const submitEditor = async () => {
     if (!editor) return;
@@ -1925,10 +1940,14 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem }: {
         <strong>目录与个人库存彼此分开。</strong>
         <span>可以新增、编辑和删除自定义设备；官方目录条目始终保留，可编辑个人名称、备注和拥有状态。所有修改只保存在当前工作目录。</span>
       </section>
+      {!!equipment && Object.values(equipment.hidden).some((items) => items.length) && <section className="panel equipment-hidden-panel">
+        <div className="panel-heading"><div><span className="section-kicker">可恢复</span><h3>已隐藏设备</h3></div></div>
+        <div className="equipment-hidden-list">{(Object.entries(equipment.hidden) as Array<[EquipmentKind, EquipmentItem[]]>).flatMap(([kind, items]) => items.map((item) => <div key={`${kind}:${item.inventory_key}`}><span>{item.display_name ?? item.model}</span><button onClick={() => void changeVisibility(kind, item, true)}>恢复显示</button></div>))}</div>
+      </section>}
       {editor && <ModalShell title={`${editor.key ? "编辑" : "添加"}${editor.kind === "camera" ? "机身" : editor.kind === "lens" ? "镜头" : "附件"}`} close={() => setEditor(null)}>
         <div className="equipment-editor-form">
           <label><span>品牌</span><input value={editor.brand} onChange={(event) => setEditor({ ...editor, brand: event.target.value })} /></label>
-          <label><span>型号</span><input value={editor.model} onChange={(event) => setEditor({ ...editor, model: event.target.value })} /></label>
+          <label><span>型号{editor.key && editor.source !== "custom" ? "（用于关联 EXIF）" : ""}</span><input value={editor.model} disabled={Boolean(editor.key && editor.source !== "custom")} onChange={(event) => setEditor({ ...editor, model: event.target.value })} /></label>
           <label className="wide"><span>显示名称</span><input value={editor.display_name} onChange={(event) => setEditor({ ...editor, display_name: event.target.value })} placeholder="可留空，默认显示型号" /></label>
           {editor.kind === "lens" && <><label><span>镜头类型</span><select value={editor.category} onChange={(event) => setEditor({ ...editor, category: event.target.value })}><option value="prime">定焦</option><option value="zoom">变焦</option><option value="macro">微距</option><option value="teleconverter">增距镜</option><option value="cinema">电影镜头</option></select></label><label><span>滤镜口径 mm</span><input type="number" min="1" value={editor.filter_thread_mm} onChange={(event) => setEditor({ ...editor, filter_thread_mm: event.target.value })} /></label></>}
           {editor.kind === "accessory" && <><label><span>附件类型</span><select value={editor.section} onChange={(event) => setEditor({ ...editor, section: event.target.value })}>{Object.entries(accessoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>口径 mm</span><input type="number" min="1" value={editor.thread_mm} onChange={(event) => setEditor({ ...editor, thread_mm: event.target.value })} /></label></>}
@@ -2268,7 +2287,7 @@ function App() {
   }, [albumOffset, albumPageSize, groupAlbumId, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
 
   useEffect(() => {
-    Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then(setTask)]).catch(
+    Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
       (reason: Error) => setError(reason.message),
     );
     // Initial full snapshot only. Page filters have scoped effects below.
@@ -2343,6 +2362,7 @@ function App() {
     if (task?.status !== "complete" && task?.status !== "cancelled") return;
     const completedId = task.id;
     const timer = window.setTimeout(() => {
+      window.localStorage.setItem("tangerine-task-receipt", taskReceipt(task));
       setTask((current) => current?.id === completedId && (current.status === "complete" || current.status === "cancelled")
         ? { ...current, status: "idle", stage: "idle", message: "等待任务" }
         : current);
@@ -2891,6 +2911,22 @@ function App() {
     }
   };
 
+  const changeEquipmentVisibility = async (kind: EquipmentKind, item: EquipmentItem, visible: boolean) => {
+    setError(null);
+    try {
+      const result = await getJson<EquipmentCatalog>("/api/equipment/visibility", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, key: item.inventory_key, visible }),
+      });
+      setEquipment(result);
+      pushToast("success", visible ? "设备已恢复显示" : "设备已隐藏，可在页面底部恢复");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const exportPhoneShare = async (captureIds: number[], maxEdge: number) => {
     setError(null);
     try {
@@ -2966,7 +3002,7 @@ function App() {
         {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
-        {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} />}
+        {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}

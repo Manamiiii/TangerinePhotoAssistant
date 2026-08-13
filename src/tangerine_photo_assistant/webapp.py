@@ -55,6 +55,7 @@ from .equipment import (
     delete_equipment_item,
     save_equipment_item,
     save_equipment_ownership,
+    set_equipment_visibility,
 )
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
@@ -146,6 +147,10 @@ class EquipmentItemRequest(BaseModel):
 class EquipmentDeleteRequest(BaseModel):
     kind: Literal["camera", "lens", "accessory"]
     key: str = Field(min_length=1, max_length=300)
+
+
+class EquipmentVisibilityRequest(EquipmentDeleteRequest):
+    visible: bool
 
 
 class PhoneShareExportRequest(BaseModel):
@@ -2514,10 +2519,12 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     @app.post("/api/equipment/items", status_code=201)
     def create_equipment_item(request: EquipmentItemRequest) -> dict[str, Any]:
         try:
+            current = equipment()
             save_equipment_item(
                 settings.workspace / "Equipment" / "inventory.json",
                 request.kind,
                 request.model_dump(exclude={"kind", "key"}),
+                existing_items=current[{"camera": "cameras", "lens": "lenses", "accessory": "accessories"}[request.kind]],
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2528,11 +2535,26 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         if not request.key:
             raise HTTPException(status_code=422, detail="编辑设备时缺少设备标识")
         try:
+            current = equipment()
             save_equipment_item(
                 settings.workspace / "Equipment" / "inventory.json",
                 request.kind,
                 request.model_dump(exclude={"kind", "key"}),
                 request.key,
+                current[{"camera": "cameras", "lens": "lenses", "accessory": "accessories"}[request.kind]],
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return equipment()
+
+    @app.put("/api/equipment/visibility")
+    def update_equipment_visibility(request: EquipmentVisibilityRequest) -> dict[str, Any]:
+        try:
+            set_equipment_visibility(
+                settings.workspace / "Equipment" / "inventory.json",
+                request.kind,
+                request.key,
+                request.visible,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
