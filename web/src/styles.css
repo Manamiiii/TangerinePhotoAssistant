@@ -377,14 +377,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .home-section-heading { margin: 0 2px 12px; display: flex; align-items: flex-end; justify-content: space-between; }
 .home-section-heading h3 { margin: 5px 0 0; font-size: 20px; }
 .home-section-heading small { color: var(--muted); font-size: 9px; }
-.workflow-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.workflow-card { position: relative; min-height: 178px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; color: inherit; background: var(--surface); display: flex; flex-direction: column; align-items: flex-start; text-align: left; cursor: pointer; transition: transform .18s, border-color .18s; }
-.workflow-card:hover { transform: translateY(-3px); border-color: var(--orange); }
-.workflow-card > span { color: var(--orange-soft); font-size: 11px; font-weight: 700; }
-.workflow-card > strong { margin-top: 18px; font-size: 34px; font-weight: 500; letter-spacing: -.05em; }
-.workflow-card > small, .workflow-card p { color: var(--muted); font-size: 9px; }
-.workflow-card p { margin: auto 24px 0 0; line-height: 1.5; }
-.workflow-card b { position: absolute; right: 18px; bottom: 17px; color: var(--orange); font-size: 18px; }
 .home-bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
 .home-progress-list, .home-safety-list { padding: 0 22px 22px; }
 .home-progress-list > div { padding: 11px 2px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
@@ -590,7 +582,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .home-current-task .task-card { margin-top: 16px; }
 
 @media (max-width: 980px) {
-  .home-metrics, .workflow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-bottom-grid { grid-template-columns: 1fr; }
   .photo-library-grid.layout-small { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .photo-library-grid.layout-medium { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -603,7 +595,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 @media (max-width: 620px) {
   .home-welcome { align-items: stretch; flex-direction: column; padding: 24px; }
   .home-task-status { min-width: 0; }
-  .home-metrics, .workflow-grid { grid-template-columns: 1fr; }
+  .home-metrics { grid-template-columns: 1fr; }
   .home-section-heading small { display: none; }
   .home-safety-list { grid-template-columns: 1fr; }
   .photo-library-grid.layout-small, .photo-library-grid.layout-medium { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -621,6 +613,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .library-maintenance, .photo-view-actions { justify-content: space-between; }
   .album-types-panel .type-manager-list { grid-template-columns: 1fr; }
   .recent-photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .welcome-panel, .welcome-capabilities { width: 100%; min-width: 0; align-items: stretch; flex-direction: column; }
+  .welcome-capabilities { justify-content: flex-start; }
   .similarity-picker-grid { grid-template-columns: 1fr; }
 }
 .burst-hero { background: linear-gradient(125deg, #201d1a, #151718 72%); }
@@ -989,7 +983,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 :root[data-theme="light"] .panel,
 :root[data-theme="light"] .metric-grid,
 :root[data-theme="light"] .home-metrics article,
-:root[data-theme="light"] .workflow-card,
 :root[data-theme="light"] .category-strip,
 :root[data-theme="light"] .task-card,
 :root[data-theme="light"] .section-tabs,
@@ -1086,15 +1079,13 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .album-row-actions { grid-column: 2; grid-row: 2; justify-content: start; }
 }
 
-/* Workflow funnel (home) */
-.workflow-funnel-panel { margin-bottom: 18px; }
-.workflow-funnel { display: flex; align-items: stretch; gap: 8px; padding: 0 14px 14px; overflow-x: auto; }
-.workflow-funnel button { flex: 1; min-width: 120px; padding: 12px 10px; border: 1px solid var(--line); border-radius: 10px; color: inherit; background: transparent; display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer; }
-.workflow-funnel button:hover { border-color: var(--orange); }
-.workflow-funnel button strong { font-size: 19px; }
-.workflow-funnel button span { font-size: 11px; }
-.workflow-funnel button small { color: var(--muted); font-size: 9px; }
-.workflow-funnel .funnel-arrow { align-self: center; color: var(--muted); font-weight: 400; }
+/* Empty-library guidance stays lightweight and disappears after the first scan. */
+.welcome-panel { margin-bottom: 18px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.welcome-panel h3 { margin: 4px 0; }
+.welcome-panel p { margin: 0; color: var(--muted); font-size: 10px; }
+.welcome-capabilities { min-width: min(480px, 55%); display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.welcome-capabilities span { min-width: 0; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+.welcome-capabilities b { display: block; margin-bottom: 3px; color: var(--text); font-size: 8px; text-transform: uppercase; }
 
 /* Capture detail: RAW badge, EXIF grid, histogram, score bars */
 .detail-image { position: relative; }

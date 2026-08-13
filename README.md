@@ -4,6 +4,8 @@
 
 一个面向个人摄影资料库的本地优先助手。它负责照片审计、JPG/RAW 配对、相册与题材分类、连拍选优、质量分级、拍摄复盘、修图建议、统计分析，以及与 Lightroom Classic 的 XMP 工作流衔接。
 
+公共版本的长期边界与发布准备见 [docs/PUBLIC_RELEASE.md](docs/PUBLIC_RELEASE.md)。新环境可以使用 `tangerine-photo init` 从明确的照片、工作区和缓存路径生成只读离线配置，避免复制个人机器的盘符和工具路径。
+
 项目已完成活动图库迁移与保护基线，并支持增量扫描、SQLite 建库、批量 EXIF、JPG/RAW 配对、相册建议、元数据连拍候选、JPEG 视觉指纹、相似连拍拆分、后台完整性核对、技术质量分析和本地 Qwen3-VL 任务。任何照片删除、原文件元数据写入和 XMP 写入仍默认关闭。
 
 ## 当前资料库
@@ -62,7 +64,14 @@ D:\PhotoLibrary\Photos
 
 ## 安全检查
 
-复制配置但不要提交本机配置：
+新环境推荐从明确路径生成安全配置（命令不会创建目录、扫描或修改照片）：
+
+```powershell
+tangerine-photo init --config config.toml --photos "D:\Photos" --workspace "D:\TangerineWorkspace" --cache "C:\TangerineCache"
+tangerine-photo doctor --config config.toml
+```
+
+也可以复制示例配置后手工修改，但不要提交本机配置：
 
 ```powershell
 Copy-Item config.example.toml config.toml

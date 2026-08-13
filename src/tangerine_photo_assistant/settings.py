@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tomllib
 from dataclasses import dataclass
@@ -136,3 +137,58 @@ class Settings:
             return self.exiftool if self.exiftool.is_file() else None
         discovered = shutil.which("exiftool")
         return Path(discovered) if discovered else None
+
+
+def write_safe_config(
+    path: Path,
+    originals: Path,
+    workspace: Path,
+    cache_root: Path,
+) -> Path:
+    """Create a portable, conservative config without touching the photo library."""
+    if path.exists():
+        raise FileExistsError(f"Configuration already exists: {path}")
+    if not path.parent.is_dir():
+        raise FileNotFoundError(f"Configuration directory does not exist: {path.parent}")
+
+    def quote(value: Path) -> str:
+        return json.dumps(str(value.resolve()), ensure_ascii=False)
+
+    content = f"""[library]
+originals = {quote(originals)}
+workspace = {quote(workspace)}
+read_only = true
+
+[cache]
+root = {quote(cache_root)}
+max_size_gb = 20
+thumbnail_max_size_gb = 4
+
+[analysis]
+offline_only = true
+pair_jpeg_raw = true
+raw_extensions = [".raf", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".rw2", ".orf"]
+burst_time_gap_seconds = 3.0
+generate_full_resolution_previews = false
+metadata_batch_size = 32
+
+[tools]
+exiftool = ""
+
+[models]
+python = ""
+vision_language_model = ""
+quantization = "none"
+gpu_memory_limit_gb = 8
+max_new_tokens = 512
+image_max_edge = 960
+json_retry_count = 1
+
+[safety]
+allow_move = false
+allow_delete = false
+allow_original_metadata_write = false
+require_reviewed_manifest = true
+"""
+    path.write_text(content, encoding="utf-8", newline="\n")
+    return path

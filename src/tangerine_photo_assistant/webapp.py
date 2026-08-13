@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -1030,38 +1032,6 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
         dated_captures = connection.execute(
             "SELECT COUNT(*) FROM captures WHERE captured_at IS NOT NULL"
         ).fetchone()[0]
-        unanalyzed = connection.execute(
-            """
-            SELECT COUNT(DISTINCT c.id) FROM captures c
-            JOIN event_captures ec ON ec.capture_id = c.id
-            JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
-            JOIN files f ON f.id = cf.file_id AND f.present = 1
-            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
-            WHERE qm.capture_id IS NULL
-            """
-        ).fetchone()[0]
-        pending_groups = connection.execute(
-            """
-            SELECT COUNT(*) FROM similarity_groups sg
-            WHERE NOT EXISTS (
-                SELECT 1 FROM similarity_group_captures sgc
-                JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
-                WHERE sgc.group_id = sg.id
-                  AND COALESCE(cr.user_pick, 0) = 1
-            ) AND EXISTS (
-                SELECT 1 FROM similarity_group_captures sgc
-                LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
-                WHERE sgc.group_id = sg.id AND COALESCE(cr.user_reject, 0) = 0
-            )
-            """
-        ).fetchone()[0]
-        review_totals = connection.execute(
-            """
-            SELECT SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS picks,
-                   SUM(CASE WHEN user_reject = 1 THEN 1 ELSE 0 END) AS rejects
-            FROM capture_reviews
-            """
-        ).fetchone()
         return {
             **report,
             "capture_total": capture_total,
@@ -1071,12 +1041,6 @@ def _query_overview(settings: Settings) -> dict[str, Any]:
             "lenses": report["lenses"][:8],
             "structure": structure_summary(connection),
             "visual": _visual_summary(connection),
-            "workflow": {
-                "unanalyzed_captures": unanalyzed,
-                "pending_similarity_groups": pending_groups,
-                "user_picks": review_totals["picks"] or 0,
-                "user_rejects": review_totals["rejects"] or 0,
-            },
         }
     finally:
         connection.close()
@@ -1926,6 +1890,57 @@ def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]
     return item
 
 
+def _can_open_folder() -> bool:
+    return (
+        os.name == "nt"
+        or platform.system() == "Darwin"
+        or shutil.which("xdg-open") is not None
+    )
+
+
+def _open_folder(path: Path) -> None:
+    if os.name == "nt":
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", str(path)])
+    elif shutil.which("xdg-open") is not None:
+        subprocess.Popen(["xdg-open", str(path)])
+    else:
+        raise OSError("No supported desktop folder opener is available")
+
+
+def _runtime_capabilities(settings: Settings) -> dict[str, Any]:
+    exiftool = settings.find_exiftool()
+    ai_ready, ai_message = settings.ai_runtime_status()
+    return {
+        "platform": platform.system().lower(),
+        "library_root": str(settings.originals),
+        "workspace_root": str(settings.workspace),
+        "metadata": {
+            "level": "full" if exiftool else "basic",
+            "exiftool": bool(exiftool),
+            "message": (
+                "ExifTool 已就绪，可读取 RAW 和厂商扩展信息"
+                if exiftool else "使用内置读取器提供常用 JPEG EXIF；完整元数据为可选能力"
+            ),
+        },
+        "ai": {"ready": ai_ready, "message": ai_message},
+        "features": {
+            "open_folder": _can_open_folder(),
+            "raw_pairing": bool(settings.raw_extensions),
+            "lightroom_manifest": True,
+            "phone_share_export": True,
+        },
+        "safety": {
+            "offline_only": settings.offline_only,
+            "library_read_only": settings.read_only,
+            "allow_move": settings.allow_move,
+            "allow_delete": settings.allow_delete,
+            "allow_original_metadata_write": settings.allow_original_metadata_write,
+        },
+    }
+
+
 def _ensure_capture_histogram(
     settings: Settings, capture_id: int
 ) -> list[int] | None:
@@ -1996,6 +2011,10 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             "prompt_version": PROMPT_VERSION,
         }
 
+    @app.get("/api/system/capabilities")
+    def system_capabilities() -> dict[str, Any]:
+        return _runtime_capabilities(settings)
+
     @app.get("/api/overview")
     def overview() -> dict[str, Any]:
         return _query_overview(settings)
@@ -2010,21 +2029,19 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         return {
             "path": str(path),
             "exists": path.is_dir(),
-            "can_open": os.name == "nt" and path.is_dir(),
+            "can_open": _can_open_folder() and path.is_dir(),
         }
 
     @app.post("/api/system/photo-inbox/open")
     def open_photo_inbox() -> dict[str, Any]:
         path = settings.originals / "待整理"
-        if os.name != "nt":
-            raise HTTPException(status_code=422, detail="打开文件夹只在 Windows 主机可用")
         if not path.is_dir():
             raise HTTPException(status_code=404, detail=f"待整理目录不存在：{path}")
         try:
-            os.startfile(path)  # type: ignore[attr-defined]
+            _open_folder(path)
         except OSError as exc:
             raise HTTPException(
-                status_code=500, detail=f"无法打开资源管理器：{exc}"
+                status_code=500, detail=f"无法打开系统文件管理器：{exc}"
             ) from exc
         return {"opened": True, "path": str(path)}
 

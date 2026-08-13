@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from tangerine_photo_assistant.settings import Settings
+from tangerine_photo_assistant.settings import Settings, write_safe_config
 
 
 class SettingsTests(unittest.TestCase):
@@ -34,6 +34,24 @@ class SettingsTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             settings = self.make_settings(Path(directory), offline_only=False)
             self.assertIn("Offline-only analysis must remain enabled", settings.validate())
+
+    def test_safe_config_is_portable_and_never_overwritten(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            originals = root / "photos"
+            originals.mkdir()
+            config = root / "config.toml"
+            write_safe_config(config, originals, root / "workspace", root / "cache")
+            settings = Settings.load(config)
+            self.assertEqual(settings.validate(), [])
+            self.assertEqual(settings.originals, originals.resolve())
+            self.assertTrue(settings.read_only)
+            self.assertTrue(settings.offline_only)
+            self.assertFalse(settings.allow_move)
+            self.assertFalse(settings.allow_delete)
+            self.assertFalse(settings.allow_original_metadata_write)
+            with self.assertRaises(FileExistsError):
+                write_safe_config(config, originals, root / "other", root / "other-cache")
 
 
 if __name__ == "__main__":

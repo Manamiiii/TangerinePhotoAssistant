@@ -29,12 +29,6 @@ type Overview = {
   capture_total: number;
   dated_captures: number;
   structure: StructureSummary;
-  workflow: {
-    unanalyzed_captures: number;
-    pending_similarity_groups: number;
-    user_picks: number;
-    user_rejects: number;
-  } | null;
   visual: {
     duplicate_group_count: number;
     duplicate_file_count: number;
@@ -442,6 +436,26 @@ type QualityItem = {
 type QualityResponse = { count: number; limit: number; offset: number; items: QualityItem[] };
 type QualityReviewFilter = "all" | "problems" | "low_score" | "with_model" | "without_model" | "unrated";
 type PhotoInboxStatus = { path: string; exists: boolean; can_open: boolean };
+type SystemCapabilities = {
+  platform: string;
+  library_root: string;
+  workspace_root: string;
+  metadata: { level: "basic" | "full"; exiftool: boolean; message: string };
+  ai: { ready: boolean; message: string };
+  features: {
+    open_folder: boolean;
+    raw_pairing: boolean;
+    lightroom_manifest: boolean;
+    phone_share_export: boolean;
+  };
+  safety: {
+    offline_only: boolean;
+    library_read_only: boolean;
+    allow_move: boolean;
+    allow_delete: boolean;
+    allow_original_metadata_write: boolean;
+  };
+};
 type ReviewPayload = {
   user_rating: number | null;
   user_pick: boolean;
@@ -1303,21 +1317,19 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   );
 }
 
-function HomeView({ overview, statistics, archive, activeBaseline, library, task, openPhotos, openAlbums, openUnassigned, openMaintenance, openCapture, openAnalysis, openPendingGroups, openLibraryWith }: {
+function HomeView({ overview, statistics, archive, activeBaseline, library, task, capabilities, openPhotos, openAlbums, openUnassigned, openMaintenance, openCapture }: {
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
   activeBaseline: ArchiveStatus | null;
   library: LibraryCapturesResponse | null;
   task: Task | null;
+  capabilities: SystemCapabilities | null;
   openPhotos: () => void;
   openAlbums: () => void;
   openUnassigned: () => void;
   openMaintenance: () => void;
   openCapture: (captureId: number, context?: number[]) => void;
-  openAnalysis: () => void;
-  openPendingGroups: () => void;
-  openLibraryWith: (changes: Partial<LibraryQuery>) => void;
 }) {
   const pendingEvents = overview?.structure.unconfirmed_event_count ?? 0;
   const unassigned = overview?.structure.unassigned_capture_count ?? 0;
@@ -1332,17 +1344,9 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
       <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个名称待确认</small></article>
       <article><span>最近拍摄月</span><strong>{latestMonth ? numberFormat.format(latestMonth.count) : "—"}</strong><small>{latestMonth?.month ?? "暂无拍摄日期"}</small></article>
     </section>
-    {overview?.workflow && <section className="panel workflow-funnel-panel">
-      <div className="panel-heading"><div><span className="section-kicker">选片工作流</span><h3>今天从哪里继续</h3></div></div>
-      <div className="workflow-funnel">
-        <button onClick={openAnalysis}><strong>{numberFormat.format(overview.workflow.unanalyzed_captures)}</strong><span>待技术分析</span><small>先跑质量分析</small></button>
-        <b className="funnel-arrow">→</b>
-        <button onClick={openPendingGroups}><strong>{numberFormat.format(overview.workflow.pending_similarity_groups)}</strong><span>相似组待选</span><small>进入对比选片</small></button>
-        <b className="funnel-arrow">→</b>
-        <button onClick={() => openLibraryWith({ selection: "picked" })}><strong>{numberFormat.format(overview.workflow.user_picks)}</strong><span>已入选</span><small>待进入 Lightroom</small></button>
-        <b className="funnel-arrow">→</b>
-        <button onClick={() => openLibraryWith({ selection: "rejected" })}><strong>{numberFormat.format(overview.workflow.user_rejects)}</strong><span>待淘汰候选</span><small>只标记，不删除</small></button>
-      </div>
+    {overview?.capture_total === 0 && <section className="panel welcome-panel">
+      <div><span className="section-kicker">本地图库</span><h3>从你的照片目录开始</h3><p>照片保持只读，索引、评分和缩略图保存在独立工作目录。</p></div>
+      <div className="welcome-capabilities"><span><b>图库</b>{capabilities?.library_root ?? "正在读取配置"}</span><span><b>元数据</b>{capabilities?.metadata.message ?? "正在检测"}</span><button className="toolbar-button primary" onClick={openPhotos}>打开照片图库</button></div>
     </section>}
     <section className="home-management-grid">
       <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={openPhotos}>查看全部</button></div><div className="recent-photo-grid">
@@ -1728,9 +1732,10 @@ function StatisticsView({ statistics, openLibraryWith }: {
   );
 }
 
-function LightroomView({ status, manifest, generateManifest }: {
+function LightroomView({ status, manifest, capabilities, generateManifest }: {
   status: LightroomStatus | null;
   manifest: LightroomManifest | null;
+  capabilities: SystemCapabilities | null;
   generateManifest: () => void;
 }) {
   return (
@@ -1746,7 +1751,7 @@ function LightroomView({ status, manifest, generateManifest }: {
         <article><span>连拍排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>只标记，不删除</small></article>
       </section>
       <section className="lightroom-grid">
-        <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本轮只生成报告</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>历史原片不变</strong><small>D:\Photo继续只读保留，不移动、不改名、不改写</small></span></div><div><b>✓</b><span><strong>XMP写入关闭</strong><small>不会在原片旁创建或修改附属文件</small></span></div><div><b>✓</b><span><strong>使用活动图库</strong><small>Lightroom准备清单指向D:\PhotoLibrary\Photos</small></span></div><div><b>✓</b><span><strong>JPG与RAW同步</strong><small>同一拍摄单元共享评级和标签</small></span></div></div></section>
+        <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本轮只生成报告</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>照片目录保持只读</strong><small>{capabilities?.library_root ?? "当前配置的照片目录"} 不会被移动、改名或改写</small></span></div><div><b>✓</b><span><strong>原片元数据写入关闭</strong><small>不会在照片旁创建或修改 XMP 等附属文件</small></span></div><div><b>✓</b><span><strong>输出到独立工作目录</strong><small>{capabilities?.workspace_root ?? "应用工作目录"}</small></span></div><div><b>✓</b><span><strong>JPG 与 RAW 同步</strong><small>同一拍摄单元共享评级和标签</small></span></div></div></section>
         <section className="panel manifest-panel"><div className="panel-heading"><div><span className="section-kicker">最近生成</span><h3>Lightroom准备文件</h3></div></div>{manifest ? <div className="manifest-result"><strong>{numberFormat.format(manifest.capture_count)} 个拍摄单元</strong><span>{numberFormat.format(manifest.rated_count)} 个已有评级 · {formatBytes(manifest.source_bytes)} 原始文件索引</span><a href={manifest.csv_url}>下载CSV清单</a><a href={manifest.json_url}>下载完整JSON</a><small>下载的是清单，不是照片副本。</small></div> : <div className="empty-state">尚未在本次启动中生成清单。</div>}</section>
       </section>
     </>
@@ -1791,6 +1796,7 @@ function App() {
   const [activeLibraryBaseline, setActiveLibraryBaseline] = useState<ArchiveStatus | null>(null);
   const [lightroomStatus, setLightroomStatus] = useState<LightroomStatus | null>(null);
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
+  const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1846,9 +1852,10 @@ function App() {
       getJson<ArchiveStatus>("/api/archive/status"),
       getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
+      getJson<SystemCapabilities>("/api/system/capabilities"),
     ] as const);
     if (requestSequence !== refreshSequence.current) return;
-    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData] = results;
+    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData] = results;
     if (overviewData.status === "fulfilled") setOverview(overviewData.value);
     if (libraryData.status === "fulfilled") setLibraryCaptures(libraryData.value);
     if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
@@ -1862,6 +1869,7 @@ function App() {
     if (archiveData.status === "fulfilled") setArchive(archiveData.value);
     if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
     if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
+    if (capabilitiesData.status === "fulfilled") setCapabilities(capabilitiesData.value);
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
   }, [albumOffset, albumPageSize, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
@@ -2441,7 +2449,7 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} task={task} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} openAnalysis={() => setView("analysis")} openPendingGroups={() => { setGroupOffset(0); setGroupReviewFilter("pending"); setView("bursts"); }} openLibraryWith={openLibraryWith} />}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} task={task} capabilities={capabilities} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
           requestedSection={libraryLandingSection}
@@ -2457,7 +2465,7 @@ function App() {
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
-        {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} generateManifest={generateManifest} />}
+        {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.message}</div>)}

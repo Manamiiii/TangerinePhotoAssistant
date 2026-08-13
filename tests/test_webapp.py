@@ -29,6 +29,7 @@ from tangerine_photo_assistant.webapp import (
     _query_library_captures,
     _query_library_filters,
     _query_overview,
+    _runtime_capabilities,
     _query_quality,
     _query_similarity_groups,
 )
@@ -123,6 +124,13 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(analysis["quality"]["analyzed"], 0)
             self.assertFalse(analysis["runtime"]["ready"])
             self.assertEqual(quality["count"], 0)
+
+            capabilities = _runtime_capabilities(settings)
+            self.assertEqual(capabilities["metadata"]["level"], "basic")
+            self.assertTrue(capabilities["safety"]["offline_only"])
+            self.assertTrue(capabilities["safety"]["library_read_only"])
+            self.assertFalse(capabilities["safety"]["allow_delete"])
+            self.assertEqual(capabilities["library_root"], str(settings.originals))
 
     def test_capture_assignment_uses_album_as_the_working_dimension(self) -> None:
         with TemporaryDirectory() as directory:

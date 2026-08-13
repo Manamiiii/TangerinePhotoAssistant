@@ -24,7 +24,7 @@ from .migration import active_library_root
 from .pairing import rebuild_captures
 from .quality import analyze_quality
 from .reporting import build_report, write_report
-from .settings import Settings
+from .settings import Settings, write_safe_config
 from .structure import rebuild_structure
 from .visual import analyze_visuals
 
@@ -71,6 +71,14 @@ def doctor(config_path: Path) -> int:
         return 1
 
     print("Configuration is safe for read-only inventory.")
+    return 0
+
+
+def init_config(config_path: Path, photos: Path, workspace: Path, cache: Path) -> int:
+    write_safe_config(config_path, photos, workspace, cache)
+    print(f"Safe local configuration created: {config_path}")
+    print("No directories or photos were created, scanned, copied, or modified.")
+    print(f"Next: tangerine-photo doctor --config {config_path}")
     return 0
 
 
@@ -364,6 +372,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    init_parser = subparsers.add_parser(
+        "init", help="Create a portable read-only local configuration"
+    )
+    init_parser.add_argument("--config", type=Path, default=Path("config.toml"))
+    init_parser.add_argument("--photos", type=Path, required=True)
+    init_parser.add_argument("--workspace", type=Path, required=True)
+    init_parser.add_argument("--cache", type=Path, required=True)
+
     doctor_parser = subparsers.add_parser("doctor", help="Validate paths and safety settings")
     doctor_parser.add_argument(
         "--config",
@@ -460,6 +476,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     try:
+        if args.command == "init":
+            return init_config(args.config, args.photos, args.workspace, args.cache)
         if args.command == "doctor":
             return doctor(args.config)
         if args.command == "scan":
