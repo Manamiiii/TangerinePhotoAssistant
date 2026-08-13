@@ -854,7 +854,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   openCapture: (captureId: number, context?: number[]) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number; group_ids: number[] }>;
   restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
   cancelTask: () => void;
   changeGroupPage: (offset: number) => void;
@@ -883,6 +883,9 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
       .catch((reason: Error) => { if (reason.name !== "AbortError") setAlbumUndo(null); });
     return () => controller.abort();
   }, [albumId, groups, selectedGroup]);
+  useEffect(() => {
+    setEditingGroupId(null);
+  }, [selectedGroup?.id]);
   return (
     <>
       <section className="structure-hero burst-hero">
@@ -921,7 +924,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
       ) : !albumId ? (
         <section className="panel album-selection-panel">
           <div className="panel-heading"><div><span className="section-kicker">第一步</span><h3>选择要处理的相册</h3><p>连拍和相似画面始终在相册内部处理，不会跨相册混合。</p></div><span className="batch-count">{groups?.albums.length ?? 0} 个相册包含相似组</span></div>
-          <div className="similarity-album-grid">{(groups?.albums ?? []).map((album) => { const done = album.total_count - album.pending_count; const percent = album.total_count ? Math.round(done / album.total_count * 100) : 0; return <button key={album.id} onClick={() => setAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><b>{album.pending_count}<small>组待选 / 共 {album.total_count} 组</small></b><i><span style={{ width: `${percent}%` }} /></i><em>已完成 {percent}%</em></button>; })}</div>
+          <div className="similarity-album-grid">{(groups?.albums ?? []).map((album) => { const done = album.total_count - album.pending_count; const percent = album.total_count ? Math.round(done / album.total_count * 100) : 0; return <button key={album.id} onClick={() => setAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><b><strong>{album.pending_count}</strong><small>待选</small></b><i><span style={{ width: `${percent}%` }} /></i><em>共 {album.total_count} 组 · 已完成 {percent}%</em></button>; })}</div>
           {!groups?.albums.length && <div className="empty-state">还没有可处理的相似组，请先更新相似分组。</div>}
         </section>
       ) : (
@@ -1245,7 +1248,7 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
 function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevision }: {
   group: SimilarityGroupDetail;
   cancel: () => void;
-  save: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  save: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number; group_ids: number[] }>;
   restore: (captureId: number) => Promise<void>;
   restoreRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
 }) {
@@ -1283,6 +1286,7 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
   const hasManualGrouping = group.items.some((item) => item.manual_batch_key || item.grouping_override);
   const restoreCaptureId = group.items.find((item) => item.manual_batch_key || item.grouping_override)?.capture_id;
   const undoableRevision = history.find((revision) => revision.can_undo);
+  const hasSingletonGroup = buckets.some((bucket) => bucket.length === 1);
   return <div className="grouping-editor">
     <div className="grouping-editor-note"><span>拖动照片到不同分组。放入“移出分组”的照片会作为普通单张显示。</span><div>{undoableRevision && <button onClick={() => { if (window.confirm("撤销这批照片最近一次人工调整？")) void restoreRevision(undoableRevision.id, true); }}>撤销上一次调整</button>}{hasManualGrouping && restoreCaptureId && <button onClick={() => { if (window.confirm("恢复自动识别会移除这一批照片的全部人工拆分。是否继续？")) void restore(restoreCaptureId); }}>恢复自动识别</button>}</div></div>
     <div className="grouping-board">
@@ -1295,7 +1299,7 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
         <div>{excluded.map((captureId) => { const item = items.get(captureId)!; return <article draggable key={captureId} onDragStart={(event) => event.dataTransfer.setData("text/capture-id", String(captureId))}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></article>; })}{!excluded.length && <p>拖到这里，确认前不会保存</p>}</div>
       </section>
     </div>
-    <footer className="grouping-editor-footer"><button className="toolbar-button" onClick={() => setBuckets((current) => [...current, []])}>＋ 新增分组</button><span>所有调整只在点击确认后生效</span><button className="toolbar-button" onClick={cancel}>取消</button><button className="toolbar-button primary" disabled={saving} onClick={() => void submit()}>{saving ? "正在保存" : "确认调整"}</button></footer>
+    <footer className="grouping-editor-footer"><button className="toolbar-button" onClick={() => setBuckets((current) => [...current, []])}>＋ 新增分组</button><span className={hasSingletonGroup ? "grouping-warning" : ""}>{hasSingletonGroup ? "相似组至少需要 2 张；单张请放入“移出分组”" : "所有调整只在点击确认后生效"}</span><button className="toolbar-button" onClick={cancel}>取消</button><button className="toolbar-button primary" disabled={saving || hasSingletonGroup} onClick={() => void submit()}>{saving ? "正在保存" : "确认调整"}</button></footer>
   </div>;
 }
 
@@ -1305,7 +1309,7 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   openCapture: (captureId: number, context?: number[]) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number; group_ids: number[] }>;
   restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
 }) {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
@@ -1452,7 +1456,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   closeGroup: () => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number; group_ids: number[] }>;
   restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   changePage: (offset: number) => void;
@@ -2076,7 +2080,7 @@ function App() {
   const [similarityGroups, setSimilarityGroups] = useState<SimilarityGroupsResponse | null>(null);
   const [groupOffset, setGroupOffset] = useState(0);
   const [groupPageSize, setGroupPageSize] = useState(40);
-  const [groupReviewFilter, setGroupReviewFilter] = useState<"all" | "pending">("all");
+  const [groupReviewFilter, setGroupReviewFilter] = useState<"all" | "pending">("pending");
   const [groupAlbumId, setGroupAlbumId] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
@@ -2531,14 +2535,20 @@ function App() {
   const saveGrouping = async (groupId: number, groups: number[][], excludedIds: number[]) => {
     setError(null);
     try {
-      const result = await getJson<{ revision_id: number }>("/api/similarity-groups/manual", {
+      const result = await getJson<{ revision_id: number; group_ids: number[] }>("/api/similarity-groups/manual", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source_group_id: groupId, groups, excluded_ids: excludedIds }),
       });
-      setSelectedGroup(null);
+      setGroupOffset(0);
       await refreshLibrary();
-      pushToast("success", "人工分组已保存", "撤销", () => void restoreGroupingRevision(result.revision_id, true));
+      if (result.group_ids[0]) {
+        setSelectedGroup(await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${result.group_ids[0]}`));
+      } else {
+        setSelectedGroup(null);
+      }
+      const groupLabel = result.group_ids.length ? `已保存为 ${result.group_ids.length} 个相似组，正在显示第一组` : "照片已作为普通单张移出相似组";
+      pushToast("success", groupLabel, "撤销", () => void restoreGroupingRevision(result.revision_id, true));
       return result;
     } catch (reason) {
       setError((reason as Error).message);

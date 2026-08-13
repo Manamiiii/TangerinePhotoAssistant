@@ -82,6 +82,17 @@ class ManualGroupingTests(unittest.TestCase):
             )
             self.assertTrue(str(result["batch_key"]).startswith("manual:"))
             self.assertEqual(result["similarity_groups"], 1)
+            self.assertEqual(len(result["group_ids"]), 1)
+            self.assertEqual(
+                [
+                    row["capture_id"]
+                    for row in connection.execute(
+                        "SELECT capture_id FROM similarity_group_captures WHERE group_id=? ORDER BY sequence_index",
+                        (result["group_ids"][0],),
+                    )
+                ],
+                capture_ids[:2],
+            )
             self.assertEqual(
                 connection.execute(
                     "SELECT COUNT(*) FROM similarity_group_overrides WHERE manual_batch_key=?",
@@ -153,6 +164,13 @@ class ManualGroupingTests(unittest.TestCase):
                     [[capture_ids[0], capture_ids[1]]],
                     [capture_ids[1]],
                 )
+            with self.assertRaisesRegex(SimilarityGroupingError, "至少需要两张"):
+                save_manual_similarity_grouping(
+                    connection,
+                    group_id,
+                    [[capture_ids[0]]],
+                    capture_ids[1:],
+                )
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0],
                 0,
@@ -173,6 +191,7 @@ class ManualGroupingTests(unittest.TestCase):
             second = save_manual_similarity_grouping(
                 connection, subgroup_id, [capture_ids[:2]], [capture_ids[2]]
             )
+            self.assertEqual(len(second["group_ids"]), 1)
             self.assertEqual(
                 connection.execute(
                     """SELECT COUNT(DISTINCT manual_batch_key)

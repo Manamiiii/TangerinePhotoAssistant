@@ -261,7 +261,7 @@ def save_manual_similarity_grouping(
     source_group_id: int,
     groups: Sequence[Sequence[int]],
     excluded_ids: Sequence[int],
-) -> dict[str, int | str]:
+) -> dict[str, int | str | list[int]]:
     """Persist one confirmed drag-and-drop edit using stable capture IDs."""
     source_ids = {
         row["capture_id"]
@@ -272,8 +272,8 @@ def save_manual_similarity_grouping(
     }
     if not source_ids:
         raise SimilarityGroupingError("相似组不存在或已经更新")
-    if any(not group for group in groups):
-        raise SimilarityGroupingError("不能保存空分组")
+    if any(len(group) < 2 for group in groups):
+        raise SimilarityGroupingError("相似分组至少需要两张照片；单张照片请放入移出区")
     submitted = [capture_id for group in groups for capture_id in group]
     submitted.extend(excluded_ids)
     if len(submitted) != len(set(submitted)) or set(submitted) != source_ids:
@@ -303,14 +303,6 @@ def save_manual_similarity_grouping(
             tuple(source_ids),
         )
         for index, group in enumerate(groups):
-            if len(group) == 1:
-                connection.execute(
-                    """INSERT INTO similarity_group_overrides(
-                           capture_id, action, created_at, updated_at, manual_batch_key
-                       ) VALUES (?, 'exclude', ?, ?, ?)""",
-                    (group[0], now, now, batch_key),
-                )
-                continue
             group_key = f"{batch_key}:{index}"
             connection.executemany(
                 """INSERT INTO similarity_group_overrides(
@@ -329,8 +321,20 @@ def save_manual_similarity_grouping(
         revision_id = _record_revision(
             connection, "manual_edit", ordered_ids, before, after
         )
+    rebuilt = _rebuild(connection)
+    group_ids = []
+    for group in groups:
+        if len(group) < 2:
+            continue
+        row = connection.execute(
+            "SELECT group_id FROM similarity_group_captures WHERE capture_id=?",
+            (group[0],),
+        ).fetchone()
+        if row is not None and row["group_id"] not in group_ids:
+            group_ids.append(row["group_id"])
     return {
         "batch_key": batch_key,
         "revision_id": revision_id,
-        **_rebuild(connection),
+        "group_ids": group_ids,
+        **rebuilt,
     }
