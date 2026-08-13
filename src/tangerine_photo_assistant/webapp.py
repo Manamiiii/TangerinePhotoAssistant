@@ -54,7 +54,9 @@ from .equipment import build_equipment_catalog
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityGroupingError,
+    list_similarity_group_revisions,
     restore_similarity_grouping,
+    restore_similarity_group_revision,
     save_manual_similarity_grouping,
 )
 from .inventory import enrich_metadata, refresh_metadata_profile, scan_library, utc_now
@@ -167,6 +169,10 @@ class SimilarityGroupEditRequest(BaseModel):
     source_group_id: int = Field(ge=1)
     groups: list[list[int]] = Field(max_length=20)
     excluded_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+class SimilarityRevisionRestoreRequest(BaseModel):
+    use_before: bool = False
 
 
 class MigrationStartRequest(BaseModel):
@@ -2337,6 +2343,35 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                     request.source_group_id,
                     request.groups,
                     request.excluded_ids,
+                )
+            except SimilarityGroupingError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/similarity-group-revisions")
+    def similarity_group_revisions(
+        capture_id: int = Query(ge=1), limit: int = Query(default=10, ge=1, le=30)
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return {
+                "items": list_similarity_group_revisions(connection, capture_id, limit),
+            }
+        finally:
+            connection.close()
+
+    @app.post("/api/similarity-group-revisions/{revision_id}/restore")
+    def restore_similarity_revision(
+        revision_id: int, request: SimilarityRevisionRestoreRequest
+    ) -> dict[str, Any]:
+        if manager.snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="后台任务运行时不能恢复分组历史")
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return restore_similarity_group_revision(
+                    connection, revision_id, use_before=request.use_before
                 )
             except SimilarityGroupingError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc

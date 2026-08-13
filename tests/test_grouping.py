@@ -7,7 +7,9 @@ from PIL import Image
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.grouping import (
     SimilarityGroupingError,
+    list_similarity_group_revisions,
     restore_similarity_grouping,
+    restore_similarity_group_revision,
     save_manual_similarity_grouping,
 )
 from tangerine_photo_assistant.inventory import scan_library
@@ -87,11 +89,36 @@ class ManualGroupingTests(unittest.TestCase):
                 ).fetchone()[0],
                 4,
             )
+            history = list_similarity_group_revisions(connection, capture_ids[0])
+            self.assertEqual(history[0]["operation"], "manual_edit")
+            self.assertFalse(history[0]["automatic"])
             restored = restore_similarity_grouping(connection, capture_ids[0])
             self.assertEqual(restored["restored_overrides"], 4)
             self.assertEqual(restored["similarity_groups"], 1)
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0],
+                0,
+            )
+            self.assertTrue(
+                list_similarity_group_revisions(connection, capture_ids[0])[0]["automatic"]
+            )
+            restored_revision = restore_similarity_group_revision(
+                connection, result["revision_id"]
+            )
+            self.assertGreater(restored_revision["revision_id"], result["revision_id"])
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM similarity_group_overrides"
+                ).fetchone()[0],
+                4,
+            )
+            restore_similarity_group_revision(
+                connection, result["revision_id"], use_before=True
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM similarity_group_overrides"
+                ).fetchone()[0],
                 0,
             )
             connection.close()

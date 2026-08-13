@@ -483,7 +483,16 @@ type ReviewPayload = {
   user_reject: boolean;
   user_note: string | null;
 };
-type Toast = { id: number; kind: "success" | "error"; message: string };
+type Toast = { id: number; kind: "success" | "error"; message: string; actionLabel?: string; action?: () => void };
+type SimilarityRevision = {
+  id: number;
+  operation: string;
+  label: string;
+  created_at: string;
+  group_count: number;
+  excluded_count: number;
+  automatic: boolean;
+};
 
 type StatisticRow = { count: number; average_score: number | null } & Record<string, string | number | null>;
 type Statistics = {
@@ -816,7 +825,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   );
 }
 
-function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter }: {
+function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter }: {
   groups: SimilarityGroupsResponse | null;
   selectedGroup: SimilarityGroupDetail | null;
   task: Task | null;
@@ -826,7 +835,8 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   openCapture: (captureId: number, context?: number[]) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<void>;
+  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  restoreGroupingRevision: (revisionId: number) => Promise<void>;
   cancelTask: () => void;
   changeGroupPage: (offset: number) => void;
   changeGroupPageSize: (limit: number) => void;
@@ -848,11 +858,11 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
       <TaskCard task={task} cancel={cancelTask} />
       {selectedGroup ? (
         <section className="panel comparison-panel">
-          <div className="panel-heading">
-            <div><span className="section-kicker">组内对比</span><h3>{selectedGroup.event_name}</h3></div>
-            <div className="panel-heading-actions"><button className="toolbar-button" onClick={() => setEditingGrouping(true)}>调整分组</button>{nextPending && <button className="toolbar-button primary" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}<button className="secondary-action compact" onClick={closeGroup}>返回相似组</button></div>
+          <div className="panel-heading comparison-heading">
+            <div><button className="back-navigation" onClick={closeGroup}>← 返回相似组</button><span className="section-kicker">组内对比</span><h3>{selectedGroup.event_name}</h3></div>
+            <div className="panel-heading-actions"><button className="toolbar-button" onClick={() => setEditingGrouping(true)}>调整分组</button>{nextPending && <button className="toolbar-button primary" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}</div>
           </div>
-          {editingGrouping ? <SimilarityGroupingEditor group={selectedGroup} cancel={() => setEditingGrouping(false)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} /> : <>
+          {editingGrouping ? <SimilarityGroupingEditor group={selectedGroup} cancel={() => setEditingGrouping(false)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
           <div className="comparison-note">共 {selectedGroup.capture_count} 张 · 按拍摄顺序排列 · 点击图片查看完整参数</div>
           <div className="comparison-grid">
             {selectedGroup.items.map((item) => (
@@ -927,6 +937,32 @@ function ScoreBar({ label, score }: { label: string; score: number | null }) {
   );
 }
 
+const parameterHelp = {
+  shutter: ["快门速度", "控制曝光持续时间。高速快门更容易凝固动作；慢门会记录运动轨迹，也更容易因手抖变糊。", "常见参考：1/1000 秒以上凝固快速动作；1/125–1/500 秒适合一般手持；1/30 秒以下通常需要防抖或支撑。"],
+  aperture: ["光圈", "控制进光量和景深。较小的 f 数代表更大的光圈、更多进光和更浅景深。", "常见约 f/1.2–f/22，取决于镜头。大光圈适合弱光和主体分离；过小光圈可能受衍射影响。"],
+  iso: ["ISO 感光度", "表示传感器信号增益。提高 ISO 能换取更快快门或更小光圈，但通常会增加噪点并降低动态范围。", "常见原生范围约 ISO 64–12800，扩展值因机型而异。通常优先使用满足快门需求的最低 ISO。"],
+  focal: ["焦距", "影响视角和画面透视呈现。等效焦距便于比较不同画幅相机的视角。", "全画幅等效参考：24mm 以下超广角，24–35mm 广角，40–60mm 标准，70–200mm 长焦。"],
+  compensation: ["曝光补偿", "在相机自动测光结果上主动增亮或压暗。正值更亮，负值更暗。", "常见范围为 -5 EV 到 +5 EV，以 1/3 EV 调整。雪景、逆光人物常需正补偿；保高光常用负补偿。"],
+  film: ["胶片模拟", "相机对 JPG 色彩、对比度和色调的预设，不等同于 RAW 文件本身的全部可调空间。", "选项因品牌和机型而异；富士常见 Provia、Velvia、Astia、Classic Chrome、Classic Neg.、Acros 等。"],
+  program: ["曝光程序与模式", "决定快门、光圈和 ISO 中哪些由摄影者控制，哪些由相机自动决定。", "常见 P 程序自动、A/Av 光圈优先、S/Tv 快门优先、M 手动，以及 Auto、场景和 Bulb。"],
+  shutterType: ["快门类型", "机械快门通常滚动快门效应较小；电子快门安静且更高速，但快速运动和频闪光源下可能变形或产生条纹。", "常见机械、电子前帘、电子快门和自动切换，支持情况因机型而异。"],
+  metering: ["测光模式", "决定相机使用画面哪些区域估算曝光。", "常见多区/评价、中央重点、点测光和平均测光；逆光或高反差场景下差异最明显。"],
+  whiteBalance: ["白平衡", "校正不同光源的色温和色偏，让中性色更自然，也可用于创造冷暖氛围。", "常见自动、日光、阴影、钨丝灯、荧光灯、闪光灯、色温 K 值和自定义。"],
+  focus: ["对焦模式", "决定相机锁定一次焦点，还是持续跟随主体变化。", "常见 AF-S/单次、AF-C/连续、AF-A 自动切换和 MF 手动；名称会随品牌变化。"],
+  afArea: ["AF 区域", "决定相机可从多大范围内选择对焦点。范围越大越容易捕捉运动主体，也更可能选错对象。", "常见单点、区域、宽域/自动、追踪，以及人脸、眼睛或动物识别。"],
+  stabilization: ["防抖", "通过镜头或机身补偿手持抖动，主要改善静止主体的低速快门成功率，不能冻结主体自身运动。", "常见镜头 OIS/VR/OSS、机身 IBIS、组合防抖、仅拍摄时启用和关闭。"],
+  dynamicRange: ["动态范围设置", "相机通过曝光和 JPG 曲线保护高光或抬升阴影，主要影响机内 JPG，并可能提高最低 ISO。", "富士常见 DR100、DR200、DR400 和自动；其他品牌名称和策略不同。"],
+} satisfies Record<string, readonly [string, string, string]>;
+
+function ParameterHelp({ kind }: { kind: keyof typeof parameterHelp }) {
+  const [open, setOpen] = useState(false);
+  const [title, meaning, values] = parameterHelp[kind];
+  return <span className="parameter-help">
+    <button type="button" aria-label={`解释${title}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>
+    {open && <span className="parameter-help-popover" role="note"><strong>{title}</strong><span>{meaning}</span><small>{values}</small></span>}
+  </span>;
+}
+
 function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate, hasPrev, hasNext }: {
   detail: CaptureDetail;
   close: () => void;
@@ -943,12 +979,27 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
   const shootingAdvice = Array.isArray(latestAi?.shooting_advice) ? latestAi.shooting_advice as Array<Record<string, unknown>> : [];
   const lightroomSuggestions = Array.isArray(latestAi?.lightroom_suggestions) ? latestAi.lightroom_suggestions as Array<Record<string, unknown>> : [];
   const [aiNote, setAiNote] = useState(latestAnalysis?.user_note ?? "");
+  const [immersive, setImmersive] = useState(false);
+  const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
+  const [zoom, setZoom] = useState(0);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
   const [informationLevel, setInformationLevel] = useState<"compact" | "standard" | "full">(() => {
     const saved = window.localStorage.getItem("tangerine-detail-information");
     return saved === "compact" || saved === "full" ? saved : "standard";
   });
   useEffect(() => setAiNote(latestAnalysis?.user_note ?? ""), [latestAnalysis?.id, latestAnalysis?.user_note]);
   useEffect(() => window.localStorage.setItem("tangerine-detail-information", informationLevel), [informationLevel]);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+    };
+  }, []);
   const metadataText = (value: unknown) => {
     if (value == null || value === "") return "—";
     return Array.isArray(value) ? value.join(" · ") : String(value);
@@ -971,7 +1022,8 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
         user_note: detail.user_note,
         ...changes,
       });
-      if (event.key === "Escape") { close(); return; }
+      if (event.key === "Escape") { if (immersive) { setImmersive(false); setZoom(0); } else close(); return; }
+      if (event.key === "f" || event.key === "F") { setImmersive((current) => !current); setZoom(0); return; }
       if (event.key === "ArrowLeft") { event.preventDefault(); navigate(-1); return; }
       if (event.key === "ArrowRight") { event.preventDefault(); navigate(1); return; }
       if (event.key >= "1" && event.key <= "5") { review({ user_rating: Number(event.key) }); return; }
@@ -981,16 +1033,20 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [detail, close, navigate, saveReview]);
+  }, [detail, close, immersive, navigate, saveReview]);
   return (
-    <div className="detail-backdrop" role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
+    <div ref={backdropRef} className={`detail-backdrop ${immersive ? "immersive" : ""}`} role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
       {hasPrev && <button className="detail-nav prev" aria-label="上一张" onClick={(event) => { event.stopPropagation(); navigate(-1); }}>‹</button>}
       {hasNext && <button className="detail-nav next" aria-label="下一张" onClick={(event) => { event.stopPropagation(); navigate(1); }}>›</button>}
-      <section className="detail-panel" onClick={(event) => event.stopPropagation()}>
+      <section className={`detail-panel ${showImmersiveInfo ? "show-immersive-info" : ""}`} onClick={(event) => event.stopPropagation()}>
         <button className="detail-close" onClick={close} aria-label="关闭详情">×</button>
-        <div className="detail-image">
-          <img src={detail.thumbnail_url} alt={`${detail.stem} 大图预览`} />
+        <div className={`detail-image ${zoom ? "zoomed" : ""}`}>
+          <img style={zoom ? { width: `${zoom * 100}%`, height: "auto", maxWidth: "none" } : undefined} src={detail.thumbnail_url} alt={`${detail.stem} 大图预览`} />
           {detail.files.some((file) => file.role === "raw") && <span className="raw-badge">JPG + RAW</span>}
+          <div className="detail-view-controls">
+            <button onClick={() => { setImmersive((current) => !current); setZoom(0); }}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
+            {immersive && <><button onClick={() => setZoom(0)}>适应</button><button onClick={() => setZoom((current) => current ? Math.max(1, current - .5) : 1)}>−</button><button onClick={() => setZoom((current) => current ? Math.min(4, current + .5) : 1)}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => void backdropRef.current?.requestFullscreen?.()}>浏览器全屏</button></>}
+          </div>
         </div>
         <div className="detail-copy">
           <span className="section-kicker">{detail.category ?? "未分类"}</span>
@@ -1005,10 +1061,10 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
             <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
           </div>
           <div className="exif-strip">
-            <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门</span></div>
-            <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈</span></div>
-            <div><strong>{exif?.iso ? `ISO ${exif.iso}` : "—"}</strong><span>感光度</span></div>
-            <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""}</span></div>
+            <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门 <ParameterHelp kind="shutter" /></span></div>
+            <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈 <ParameterHelp kind="aperture" /></span></div>
+            <div><strong>{exif?.iso ? `ISO ${exif.iso}` : "—"}</strong><span>感光度 <ParameterHelp kind="iso" /></span></div>
+            <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""} <ParameterHelp kind="focal" /></span></div>
           </div>
           <div className="detail-section detail-exif-section">
             <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
@@ -1017,22 +1073,22 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
               <div><dt>镜头</dt><dd>{exif?.lens_model ?? "—"}</dd></div>
               <div><dt>拍摄时间</dt><dd>{detail.captured_at ? detail.captured_at.replace("T", " ") : "—"}</dd></div>
               <div><dt>尺寸</dt><dd>{exif?.width && exif?.height ? `${exif.width} × ${exif.height}` : "—"}</dd></div>
-              <div><dt>曝光补偿</dt><dd>{exif?.exposure_compensation == null ? "—" : `${exif.exposure_compensation > 0 ? "+" : ""}${exif.exposure_compensation} EV`}</dd></div>
-              <div><dt>胶片模拟</dt><dd>{exif?.film_simulation ?? "—"}</dd></div>
+              <div><dt>曝光补偿 <ParameterHelp kind="compensation" /></dt><dd>{exif?.exposure_compensation == null ? "—" : `${exif.exposure_compensation > 0 ? "+" : ""}${exif.exposure_compensation} EV`}</dd></div>
+              <div><dt>胶片模拟 <ParameterHelp kind="film" /></dt><dd>{exif?.film_simulation ?? "—"}</dd></div>
               <div><dt>GPS</dt><dd>{exif?.gps_latitude != null && exif?.gps_longitude != null ? `${exif.gps_latitude.toFixed(5)}, ${exif.gps_longitude.toFixed(5)}` : "—"}</dd></div>
             </dl>
             {informationLevel !== "compact" && <details className="metadata-details" open={informationLevel === "full"}><summary>拍摄方式与对焦</summary><dl className="exif-grid">
-              <div><dt>曝光程序</dt><dd>{metadataText(exif?.exposure_program)}</dd></div><div><dt>曝光模式</dt><dd>{metadataText(exif?.exposure_mode)}</dd></div>
-              <div><dt>快门类型</dt><dd>{metadataText(exif?.shutter_type)}</dd></div><div><dt>测光模式</dt><dd>{metadataText(exif?.metering_mode)}</dd></div>
-              <div><dt>白平衡</dt><dd>{metadataText(exif?.white_balance)}</dd></div><div><dt>闪光灯</dt><dd>{metadataText(exif?.flash)}</dd></div>
-              <div><dt>对焦模式</dt><dd>{metadataText(exif?.focus_mode ?? exif?.af_mode)}</dd></div><div><dt>AF 区域</dt><dd>{metadataText(exif?.af_area_mode)}</dd></div>
-              <div><dt>对焦点</dt><dd>{metadataText(exif?.focus_pixel)}</dd></div><div><dt>防抖</dt><dd>{metadataText(exif?.image_stabilization)}</dd></div>
+              <div><dt>曝光程序 <ParameterHelp kind="program" /></dt><dd>{metadataText(exif?.exposure_program)}</dd></div><div><dt>曝光模式</dt><dd>{metadataText(exif?.exposure_mode)}</dd></div>
+              <div><dt>快门类型 <ParameterHelp kind="shutterType" /></dt><dd>{metadataText(exif?.shutter_type)}</dd></div><div><dt>测光模式 <ParameterHelp kind="metering" /></dt><dd>{metadataText(exif?.metering_mode)}</dd></div>
+              <div><dt>白平衡 <ParameterHelp kind="whiteBalance" /></dt><dd>{metadataText(exif?.white_balance)}</dd></div><div><dt>闪光灯</dt><dd>{metadataText(exif?.flash)}</dd></div>
+              <div><dt>对焦模式 <ParameterHelp kind="focus" /></dt><dd>{metadataText(exif?.focus_mode ?? exif?.af_mode)}</dd></div><div><dt>AF 区域 <ParameterHelp kind="afArea" /></dt><dd>{metadataText(exif?.af_area_mode)}</dd></div>
+              <div><dt>对焦点</dt><dd>{metadataText(exif?.focus_pixel)}</dd></div><div><dt>防抖 <ParameterHelp kind="stabilization" /></dt><dd>{metadataText(exif?.image_stabilization)}</dd></div>
               <div><dt>驱动模式</dt><dd>{metadataText(exif?.drive_mode)}</dd></div><div><dt>连拍速度</dt><dd>{metadataText(exif?.drive_speed)}</dd></div>
               <div><dt>序列编号</dt><dd>{metadataText(exif?.sequence_number)}</dd></div><div><dt>包围曝光</dt><dd>{metadataText(exif?.auto_bracketing)}</dd></div>
               <div><dt>精确时间</dt><dd>{metadataText(exif?.captured_at_precise)}</dd></div><div><dt>时区</dt><dd>{metadataText(exif?.timezone_offset)}</dd></div>
             </dl></details>}
             {informationLevel === "full" && <><details className="metadata-details" open><summary>富士机内配方</summary><dl className="exif-grid">
-              <div><dt>动态范围</dt><dd>{metadataText(exif?.dynamic_range)}</dd></div><div><dt>自动动态范围</dt><dd>{metadataText(exif?.auto_dynamic_range)}</dd></div>
+              <div><dt>动态范围 <ParameterHelp kind="dynamicRange" /></dt><dd>{metadataText(exif?.dynamic_range)}</dd></div><div><dt>自动动态范围</dt><dd>{metadataText(exif?.auto_dynamic_range)}</dd></div>
               <div><dt>白平衡微调</dt><dd>{metadataText(exif?.white_balance_fine_tune)}</dd></div><div><dt>高光色调</dt><dd>{metadataText(exif?.highlight_tone)}</dd></div>
               <div><dt>阴影色调</dt><dd>{metadataText(exif?.shadow_tone)}</dd></div><div><dt>色彩</dt><dd>{metadataText(exif?.saturation)}</dd></div>
               <div><dt>机内锐度</dt><dd>{metadataText(exif?.camera_sharpness)}</dd></div><div><dt>降噪</dt><dd>{metadataText(exif?.noise_reduction)}</dd></div>
@@ -1082,15 +1138,23 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
   );
 }
 
-function SimilarityGroupingEditor({ group, cancel, save, restore }: {
+function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevision }: {
   group: SimilarityGroupDetail;
   cancel: () => void;
-  save: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<void>;
+  save: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
   restore: (captureId: number) => Promise<void>;
+  restoreRevision: (revisionId: number) => Promise<void>;
 }) {
   const [buckets, setBuckets] = useState<number[][]>([group.items.map((item) => item.capture_id), []]);
   const [excluded, setExcluded] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState<SimilarityRevision[]>([]);
+  const historyCaptureId = group.items[0]?.capture_id;
+  useEffect(() => {
+    if (!historyCaptureId) return;
+    getJson<{ items: SimilarityRevision[] }>(`/api/similarity-group-revisions?capture_id=${historyCaptureId}&limit=10`)
+      .then((result) => setHistory(result.items)).catch(() => setHistory([]));
+  }, [historyCaptureId]);
   const items = new Map(group.items.map((item) => [item.capture_id, item]));
   const move = (captureId: number, target: number | "excluded") => {
     setBuckets((current) => {
@@ -1115,7 +1179,7 @@ function SimilarityGroupingEditor({ group, cancel, save, restore }: {
   const hasManualGrouping = group.items.some((item) => item.manual_batch_key || item.grouping_override);
   const restoreCaptureId = group.items.find((item) => item.manual_batch_key || item.grouping_override)?.capture_id;
   return <div className="grouping-editor">
-    <div className="grouping-editor-note"><span>拖动照片到不同分组。放入“移出分组”的照片会作为普通单张显示。</span>{hasManualGrouping && restoreCaptureId && <button onClick={() => void restore(restoreCaptureId)}>恢复自动识别</button>}</div>
+    <div className="grouping-editor-note"><span>拖动照片到不同分组。放入“移出分组”的照片会作为普通单张显示。</span>{hasManualGrouping && restoreCaptureId && <button onClick={() => { if (window.confirm("恢复自动识别会移除这一批人工分组。历史记录仍会保留，是否继续？")) void restore(restoreCaptureId); }}>恢复自动识别</button>}</div>
     <div className="grouping-board">
       {buckets.map((bucket, bucketIndex) => <section className={`grouping-bucket ${bucket.length ? "" : "empty"}`} key={bucketIndex} onDragOver={(event) => event.preventDefault()} onDrop={(event) => drop(event, bucketIndex)}>
         <header><strong>{bucketIndex === 0 ? "分组 A" : `分组 ${String.fromCharCode(65 + bucketIndex)}`}</strong><span>{bucket.length} 张</span>{bucketIndex > 1 && !bucket.length && <button onClick={() => setBuckets((current) => current.filter((_, index) => index !== bucketIndex))}>删除</button>}</header>
@@ -1126,21 +1190,23 @@ function SimilarityGroupingEditor({ group, cancel, save, restore }: {
         <div>{excluded.map((captureId) => { const item = items.get(captureId)!; return <article draggable key={captureId} onDragStart={(event) => event.dataTransfer.setData("text/capture-id", String(captureId))}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></article>; })}{!excluded.length && <p>拖到这里，确认前不会保存</p>}</div>
       </section>
     </div>
+    {history.length > 0 && <details className="grouping-history"><summary>分组历史 · {history.length} 个版本</summary><div>{history.map((revision) => <article key={revision.id}><span><strong>{revision.label}</strong><small>{formatDate(revision.created_at)} · {revision.automatic ? "自动识别" : `${revision.group_count || 1} 组 · ${revision.excluded_count} 张移出`}</small></span><button className="toolbar-button" onClick={() => void restoreRevision(revision.id)}>恢复此版本</button></article>)}</div></details>}
     <footer className="grouping-editor-footer"><button className="toolbar-button" onClick={() => setBuckets((current) => [...current, []])}>＋ 新增分组</button><span>所有调整只在点击确认后生效</span><button className="toolbar-button" onClick={cancel}>取消</button><button className="toolbar-button primary" disabled={saving} onClick={() => void submit()}>{saving ? "正在保存" : "确认调整"}</button></footer>
   </div>;
 }
 
-function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrouping, saveGrouping }: {
+function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision }: {
   group: SimilarityGroupDetail;
   close: () => void;
   openCapture: (captureId: number, context?: number[]) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<void>;
+  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  restoreGroupingRevision: (revisionId: number) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   return <ModalShell title={`${group.event_name} · 相似照片`} close={close} wide>
-    {editing ? <SimilarityGroupingEditor group={group} cancel={() => setEditing(false)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} /> : <>
+    {editing ? <SimilarityGroupingEditor group={group} cancel={() => setEditing(false)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
     <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><button className="toolbar-button" onClick={() => setEditing(true)}>调整分组</button></div>
     <div className="similarity-picker-grid">{group.items.map((item) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
       <button className="similarity-picker-photo" onClick={() => openCapture(item.capture_id, group.items.map((member) => member.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{item.auto_pick && <span>技术推荐</span>}</button>
@@ -1166,6 +1232,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [layout, setLayout] = useState<PhotoLayout>(() => {
     const saved = window.localStorage.getItem("tangerine-photo-layout");
     return saved === "list" || saved === "small" || saved === "large" ? saved : "medium";
@@ -1204,19 +1271,33 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     setSelected(new Set());
     setSelectionMode(false);
   };
+  const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
+  const activeFilters: Array<{ key: keyof LibraryQuery; label: string }> = [
+    ...(!albumContext && query.albumId ? [{ key: "albumId" as const, label: query.albumId === "__unassigned__" ? "未归入相册" : filters?.albums.find((album) => String(album.id) === query.albumId)?.name ?? "相册" }] : []),
+    ...(query.category ? [{ key: "category" as const, label: `类型：${query.category}` }] : []),
+    ...(query.camera ? [{ key: "camera" as const, label: query.camera }] : []),
+    ...(query.lens ? [{ key: "lens" as const, label: query.lens }] : []),
+    ...(query.rating ? [{ key: "rating" as const, label: `${query.rating} 星` }] : []),
+    ...(query.selection ? [{ key: "selection" as const, label: query.selection === "picked" ? "已入选" : query.selection === "rejected" ? "已排除" : "待选择" }] : []),
+    ...(query.quality ? [{ key: "quality" as const, label: { problems: "发现问题", low: "技术分低于 70", high: "技术分 85 以上", unanalyzed: "尚未分析" }[query.quality] ?? query.quality }] : []),
+    ...(query.dateFrom ? [{ key: "dateFrom" as const, label: `从 ${query.dateFrom}` }] : []),
+    ...(query.dateTo ? [{ key: "dateTo" as const, label: `至 ${query.dateTo}` }] : []),
+  ];
   return <>
-    <section className="library-filters">
-      <label className="search-filter"><span>搜索</span><input value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="文件名、相册或目录" /></label>
-      {!albumContext && <label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option><option value="__unassigned__">未归入相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label>}
-      {!albumContext && <label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label>}
-      <label><span>相机</span><select value={query.camera} onChange={(event) => updateQuery({ camera: event.target.value })}><option value="">全部相机</option>{(filters?.cameras ?? []).map((camera) => <option key={camera}>{camera}</option>)}</select></label>
-      <label><span>镜头</span><select value={query.lens} onChange={(event) => updateQuery({ lens: event.target.value })}><option value="">全部镜头</option>{(filters?.lenses ?? []).map((lens) => <option key={lens}>{lens}</option>)}</select></label>
-      <label><span>人工星级</span><select value={query.rating} onChange={(event) => updateQuery({ rating: event.target.value })}><option value="">全部星级</option>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} 星</option>)}</select></label>
-      <label><span>技术质量</span><select value={query.quality} onChange={(event) => updateQuery({ quality: event.target.value })}><option value="">全部质量</option><option value="problems">发现问题</option><option value="low">技术分低于 70</option><option value="high">技术分 85 以上</option><option value="unanalyzed">尚未分析</option></select></label>
-      <label><span>开始日期</span><input type="date" value={query.dateFrom} onChange={(event) => updateQuery({ dateFrom: event.target.value })} /></label>
-      <label><span>结束日期</span><input type="date" value={query.dateTo} onChange={(event) => updateQuery({ dateTo: event.target.value })} /></label>
-      <label><span>排序</span><select value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
-      <button className="toolbar-button filter-reset" onClick={() => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", sort: "newest" })}>清除筛选</button>
+    <section className="library-filter-shell">
+      <div className="library-filter-toolbar">
+        <label className="library-search"><span aria-hidden="true">⌕</span><input aria-label="搜索照片" value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="搜索文件名、相册或目录" /></label>
+        <button className={`toolbar-button filter-toggle ${filtersOpen ? "active" : ""}`} onClick={() => setFiltersOpen((current) => !current)}>筛选{activeFilters.length ? <b>{activeFilters.length}</b> : null}</button>
+        <label className="sort-control"><span>排序</span><select value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
+        {(activeFilters.length > 0 || query.search) && <button className="filter-clear" onClick={clearFilters}>全部清除</button>}
+      </div>
+      {activeFilters.length > 0 && <div className="active-filter-chips">{activeFilters.map((filter) => <button key={filter.key} onClick={() => updateQuery({ [filter.key]: "" })}>{filter.label}<span>×</span></button>)}</div>}
+      {filtersOpen && <div className="library-filter-drawer">
+        {!albumContext && <fieldset><legend>归属</legend><label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option><option value="__unassigned__">未归入相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label></fieldset>}
+        <fieldset><legend>器材</legend><label><span>相机</span><select value={query.camera} onChange={(event) => updateQuery({ camera: event.target.value })}><option value="">全部相机</option>{(filters?.cameras ?? []).map((camera) => <option key={camera}>{camera}</option>)}</select></label><label><span>镜头</span><select value={query.lens} onChange={(event) => updateQuery({ lens: event.target.value })}><option value="">全部镜头</option>{(filters?.lenses ?? []).map((lens) => <option key={lens}>{lens}</option>)}</select></label></fieldset>
+        <fieldset><legend>评价</legend><label><span>人工星级</span><select value={query.rating} onChange={(event) => updateQuery({ rating: event.target.value })}><option value="">全部星级</option>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} 星</option>)}</select></label><label><span>选片状态</span><select value={query.selection} onChange={(event) => updateQuery({ selection: event.target.value })}><option value="">全部状态</option><option value="picked">已入选</option><option value="rejected">已排除</option><option value="unreviewed">待选择</option></select></label><label><span>技术质量</span><select value={query.quality} onChange={(event) => updateQuery({ quality: event.target.value })}><option value="">全部质量</option><option value="problems">发现问题</option><option value="low">技术分低于 70</option><option value="high">技术分 85 以上</option><option value="unanalyzed">尚未分析</option></select></label></fieldset>
+        <fieldset><legend>时间</legend><label><span>开始日期</span><input type="date" value={query.dateFrom} onChange={(event) => updateQuery({ dateFrom: event.target.value })} /></label><label><span>结束日期</span><input type="date" value={query.dateTo} onChange={(event) => updateQuery({ dateTo: event.target.value })} /></label></fieldset>
+      </div>}
     </section>
     <section className="photo-view-toolbar">
       <div className="photo-layout-toggle" aria-label="照片显示方式">
@@ -1244,7 +1325,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   </>;
 }
 
-function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
+function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
@@ -1267,7 +1348,8 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   closeGroup: () => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<void>;
+  saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
+  restoreGroupingRevision: (revisionId: number) => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
@@ -1333,21 +1415,27 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
         <div className="update-library-note">只索引新增或变化的文件。原片不会被移动、删除或改写。</div>
         <footer><button type="button" className="toolbar-button" onClick={() => setUpdateOpen(false)}>取消</button><button className="toolbar-button primary" disabled={!targetAlbum || (targetAlbum === "__new__" && !newAlbumName.trim())}>开始更新</button></footer>
       </form></ModalShell>}
-      {selectedGroup && <SimilarityPickerModal group={selectedGroup} close={closeGroup} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} />}
+      {selectedGroup && <SimilarityPickerModal group={selectedGroup} close={closeGroup} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} />}
     </>
   );
 }
 
-function HomeView({ overview, statistics, archive, activeBaseline, library, task, capabilities, openPhotos, openAlbums, openUnassigned, openMaintenance, openCapture }: {
+function HomeView({ overview, statistics, archive, activeBaseline, library, filters, task, capabilities, openPhotos, openAlbums, openAlbum, openBursts, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
   activeBaseline: ArchiveStatus | null;
   library: LibraryCapturesResponse | null;
+  filters: LibraryFilters | null;
   task: Task | null;
   capabilities: SystemCapabilities | null;
   openPhotos: () => void;
   openAlbums: () => void;
+  openAlbum: (albumId: number) => void;
+  openBursts: () => void;
+  openStatistics: () => void;
+  continueLabel: string;
+  continueWork: () => void;
   openUnassigned: () => void;
   openMaintenance: () => void;
   openCapture: (captureId: number, context?: number[]) => void;
@@ -1359,6 +1447,9 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
   const monthRows = statistics?.months ?? [];
   const latestMonth = monthRows[monthRows.length - 1] ?? null;
   const hasPending = pendingEvents > 0 || unassigned > 0 || Boolean(archiveIssue) || Boolean(activeIssue);
+  const recentAlbums = (filters?.albums ?? []).slice(0, 4);
+  const topCamera = statistics?.cameras[0];
+  const topLens = statistics?.lenses[0];
   return <>
     <section className="home-metrics">
       <article><span>全部照片</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : ""}</small></article>
@@ -1368,6 +1459,10 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
     {overview?.capture_total === 0 && <section className="panel welcome-panel">
       <div><span className="section-kicker">本地图库</span><h3>从你的照片目录开始</h3><p>照片保持只读，索引、评分和缩略图保存在独立工作目录。</p></div>
       <div className="welcome-capabilities"><span><b>图库</b>{capabilities?.library_root ?? "正在读取配置"}</span><span><b>元数据</b>{capabilities?.metadata.message ?? "正在检测"}</span><button className="toolbar-button primary" onClick={openPhotos}>打开照片图库</button></div>
+    </section>}
+    {overview && overview.capture_total > 0 && <section className="home-workspace-grid">
+      <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><p>回到最近使用的功能，当前图库和筛选状态不会被重新分析。</p><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button><div><button onClick={openPhotos}>照片图库</button><button onClick={openBursts}>相似组选片</button><button onClick={openStatistics}>摄影统计</button></div></section>
+      <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>
     </section>}
     <section className="home-management-grid">
       <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={openPhotos}>查看全部</button></div><div className="recent-photo-grid">
@@ -1381,6 +1476,7 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, task
         {!hasPending && <div className="empty-state">当前没有需要及时处理的项目。</div>}
       </div></section>
     </section>
+    {overview && overview.capture_total > 0 && <section className="panel home-insights"><div className="panel-heading"><div><h3>本月摄影摘要</h3></div><button className="text-action" onClick={openStatistics}>查看完整统计</button></div><div><article><span>最近月份</span><strong>{latestMonth?.month ?? "—"}</strong><small>{latestMonth ? `${numberFormat.format(latestMonth.count)} 张 · ${latestMonth.user_picks} 张入选` : "暂无数据"}</small></article><article><span>最常用相机</span><strong>{topCamera?.camera_model ?? "—"}</strong><small>{topCamera ? `${numberFormat.format(topCamera.count)} 次拍摄` : "暂无器材信息"}</small></article><article><span>最常用镜头</span><strong>{topLens?.lens_model ?? "—"}</strong><small>{topLens ? `${numberFormat.format(topLens.count)} 次拍摄` : "暂无镜头信息"}</small></article></div></section>}
     {task && task.status !== "idle" && <section className="home-current-task"><TaskCard task={task} /></section>}
   </>;
 }
@@ -1845,6 +1941,10 @@ function SettingsView({ status, task, save }: {
 
 function App() {
   const [view, setView] = useState<View>("home");
+  const [lastWorkspaceView, setLastWorkspaceView] = useState<View>(() => {
+    const saved = window.localStorage.getItem("tangerine-last-workspace") as View | null;
+    return saved && saved !== "home" ? saved : "library";
+  });
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = window.localStorage.getItem("tangerine-theme");
     return saved === "dark" ? "dark" : "light";
@@ -1892,12 +1992,12 @@ function App() {
   const reviewVersions = useRef(new Map<number, number>());
   const reviewAggregateTimer = useRef<number | null>(null);
 
-  const pushToast = useCallback((kind: Toast["kind"], message: string) => {
+  const pushToast = useCallback((kind: Toast["kind"], message: string, actionLabel?: string, action?: () => void) => {
     const id = ++toastSequence.current;
-    setToasts((current) => [...current.slice(-3), { id, kind, message }]);
+    setToasts((current) => [...current.slice(-3), { id, kind, message, actionLabel, action }]);
     window.setTimeout(
       () => setToasts((current) => current.filter((toast) => toast.id !== id)),
-      kind === "error" ? 6000 : 2400,
+      kind === "error" ? 6000 : action ? 8000 : 2400,
     );
   }, []);
 
@@ -1906,6 +2006,11 @@ function App() {
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("tangerine-theme", theme);
   }, [theme]);
+  useEffect(() => {
+    if (view === "home") return;
+    setLastWorkspaceView(view);
+    window.localStorage.setItem("tangerine-last-workspace", view);
+  }, [view]);
 
   const refreshLibrary = useCallback(async () => {
     const requestSequence = ++refreshSequence.current;
@@ -2278,16 +2383,34 @@ function App() {
     }
   };
 
+  const restoreGroupingRevision = async (revisionId: number, useBefore = false) => {
+    setError(null);
+    try {
+      await getJson(`/api/similarity-group-revisions/${revisionId}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_before: useBefore }),
+      });
+      setSelectedGroup(null);
+      await refreshLibrary();
+      pushToast("success", useBefore ? "已撤销本次分组调整" : "已恢复所选分组版本");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const editGrouping = async (captureId: number, action: "exclude" | "split_before" | "auto") => {
     setError(null);
     try {
-      await getJson(`/api/captures/${captureId}/similarity-override`, {
+      const result = await getJson<{ revision_id?: number }>(`/api/captures/${captureId}/similarity-override`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
       setSelectedGroup(null);
       await refreshLibrary();
+      if (result.revision_id) pushToast("success", action === "auto" ? "已恢复自动识别" : "分组已更新", "撤销", () => void restoreGroupingRevision(result.revision_id!, true));
     } catch (reason) {
       setError((reason as Error).message);
       throw reason;
@@ -2297,13 +2420,15 @@ function App() {
   const saveGrouping = async (groupId: number, groups: number[][], excludedIds: number[]) => {
     setError(null);
     try {
-      await getJson("/api/similarity-groups/manual", {
+      const result = await getJson<{ revision_id: number }>("/api/similarity-groups/manual", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source_group_id: groupId, groups, excluded_ids: excludedIds }),
       });
       setSelectedGroup(null);
       await refreshLibrary();
+      pushToast("success", "人工分组已保存", "撤销", () => void restoreGroupingRevision(result.revision_id, true));
+      return result;
     } catch (reason) {
       setError((reason as Error).message);
       throw reason;
@@ -2556,18 +2681,18 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} task={task} capabilities={capabilities} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} filters={libraryFilters} task={task} capabilities={capabilities} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似组选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
           requestedSection={libraryLandingSection}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
-          openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
+          openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
         />}
-        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} />}
+        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
@@ -2576,7 +2701,7 @@ function App() {
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
-          {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.message}</div>)}
+          {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
       </main>
     </div>

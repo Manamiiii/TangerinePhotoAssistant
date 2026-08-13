@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -337,6 +337,24 @@ def connect(path: Path) -> sqlite3.Connection:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS similarity_group_revisions (
+            id INTEGER PRIMARY KEY,
+            operation TEXT NOT NULL,
+            capture_ids_json TEXT NOT NULL,
+            before_json TEXT NOT NULL,
+            after_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS similarity_group_revision_captures (
+            revision_id INTEGER NOT NULL REFERENCES similarity_group_revisions(id) ON DELETE CASCADE,
+            capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+            PRIMARY KEY (revision_id, capture_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_similarity_group_revision_captures_capture
+            ON similarity_group_revision_captures(capture_id, revision_id DESC);
 
         CREATE TABLE IF NOT EXISTS quality_metrics (
             capture_id INTEGER PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,

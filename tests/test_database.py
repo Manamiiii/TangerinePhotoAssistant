@@ -13,7 +13,10 @@ class DatabaseUpgradeTests(unittest.TestCase):
             connection = connect(database)
             connection.execute("CREATE TABLE upgrade_marker(value TEXT)")
             connection.execute("INSERT INTO upgrade_marker VALUES ('before-upgrade')")
-            connection.execute("UPDATE schema_info SET version=15")
+            connection.execute("DROP TABLE similarity_group_revision_captures")
+            connection.execute("DROP TABLE similarity_group_revisions")
+            previous_version = SCHEMA_VERSION - 1
+            connection.execute("UPDATE schema_info SET version=?", (previous_version,))
             connection.commit()
             connection.close()
 
@@ -30,13 +33,21 @@ class DatabaseUpgradeTests(unittest.TestCase):
             self.assertTrue(
                 any("idx_similarity_group_overrides_batch" in row[3] for row in plan)
             )
+            self.assertIsNotNone(
+                upgraded.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='similarity_group_revisions'"
+                ).fetchone()
+            )
             upgraded.close()
 
             backups = list((database.parent / "SchemaBackups").glob("*.sqlite3"))
             self.assertEqual(len(backups), 1)
             backup = sqlite3.connect(backups[0])
             self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
-            self.assertEqual(backup.execute("SELECT version FROM schema_info").fetchone()[0], 15)
+            self.assertEqual(
+                backup.execute("SELECT version FROM schema_info").fetchone()[0],
+                previous_version,
+            )
             self.assertEqual(
                 backup.execute("SELECT value FROM upgrade_marker").fetchone()[0],
                 "before-upgrade",
