@@ -544,6 +544,7 @@ type EquipmentItem = {
   capture_count?: number;
   category?: string;
   source?: string;
+  notes?: string;
   inventory_key: string;
   owned: boolean;
   status: string;
@@ -1815,13 +1816,23 @@ function Distribution({ title, rows, labelKey, onSelect, selectHint }: {
   );
 }
 
-function EquipmentView({ equipment, changeOwnership }: {
+type EquipmentKind = "camera" | "lens" | "accessory";
+type EquipmentDraft = {
+  kind: EquipmentKind; key?: string; brand: string; model: string; display_name: string;
+  category: string; section: string; notes: string; filter_thread_mm: string; thread_mm: string; owned: boolean;
+};
+
+function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem }: {
   equipment: EquipmentCatalog | null;
-  changeOwnership: (kind: "camera" | "lens" | "accessory", key: string, owned: boolean) => Promise<void>;
+  changeOwnership: (kind: EquipmentKind, key: string, owned: boolean) => Promise<void>;
+  saveItem: (draft: EquipmentDraft) => Promise<void>;
+  deleteItem: (kind: EquipmentKind, item: EquipmentItem) => Promise<void>;
 }) {
-  const [lensFilter, setLensFilter] = useState<"all" | "owned" | "unowned">("all");
+  const [lensFilter, setLensFilter] = useState<"all" | "owned" | "unowned">("owned");
   const [lensSearch, setLensSearch] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [editor, setEditor] = useState<EquipmentDraft | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
   const accessoryLabels: Record<string, string> = {
     supports: "支撑设备",
     remotes: "快门控制",
@@ -1831,16 +1842,28 @@ function EquipmentView({ equipment, changeOwnership }: {
     accessories: "其他配件",
   };
   const categoryLabels: Record<string, string> = { prime: "定焦", zoom: "变焦", macro: "微距", teleconverter: "增距镜", cinema: "电影镜头" };
+  const emptyDraft = (kind: EquipmentKind): EquipmentDraft => ({ kind, brand: kind === "lens" ? "Fujifilm" : "", model: "", display_name: "", category: kind === "lens" ? "prime" : "", section: kind === "accessory" ? "accessories" : "", notes: "", filter_thread_mm: "", thread_mm: "", owned: true });
+  const editDraft = (kind: EquipmentKind, item: EquipmentItem): EquipmentDraft => ({ kind, key: item.inventory_key, brand: item.brand ?? "", model: item.model ?? "", display_name: item.display_name ?? "", category: item.category ?? "", section: item.section ?? "", notes: item.notes ?? "", filter_thread_mm: item.filter_thread_mm ? String(item.filter_thread_mm) : "", thread_mm: item.thread_mm ? String(item.thread_mm) : "", owned: item.owned });
   const visibleLenses = (equipment?.lenses ?? []).filter((item) => {
     if (lensFilter === "owned" && !item.owned) return false;
     if (lensFilter === "unowned" && item.owned) return false;
     const query = lensSearch.trim().toLocaleLowerCase();
     return !query || `${item.display_name ?? ""} ${item.model ?? ""}`.toLocaleLowerCase().includes(query);
   });
-  const toggle = async (kind: "camera" | "lens" | "accessory", item: EquipmentItem) => {
+  const toggle = async (kind: EquipmentKind, item: EquipmentItem) => {
     setSavingKey(`${kind}:${item.inventory_key}`);
     try { await changeOwnership(kind, item.inventory_key, !item.owned); }
     finally { setSavingKey(null); }
+  };
+  const actions = (kind: EquipmentKind, item: EquipmentItem) => <div className="equipment-row-actions">
+    <button onClick={() => setEditor(editDraft(kind, item))}>编辑</button>
+    {item.source !== "catalog" && !(kind === "lens" && item.source === "profile") && <button className="danger" onClick={() => { if (window.confirm(`从设备管理中删除“${item.display_name ?? item.model}”？不会影响照片和 EXIF。`)) void deleteItem(kind, item); }}>删除</button>}
+    <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `${kind}:${item.inventory_key}`} onClick={() => void toggle(kind, item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
+  </div>;
+  const submitEditor = async () => {
+    if (!editor) return;
+    setEditorSaving(true);
+    try { await saveItem(editor); setEditor(null); } finally { setEditorSaving(false); }
   };
   return (
     <>
@@ -1854,54 +1877,66 @@ function EquipmentView({ equipment, changeOwnership }: {
         <article><span>附件</span><strong>{equipment?.summary.accessory_count ?? "—"}</strong><small>灯光、滤镜与支撑设备</small></article>
         <article><span>未拥有镜头</span><strong>{equipment?.summary.unowned_lens_count ?? "—"}</strong><small>可作为选购和了解目录</small></article>
       </section>
-      <section className="equipment-layout">
-        <section className="panel equipment-panel">
-          <div className="panel-heading"><div><span className="section-kicker">我的相机</span><h3>机身</h3></div><span className="batch-count">拍摄量按拍摄单元计算</span></div>
-          <div className="equipment-list">
+      <section className="panel equipment-panel equipment-camera-panel">
+          <div className="panel-heading"><div><span className="section-kicker">我的相机</span><h3>机身</h3></div><div className="panel-heading-actions"><span className="batch-count">拍摄量按拍摄单元计算</span><button className="toolbar-button" onClick={() => setEditor(emptyDraft("camera"))}>＋ 添加机身</button></div></div>
+          <div className="equipment-list equipment-camera-list">
             {(equipment?.cameras ?? []).map((item) => (
               <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
                 <div className="equipment-icon">C</div>
-                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"} · {numberFormat.format(item.capture_count ?? 0)} 个拍摄单元{item.status === "detected" ? " · EXIF 发现" : ""}</span></div>
-                <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `camera:${item.inventory_key}`} onClick={() => void toggle("camera", item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
+                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"} · {numberFormat.format(item.capture_count ?? 0)} 个拍摄单元{item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+                {actions("camera", item)}
               </article>
             ))}
           </div>
+      </section>
+      <section className="equipment-layout equipment-main-layout">
+        <section className="panel equipment-panel">
+          <div className="panel-heading"><div><span className="section-kicker">我的镜头</span><h3>镜头</h3></div><button className="toolbar-button" onClick={() => setEditor(emptyDraft("lens"))}>＋ 添加镜头</button></div>
+          <div className="equipment-catalog-tools">
+            <div className="section-tabs" role="group" aria-label="镜头拥有状态">
+              {([['owned', '已拥有'], ['all', '全部'], ['unowned', '未拥有']] as const).map(([value, label]) => <button key={value} className={lensFilter === value ? "active" : ""} onClick={() => setLensFilter(value)}>{label}</button>)}
+            </div>
+            <input aria-label="搜索镜头" placeholder="搜索型号" value={lensSearch} onChange={(event) => setLensSearch(event.target.value)} />
+          </div>
+          <div className="equipment-list">
+            {visibleLenses.map((item) => <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
+              <div className="equipment-icon">L</div>
+              <div><strong>{item.display_name ?? item.model}</strong><span>{categoryLabels[item.category ?? ""] ?? "镜头"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm` : ""}{item.capture_count ? ` · ${numberFormat.format(item.capture_count)} 个拍摄单元` : ""}{item.source === "catalog" ? " · 官方目录" : item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+              {actions("lens", item)}
+            </article>)}
+            {!visibleLenses.length && <div className="empty-state">当前条件下没有镜头。</div>}
+          </div>
+          <div className="equipment-source equipment-panel-source"><span>官方目录核对 {equipment?.catalog.checked_at ?? "—"}</span>{equipment?.catalog.source_url && <a href={equipment.catalog.source_url} target="_blank" rel="noreferrer">查看富士官方页面 ↗</a>}</div>
         </section>
         <section className="panel equipment-panel">
-          <div className="panel-heading"><div><span className="section-kicker">附件清单</span><h3>灯光、滤镜与辅助设备</h3></div></div>
+          <div className="panel-heading"><div><span className="section-kicker">我的附件</span><h3>灯光、滤镜与辅助设备</h3></div><button className="toolbar-button" onClick={() => setEditor(emptyDraft("accessory"))}>＋ 添加附件</button></div>
           <div className="equipment-list accessory-list">
-            {(equipment?.accessories ?? []).map((item, index) => (
-              <article className="equipment-row" key={`${item.section}-${item.model ?? index}`}>
+            {(equipment?.accessories ?? []).map((item) => (
+              <article className="equipment-row" key={item.inventory_key}>
                 <div className="equipment-icon accessory">{String(accessoryLabels[item.section ?? ""] ?? "附件").slice(0, 1)}</div>
-                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}</span></div>
-                <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `accessory:${item.inventory_key}`} onClick={() => void toggle("accessory", item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
+                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+                {actions("accessory", item)}
               </article>
             ))}
           </div>
         </section>
-      </section>
-      <section className="panel equipment-panel equipment-catalog-panel">
-        <div className="panel-heading equipment-catalog-heading"><div><span className="section-kicker">富士 X 卡口</span><h3>官方镜头目录</h3></div><div className="equipment-source"><span>资料核对 {equipment?.catalog.checked_at ?? "—"}</span>{equipment?.catalog.source_url && <a href={equipment.catalog.source_url} target="_blank" rel="noreferrer">查看官方页面 ↗</a>}</div></div>
-        <div className="equipment-catalog-tools">
-          <div className="section-tabs" role="group" aria-label="镜头拥有状态">
-            {([['all', '全部'], ['owned', '已拥有'], ['unowned', '未拥有']] as const).map(([value, label]) => <button key={value} className={lensFilter === value ? "active" : ""} onClick={() => setLensFilter(value)}>{label}</button>)}
-          </div>
-          <input aria-label="搜索镜头" placeholder="搜索型号" value={lensSearch} onChange={(event) => setLensSearch(event.target.value)} />
-          <span>{visibleLenses.length} 款</span>
-        </div>
-        <div className="equipment-list equipment-catalog-list">
-          {visibleLenses.map((item) => <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
-            <div className="equipment-icon">L</div>
-            <div><strong>{item.display_name ?? item.model}</strong><span>{categoryLabels[item.category ?? ""] ?? "镜头"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm 滤镜口径` : ""}{item.capture_count ? ` · ${numberFormat.format(item.capture_count)} 个拍摄单元` : ""}{item.status === "detected" ? " · EXIF 发现" : ""}</span></div>
-            <button className={`ownership-button ${item.owned ? "owned" : ""}`} disabled={savingKey === `lens:${item.inventory_key}`} onClick={() => void toggle("lens", item)}>{item.owned ? "已拥有" : "标记拥有"}</button>
-          </article>)}
-          {!visibleLenses.length && <div className="empty-state">当前条件下没有镜头。</div>}
-        </div>
       </section>
       <section className="panel equipment-note">
         <strong>目录与个人库存彼此分开。</strong>
-        <span>官方目录随应用更新；“已拥有 / 未拥有”只保存在当前设置所选的工作目录。切换工作目录会切换设备库存，不会修改照片或 EXIF。</span>
+        <span>可以新增、编辑和删除自定义设备；官方目录条目始终保留，可编辑个人名称、备注和拥有状态。所有修改只保存在当前工作目录。</span>
       </section>
+      {editor && <ModalShell title={`${editor.key ? "编辑" : "添加"}${editor.kind === "camera" ? "机身" : editor.kind === "lens" ? "镜头" : "附件"}`} close={() => setEditor(null)}>
+        <div className="equipment-editor-form">
+          <label><span>品牌</span><input value={editor.brand} onChange={(event) => setEditor({ ...editor, brand: event.target.value })} /></label>
+          <label><span>型号</span><input value={editor.model} onChange={(event) => setEditor({ ...editor, model: event.target.value })} /></label>
+          <label className="wide"><span>显示名称</span><input value={editor.display_name} onChange={(event) => setEditor({ ...editor, display_name: event.target.value })} placeholder="可留空，默认显示型号" /></label>
+          {editor.kind === "lens" && <><label><span>镜头类型</span><select value={editor.category} onChange={(event) => setEditor({ ...editor, category: event.target.value })}><option value="prime">定焦</option><option value="zoom">变焦</option><option value="macro">微距</option><option value="teleconverter">增距镜</option><option value="cinema">电影镜头</option></select></label><label><span>滤镜口径 mm</span><input type="number" min="1" value={editor.filter_thread_mm} onChange={(event) => setEditor({ ...editor, filter_thread_mm: event.target.value })} /></label></>}
+          {editor.kind === "accessory" && <><label><span>附件类型</span><select value={editor.section} onChange={(event) => setEditor({ ...editor, section: event.target.value })}>{Object.entries(accessoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>口径 mm</span><input type="number" min="1" value={editor.thread_mm} onChange={(event) => setEditor({ ...editor, thread_mm: event.target.value })} /></label></>}
+          <label className="wide"><span>个人备注</span><textarea value={editor.notes} onChange={(event) => setEditor({ ...editor, notes: event.target.value })} /></label>
+          <label className="equipment-owned-check"><input type="checkbox" checked={editor.owned} onChange={(event) => setEditor({ ...editor, owned: event.target.checked })} /><span>已拥有</span></label>
+        </div>
+        <footer className="editor-footer"><button onClick={() => setEditor(null)}>取消</button><button className="primary" disabled={editorSaving || (!editor.model.trim() && !editor.display_name.trim())} onClick={() => void submitEditor()}>{editorSaving ? "保存中…" : "保存"}</button></footer>
+      </ModalShell>}
     </>
   );
 }
@@ -2819,6 +2854,43 @@ function App() {
     }
   };
 
+  const saveEquipmentItem = async (draft: EquipmentDraft) => {
+    setError(null);
+    try {
+      const payload = {
+        ...draft,
+        filter_thread_mm: draft.filter_thread_mm ? Number(draft.filter_thread_mm) : null,
+        thread_mm: draft.thread_mm ? Number(draft.thread_mm) : null,
+      };
+      const result = await getJson<EquipmentCatalog>("/api/equipment/items", {
+        method: draft.key ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setEquipment(result);
+      pushToast("success", draft.key ? "设备信息已更新" : "设备已添加");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
+  const deleteEquipmentItem = async (kind: EquipmentKind, item: EquipmentItem) => {
+    setError(null);
+    try {
+      const result = await getJson<EquipmentCatalog>("/api/equipment/items", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, key: item.inventory_key }),
+      });
+      setEquipment(result);
+      pushToast("success", "设备已从管理清单移除");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const exportPhoneShare = async (captureIds: number[], maxEdge: number) => {
     setError(null);
     try {
@@ -2894,7 +2966,7 @@ function App() {
         {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
-        {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} />}
+        {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}

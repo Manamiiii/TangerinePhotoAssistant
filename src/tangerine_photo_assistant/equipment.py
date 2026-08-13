@@ -5,8 +5,10 @@ import os
 import re
 import sqlite3
 import tomllib
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
 ACCESSORY_SECTIONS = (
     "supports",
@@ -47,21 +49,45 @@ def _usage_for(model: str, usage: dict[str, int]) -> int:
 
 
 def _inventory_key(kind: EquipmentKind, item: dict[str, Any]) -> str:
+    if item.get("inventory_key"):
+        return str(item["inventory_key"])
     identity = item.get("model") or item.get("display_name") or item.get("kind")
     if kind == "accessory":
         identity = f"{item.get('section', 'accessories')}:{identity}"
     return str(identity or "未命名设备")
 
 
-def _load_inventory(path: Path | None) -> dict[str, dict[str, bool]]:
-    if path is None or not path.is_file():
-        return {"camera": {}, "lens": {}, "accessory": {}}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    ownership = data.get("ownership") or {}
+def _empty_inventory() -> dict[str, Any]:
     return {
-        kind: {str(key): bool(value) for key, value in (ownership.get(kind) or {}).items()}
-        for kind in ("camera", "lens", "accessory")
+        "version": 2,
+        "ownership": {"camera": {}, "lens": {}, "accessory": {}},
+        "custom": {"camera": [], "lens": [], "accessory": []},
+        "overrides": {"camera": {}, "lens": {}, "accessory": {}},
+        "hidden": {"camera": [], "lens": [], "accessory": []},
     }
+
+
+def _load_inventory(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return _empty_inventory()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    result = _empty_inventory()
+    for container in ("ownership", "custom", "overrides", "hidden"):
+        source = data.get(container) or {}
+        for kind in ("camera", "lens", "accessory"):
+            if kind in source:
+                result[container][kind] = source[kind]
+    return result
+
+
+def _write_inventory(path: Path, inventory: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(inventory, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
 
 
 def save_equipment_ownership(
@@ -75,26 +101,79 @@ def save_equipment_ownership(
     key = key.strip()
     if not key or len(key) > 300:
         raise ValueError("设备标识不能为空或过长")
-    ownership = _load_inventory(path)
-    ownership[kind][key] = owned
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps({"version": 1, "ownership": ownership}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    inventory = _load_inventory(path)
+    inventory["ownership"][kind][key] = owned
+    _write_inventory(path, inventory)
+
+
+def save_equipment_item(
+    path: Path,
+    kind: EquipmentKind,
+    item: dict[str, Any],
+    key: str | None = None,
+) -> str:
+    if kind not in {"camera", "lens", "accessory"}:
+        raise ValueError("不支持的设备类型")
+    model = str(item.get("model") or "").strip()
+    display_name = str(item.get("display_name") or "").strip()
+    if not model and not display_name:
+        raise ValueError("型号或显示名称至少填写一项")
+    clean = {
+        field: value.strip() if isinstance(value, str) else value
+        for field, value in item.items()
+        if field in {"brand", "model", "display_name", "category", "section", "notes", "filter_thread_mm", "thread_mm"}
+        and value not in (None, "")
+    }
+    inventory = _load_inventory(path)
+    if key is None:
+        custom_key = f"custom:{uuid4().hex}"
+        inventory["custom"][kind].append({**clean, "inventory_key": custom_key})
+        inventory["ownership"][kind][custom_key] = bool(item.get("owned", True))
+        _write_inventory(path, inventory)
+        return custom_key
+    key = key.strip()
+    custom = next((entry for entry in inventory["custom"][kind] if entry.get("inventory_key") == key), None)
+    if custom is not None:
+        custom.clear()
+        custom.update({**clean, "inventory_key": key})
+    else:
+        inventory["overrides"][kind][key] = clean
+    if "owned" in item:
+        inventory["ownership"][kind][key] = bool(item["owned"])
+    _write_inventory(path, inventory)
+    return key
+
+
+def delete_equipment_item(path: Path, kind: EquipmentKind, key: str) -> None:
+    if kind not in {"camera", "lens", "accessory"}:
+        raise ValueError("不支持的设备类型")
+    key = key.strip()
+    if not key or len(key) > 300:
+        raise ValueError("设备标识不能为空或过长")
+    inventory = _load_inventory(path)
+    custom = inventory["custom"][kind]
+    remaining = [entry for entry in custom if entry.get("inventory_key") != key]
+    if len(remaining) != len(custom):
+        inventory["custom"][kind] = remaining
+        inventory["ownership"][kind].pop(key, None)
+    else:
+        if key not in inventory["hidden"][kind]:
+            inventory["hidden"][kind].append(key)
+        inventory["overrides"][kind].pop(key, None)
+        inventory["ownership"][kind].pop(key, None)
+    _write_inventory(path, inventory)
 
 
 def _decorate(
     item: dict[str, Any],
     kind: EquipmentKind,
     usage: dict[str, int],
-    inventory: dict[str, dict[str, bool]],
+    inventory: dict[str, Any],
     default_owned: bool,
 ) -> dict[str, Any]:
     key = _inventory_key(kind, item)
-    owned = inventory[kind].get(key, default_owned)
+    item = {**item, **inventory["overrides"][kind].get(key, {})}
+    owned = inventory["ownership"][kind].get(key, default_owned)
     count = _usage_for(str(item.get("model", "")), usage) if kind != "accessory" else 0
     status = "owned" if owned else ("detected" if count else "unowned")
     return {
@@ -116,14 +195,15 @@ def _merge_lenses(
     profile_by_model = {_normalize_model(str(item.get("model", ""))): item for item in profile_items}
     known: set[str] = set()
     for catalog_item in catalog_items:
+        catalog_item = {**catalog_item, "source": "catalog"}
         normalized = _normalize_model(str(catalog_item.get("model", "")))
         profile_item = profile_by_model.get(normalized)
-        merged.append(({**catalog_item, **(profile_item or {})}, profile_item is not None))
+        merged.append(({**catalog_item, **(profile_item or {}), "source": "profile" if profile_item else "catalog"}, profile_item is not None))
         known.add(normalized)
     for profile_item in profile_items:
         normalized = _normalize_model(str(profile_item.get("model", "")))
         if normalized not in known:
-            merged.append((profile_item, True))
+            merged.append(({**profile_item, "source": "profile"}, True))
             known.add(normalized)
     for model in detected:
         normalized = _normalize_model(model)
@@ -159,7 +239,7 @@ def build_equipment_catalog(
     lens_usage = _capture_usage(connection, "lens_model")
 
     camera = dict(profile.get("camera") or {})
-    camera_pairs: list[tuple[dict[str, Any], bool]] = [(camera, True)] if camera else []
+    camera_pairs: list[tuple[dict[str, Any], bool]] = [({**camera, "source": "profile"}, True)] if camera else []
     known_cameras = {_normalize_model(str(camera.get("model", "")))} if camera else set()
     for model in camera_usage:
         if _normalize_model(model) not in known_cameras:
@@ -176,8 +256,17 @@ def build_equipment_catalog(
             item = {**dict(raw_item), "section": section, "source": "profile"}
             accessories.append(_decorate(item, "accessory", {}, inventory, True))
 
+    for kind, pairs in (("camera", camera_pairs), ("lens", lens_pairs)):
+        for custom in inventory["custom"][kind]:
+            pairs.append(({**deepcopy(custom), "source": "custom"}, True))
+    for custom in inventory["custom"]["accessory"]:
+        accessories.append(_decorate({**deepcopy(custom), "source": "custom"}, "accessory", {}, inventory, True))
+
     cameras = [_decorate(item, "camera", camera_usage, inventory, owned) for item, owned in camera_pairs]
     lenses = [_decorate(item, "lens", lens_usage, inventory, owned) for item, owned in lens_pairs]
+    cameras = [item for item in cameras if item["inventory_key"] not in inventory["hidden"]["camera"]]
+    lenses = [item for item in lenses if item["inventory_key"] not in inventory["hidden"]["lens"]]
+    accessories = [item for item in accessories if item["inventory_key"] not in inventory["hidden"]["accessory"]]
     return {
         "schema_version": max(int(profile.get("schema_version", 1)), int(catalog.get("schema_version", 1))),
         "profile_file": profile_path.name,

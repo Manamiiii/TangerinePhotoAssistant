@@ -5,6 +5,8 @@ from pathlib import Path
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.equipment import (
     build_equipment_catalog,
+    delete_equipment_item,
+    save_equipment_item,
     save_equipment_ownership,
 )
 
@@ -101,6 +103,31 @@ kind = "neutral_density"
                 catalog = build_equipment_catalog(connection, profile, official, inventory)
                 self.assertFalse(catalog["lenses"][0]["owned"])
                 self.assertEqual(catalog["summary"]["lens_count"], 1)
+
+                custom_key = save_equipment_item(
+                    inventory,
+                    "camera",
+                    {"brand": "Test", "model": "C-1", "display_name": "测试机身", "owned": True},
+                )
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                custom_camera = next(item for item in catalog["cameras"] if item["inventory_key"] == custom_key)
+                self.assertEqual(custom_camera["display_name"], "测试机身")
+
+                save_equipment_item(
+                    inventory,
+                    "camera",
+                    {"brand": "Test", "model": "C-2", "display_name": "改名机身", "notes": "备用", "owned": False},
+                    custom_key,
+                )
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                custom_camera = next(item for item in catalog["cameras"] if item["inventory_key"] == custom_key)
+                self.assertEqual(custom_camera["model"], "C-2")
+                self.assertEqual(custom_camera["notes"], "备用")
+                self.assertFalse(custom_camera["owned"])
+
+                delete_equipment_item(inventory, "camera", custom_key)
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertNotIn(custom_key, {item["inventory_key"] for item in catalog["cameras"]})
             finally:
                 connection.close()
 

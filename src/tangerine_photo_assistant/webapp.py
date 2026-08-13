@@ -50,7 +50,12 @@ from .archive import (
     run_integrity_check,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
-from .equipment import build_equipment_catalog, save_equipment_ownership
+from .equipment import (
+    build_equipment_catalog,
+    delete_equipment_item,
+    save_equipment_item,
+    save_equipment_ownership,
+)
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityGroupingError,
@@ -122,6 +127,25 @@ class EquipmentOwnershipRequest(BaseModel):
     kind: Literal["camera", "lens", "accessory"]
     key: str = Field(min_length=1, max_length=300)
     owned: bool
+
+
+class EquipmentItemRequest(BaseModel):
+    kind: Literal["camera", "lens", "accessory"]
+    key: str | None = Field(default=None, max_length=300)
+    brand: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=200)
+    display_name: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=50)
+    section: str | None = Field(default=None, max_length=50)
+    notes: str | None = Field(default=None, max_length=1000)
+    filter_thread_mm: int | None = Field(default=None, ge=1, le=300)
+    thread_mm: int | None = Field(default=None, ge=1, le=300)
+    owned: bool = True
+
+
+class EquipmentDeleteRequest(BaseModel):
+    kind: Literal["camera", "lens", "accessory"]
+    key: str = Field(min_length=1, max_length=300)
 
 
 class PhoneShareExportRequest(BaseModel):
@@ -2482,6 +2506,45 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 request.kind,
                 request.key,
                 request.owned,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return equipment()
+
+    @app.post("/api/equipment/items", status_code=201)
+    def create_equipment_item(request: EquipmentItemRequest) -> dict[str, Any]:
+        try:
+            save_equipment_item(
+                settings.workspace / "Equipment" / "inventory.json",
+                request.kind,
+                request.model_dump(exclude={"kind", "key"}),
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return equipment()
+
+    @app.put("/api/equipment/items")
+    def update_equipment_item(request: EquipmentItemRequest) -> dict[str, Any]:
+        if not request.key:
+            raise HTTPException(status_code=422, detail="编辑设备时缺少设备标识")
+        try:
+            save_equipment_item(
+                settings.workspace / "Equipment" / "inventory.json",
+                request.kind,
+                request.model_dump(exclude={"kind", "key"}),
+                request.key,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return equipment()
+
+    @app.delete("/api/equipment/items")
+    def remove_equipment_item(request: EquipmentDeleteRequest) -> dict[str, Any]:
+        try:
+            delete_equipment_item(
+                settings.workspace / "Equipment" / "inventory.json",
+                request.kind,
+                request.key,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
