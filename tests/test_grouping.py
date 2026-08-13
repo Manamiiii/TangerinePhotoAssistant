@@ -92,6 +92,26 @@ class ManualGroupingTests(unittest.TestCase):
             history = list_similarity_group_revisions(connection, capture_ids[0])
             self.assertEqual(history[0]["operation"], "manual_edit")
             self.assertFalse(history[0]["automatic"])
+            album_id = connection.execute(
+                "SELECT event_id FROM event_captures WHERE capture_id=?",
+                (capture_ids[0],),
+            ).fetchone()[0]
+            global_history = list_similarity_group_revisions(connection, limit=20)
+            self.assertEqual(global_history[0]["id"], result["revision_id"])
+            self.assertEqual(global_history[0]["representative_capture_id"], capture_ids[0])
+            self.assertTrue(global_history[0]["album_names"])
+            self.assertEqual(
+                list_similarity_group_revisions(
+                    connection, limit=20, album_id=album_id
+                )[0]["id"],
+                result["revision_id"],
+            )
+            self.assertEqual(
+                list_similarity_group_revisions(
+                    connection, limit=20, album_id=album_id + 1000
+                ),
+                [],
+            )
             restored = restore_similarity_grouping(connection, capture_ids[0])
             self.assertEqual(restored["restored_overrides"], 4)
             self.assertEqual(restored["similarity_groups"], 1)

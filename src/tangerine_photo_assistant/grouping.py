@@ -90,15 +90,36 @@ def _apply_snapshot(
 
 
 def list_similarity_group_revisions(
-    connection: sqlite3.Connection, capture_id: int, limit: int = 10
+    connection: sqlite3.Connection,
+    capture_id: int | None = None,
+    limit: int = 10,
+    album_id: int | None = None,
 ) -> list[dict[str, object]]:
+    filters: list[str] = []
+    parameters: list[int] = []
+    if capture_id is not None:
+        filters.append("rc.capture_id=?")
+        parameters.append(capture_id)
+    if album_id is not None:
+        filters.append(
+            "EXISTS (SELECT 1 FROM similarity_group_revision_captures arc "
+            "JOIN event_captures aec ON aec.capture_id=arc.capture_id "
+            "WHERE arc.revision_id=r.id AND aec.event_id=?)"
+        )
+        parameters.append(album_id)
+    where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
     rows = connection.execute(
-        """SELECT r.id, r.operation, r.after_json, r.created_at
-             FROM similarity_group_revisions r
-             JOIN similarity_group_revision_captures rc ON rc.revision_id=r.id
-            WHERE rc.capture_id=?
-            ORDER BY r.id DESC LIMIT ?""",
-        (capture_id, limit),
+        f"""SELECT r.id, r.operation, r.after_json, r.created_at,
+                   MIN(rc.capture_id) AS representative_capture_id,
+                   GROUP_CONCAT(DISTINCT e.proposed_name) AS album_names
+              FROM similarity_group_revisions r
+              JOIN similarity_group_revision_captures rc ON rc.revision_id=r.id
+              LEFT JOIN event_captures ec ON ec.capture_id=rc.capture_id
+              LEFT JOIN events e ON e.id=ec.event_id
+              {where_sql}
+             GROUP BY r.id
+             ORDER BY r.id DESC LIMIT ?""",
+        (*parameters, limit),
     )
     result: list[dict[str, object]] = []
     labels = {
@@ -122,6 +143,8 @@ def list_similarity_group_revisions(
             "group_count": len(group_keys),
             "excluded_count": excluded,
             "automatic": not snapshot,
+            "representative_capture_id": row["representative_capture_id"],
+            "album_names": row["album_names"].split(",") if row["album_names"] else [],
         })
     return result
 

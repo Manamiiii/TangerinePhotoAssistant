@@ -455,6 +455,11 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .burst-view-toggle { padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); display: flex; }
 .burst-view-toggle button { min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font: inherit; font-size: 8px; cursor: pointer; }
 .burst-view-toggle button.active { color: inherit; background: var(--surface-raised); box-shadow: 0 1px 4px rgba(0, 0, 0, .08); }
+.structure-stat small { margin-top: 6px; color: var(--muted); font-size: 8px; display: block; }
+.similarity-toolbar { flex-wrap: wrap; }
+.similarity-toolbar > label, .history-browser-toolbar > label { min-width: min(280px, 100%); display: flex; align-items: center; gap: 8px; }
+.similarity-toolbar > label span, .history-browser-toolbar > label span { color: var(--muted); font-size: 8px; white-space: nowrap; }
+.similarity-toolbar select, .history-browser-toolbar select { min-width: 0; height: 32px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-soft); font: inherit; font-size: 9px; }
 .pagination-controls { margin: 18px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--muted); font-size: 9px; }
 .pagination-controls > label, .pagination-buttons, .pagination-buttons label { display: flex; align-items: center; gap: 6px; }
 .pagination-controls select, .pagination-controls input { height: 32px; border: 1px solid var(--line); border-radius: 7px; color: inherit; background: var(--surface); font-size: 9px; }
@@ -1181,6 +1186,13 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .grouping-history article span { display: flex; flex-direction: column; gap: 3px; }
 .grouping-history article strong { font-size: 9px; }
 .grouping-history article small { color: var(--muted); font-size: 8px; }
+.history-browser-toolbar { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.history-browser-toolbar small { color: var(--muted); font-size: 8px; }
+.history-browser-list { max-height: min(620px, 70vh); overflow-y: auto; overscroll-behavior: contain; }
+.history-browser-list article { padding: 11px 2px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.history-browser-list article > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.history-browser-list article strong { font-size: 10px; }
+.history-browser-list article span, .history-browser-list article small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Detail scrolling, help, and immersive viewer */
 .detail-backdrop { overscroll-behavior: contain; }

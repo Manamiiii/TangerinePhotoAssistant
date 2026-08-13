@@ -1653,14 +1653,22 @@ def _query_quality(
 
 
 def _query_similarity_groups(
-    settings: Settings, limit: int, offset: int, review_filter: str = "all"
+    settings: Settings, limit: int, offset: int, review_filter: str = "all",
+    album_id: int | None = None,
 ) -> dict[str, Any]:
     connection = connect_readonly(settings.database_path)
     try:
-        total = connection.execute("SELECT COUNT(*) FROM similarity_groups").fetchone()[0]
+        album_filter = " AND b.event_id=?" if album_id is not None else ""
+        count_parameters = (album_id,) if album_id is not None else ()
+        total = connection.execute(
+            f"""SELECT COUNT(*) FROM similarity_groups sg
+                JOIN bursts b ON b.id=sg.burst_id WHERE 1=1{album_filter}""",
+            count_parameters,
+        ).fetchone()[0]
         pending_count = connection.execute(
-            """
+            f"""
             SELECT COUNT(*) FROM similarity_groups sg
+            JOIN bursts b ON b.id=sg.burst_id
             WHERE NOT EXISTS (
                 SELECT 1 FROM similarity_group_captures sgc
                 JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
@@ -1671,8 +1679,30 @@ def _query_similarity_groups(
                 LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
                 WHERE sgc.group_id = sg.id AND COALESCE(cr.user_reject, 0) = 0
             )
-            """
+            {album_filter}
+            """,
+            count_parameters,
         ).fetchone()[0]
+        album_rows = connection.execute(
+            """
+            SELECT e.id, e.proposed_name AS name, e.category,
+                   COUNT(*) AS total_count,
+                   SUM(CASE WHEN NOT EXISTS (
+                       SELECT 1 FROM similarity_group_captures psgc
+                       JOIN capture_reviews pcr ON pcr.capture_id=psgc.capture_id
+                       WHERE psgc.group_id=sg.id AND COALESCE(pcr.user_pick, 0)=1
+                   ) AND EXISTS (
+                       SELECT 1 FROM similarity_group_captures rsgc
+                       LEFT JOIN capture_reviews rcr ON rcr.capture_id=rsgc.capture_id
+                       WHERE rsgc.group_id=sg.id AND COALESCE(rcr.user_reject, 0)=0
+                   ) THEN 1 ELSE 0 END) AS pending_count
+              FROM similarity_groups sg
+              JOIN bursts b ON b.id=sg.burst_id
+              JOIN events e ON e.id=b.event_id
+             GROUP BY e.id
+             ORDER BY pending_count DESC, total_count DESC, e.start_at DESC
+            """
+        ).fetchall()
         having_sql = ""
         if review_filter == "pending":
             having_sql = (
@@ -1698,12 +1728,13 @@ def _query_similarity_groups(
             JOIN captures c ON c.id = sgc.capture_id
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
+            WHERE 1=1 {album_filter}
             GROUP BY sg.id
             {having_sql}
             ORDER BY sg.capture_count DESC, b.start_at DESC
             LIMIT ? OFFSET ?
             """,
-            (limit, offset),
+            (*count_parameters, limit, offset),
         ).fetchall()
         items = [dict(row) for row in rows]
         for item in items:
@@ -1716,6 +1747,7 @@ def _query_similarity_groups(
         return {
             "count": count, "limit": limit, "offset": offset, "items": items,
             "total_count": total, "pending_count": pending_count,
+            "albums": [dict(row) for row in album_rows],
         }
     finally:
         connection.close()
@@ -2279,8 +2311,11 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
         review_filter: Literal["all", "pending"] = "all",
+        album_id: int | None = Query(default=None, ge=1),
     ) -> dict[str, Any]:
-        return _query_similarity_groups(settings, limit, offset, review_filter=review_filter)
+        return _query_similarity_groups(
+            settings, limit, offset, review_filter=review_filter, album_id=album_id
+        )
 
     @app.get("/api/similarity-groups/{group_id}")
     def similarity_group(group_id: int) -> dict[str, Any]:
@@ -2351,12 +2386,16 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
 
     @app.get("/api/similarity-group-revisions")
     def similarity_group_revisions(
-        capture_id: int = Query(ge=1), limit: int = Query(default=10, ge=1, le=30)
+        capture_id: int | None = Query(default=None, ge=1),
+        album_id: int | None = Query(default=None, ge=1),
+        limit: int = Query(default=20, ge=1, le=100),
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
             return {
-                "items": list_similarity_group_revisions(connection, capture_id, limit),
+                "items": list_similarity_group_revisions(
+                    connection, capture_id, limit, album_id=album_id
+                ),
             }
         finally:
             connection.close()

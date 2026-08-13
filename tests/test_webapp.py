@@ -316,6 +316,20 @@ class WebAppQueryTests(unittest.TestCase):
             groups = _query_similarity_groups(settings, 20, 0)
             self.assertEqual(groups["pending_count"], 1)
             self.assertEqual(groups["items"][0]["review_status"], "pending")
+            album_id = groups["items"][0]["event_id"]
+            self.assertEqual(groups["albums"][0]["id"], album_id)
+            self.assertEqual(groups["albums"][0]["pending_count"], 1)
+            album_groups = _query_similarity_groups(
+                settings, 20, 0, album_id=album_id
+            )
+            self.assertEqual(album_groups["total_count"], 1)
+            self.assertEqual(album_groups["items"][0]["event_id"], album_id)
+            self.assertEqual(
+                _query_similarity_groups(settings, 20, 0, album_id=album_id + 1000)[
+                    "items"
+                ],
+                [],
+            )
             connection.execute(
                 """INSERT INTO capture_reviews(capture_id, user_pick, user_reject, updated_at)
                    VALUES (?, 0, 1, 'now')""",

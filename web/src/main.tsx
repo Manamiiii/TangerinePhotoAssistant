@@ -141,7 +141,8 @@ type SimilarityGroupItem = {
   review_status: "pending" | "picked" | "skipped";
   thumbnail_url: string;
 };
-type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number };
+type SimilarityAlbumSummary = { id: number; name: string; category: string; total_count: number; pending_count: number };
+type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; albums: SimilarityAlbumSummary[] };
 
 type GroupCapture = {
   capture_id: number;
@@ -492,7 +493,15 @@ type SimilarityRevision = {
   group_count: number;
   excluded_count: number;
   automatic: boolean;
+  representative_capture_id: number;
+  album_names: string[];
 };
+
+function similarityGroupsUrl(limit: number, offset: number, reviewFilter: "all" | "pending", albumId: string) {
+  const parameters = new URLSearchParams({ limit: String(limit), offset: String(offset), review_filter: reviewFilter });
+  if (albumId) parameters.set("album_id", albumId);
+  return `/api/similarity-groups?${parameters}`;
+}
 
 type StatisticRow = { count: number; average_score: number | null } & Record<string, string | number | null>;
 type Statistics = {
@@ -834,7 +843,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   );
 }
 
-function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter }: {
+function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, albumId, setAlbumId, openHistory }: {
   groups: SimilarityGroupsResponse | null;
   selectedGroup: SimilarityGroupDetail | null;
   task: Task | null;
@@ -851,6 +860,9 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   changeGroupPageSize: (limit: number) => void;
   reviewFilter: "all" | "pending";
   setReviewFilter: (filter: "all" | "pending") => void;
+  albumId: string;
+  setAlbumId: (albumId: string) => void;
+  openHistory: () => void;
 }) {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const groupItems = groups?.items ?? [];
@@ -858,11 +870,13 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   const nextPending = groupItems.find((item, index) => index > currentIndex && item.review_status === "pending")
     ?? groupItems.find((item, index) => index !== currentIndex && item.review_status === "pending");
   const statusLabels = { pending: "待选", picked: "已选定", skipped: "已排除" } as const;
+  const completedCount = Math.max(0, (groups?.total_count ?? 0) - (groups?.pending_count ?? 0));
+  const completionPercent = groups?.total_count ? Math.round(completedCount / groups.total_count * 100) : 0;
   return (
     <>
       <section className="structure-hero burst-hero">
         <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><p>比较连拍和相似画面。</p><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
-        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span></div>
+        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%</small></div>
       </section>
       <TaskCard task={taskBelongsTo(task, "visual") ? task : null} cancel={cancelTask} />
       {selectedGroup ? (
@@ -895,7 +909,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
         </section>
       ) : (
         <section className="panel similarity-panel">
-          <div className="panel-heading"><div><span className="section-kicker">画面相似组</span><h3>开始选片</h3></div><div className="panel-heading-actions"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选"><button className={reviewFilter === "all" ? "active" : ""} onClick={() => setReviewFilter("all")}>全部</button><button className={reviewFilter === "pending" ? "active" : ""} onClick={() => setReviewFilter("pending")}>只看待选</button></div><span className="batch-count">{numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div></div>
+          <div className="panel-heading"><div><span className="section-kicker">画面相似组</span><h3>开始选片</h3></div><div className="panel-heading-actions similarity-toolbar"><label><span>相册</span><select value={albumId} onChange={(event) => setAlbumId(event.target.value)}><option value="">全部相册</option>{(groups?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name} · {album.pending_count}/{album.total_count} 待选</option>)}</select></label><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选"><button className={reviewFilter === "all" ? "active" : ""} onClick={() => setReviewFilter("all")}>全部</button><button className={reviewFilter === "pending" ? "active" : ""} onClick={() => setReviewFilter("pending")}>只看待选</button></div><button className="toolbar-button" onClick={openHistory}>分组历史</button><span className="batch-count">{numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div></div>
           <div className="similarity-grid">
             {groupItems.map((group) => (
               <button className="similarity-card" key={group.id} onClick={() => openGroup(group.id)}>
@@ -1266,6 +1280,36 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
   </div>;
 }
 
+function SimilarityHistoryModal({ albums, initialAlbumId, close, restoreRevision }: {
+  albums: SimilarityAlbumSummary[];
+  initialAlbumId: string;
+  close: () => void;
+  restoreRevision: (revisionId: number) => Promise<void>;
+}) {
+  const [albumId, setAlbumId] = useState(initialAlbumId);
+  const [history, setHistory] = useState<SimilarityRevision[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const controller = new AbortController();
+    const parameters = new URLSearchParams({ limit: "100" });
+    if (albumId) parameters.set("album_id", albumId);
+    setLoading(true);
+    getJson<{ items: SimilarityRevision[] }>(`/api/similarity-group-revisions?${parameters}`, { signal: controller.signal })
+      .then((result) => setHistory(result.items))
+      .finally(() => setLoading(false))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [albumId]);
+  return <ModalShell title="分组历史" close={close} wide>
+    <div className="history-browser-toolbar"><label><span>查看范围</span><select value={albumId} onChange={(event) => setAlbumId(event.target.value)}><option value="">全部相册</option>{albums.map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><small>历史保存在本地数据库中，恢复不会移动或修改照片。</small></div>
+    <div className="history-browser-list">
+      {history.map((revision) => <article key={revision.id}><div><strong>{revision.label}</strong><span>{revision.album_names.join("、") || "相册归属已变化"}</span><small>{formatDate(revision.created_at)} · {revision.automatic ? "自动识别" : `${revision.group_count || 1} 组 · ${revision.excluded_count} 张移出`}</small></div><button className="toolbar-button" onClick={() => { if (window.confirm("将当前分组恢复为这个历史版本。恢复操作也会保留为新版本，是否继续？")) void restoreRevision(revision.id).then(close); }}>恢复此版本</button></article>)}
+      {!loading && !history.length && <div className="empty-state">当前范围还没有人工分组历史。</div>}
+      {loading && <div className="empty-state">正在读取分组历史…</div>}
+    </div>
+  </ModalShell>;
+}
+
 function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision }: {
   group: SimilarityGroupDetail;
   close: () => void;
@@ -1396,7 +1440,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   </>;
 }
 
-function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize }: {
+function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
@@ -1426,6 +1470,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   changePageSize: (limit: number) => void;
   changeAlbumPage: (offset: number) => void;
   changeAlbumPageSize: (limit: number) => void;
+  openAlbumBursts: (albumId: number) => void;
 }) {
   const [section, setSection] = useState<LibrarySection>(requestedSection);
   const [activeAlbumId, setActiveAlbumId] = useState<number | null>(null);
@@ -1473,7 +1518,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
       {!activeAlbumId && <div className="library-navigation"><div className="section-tabs" role="tablist" aria-label="图库功能"><button className={section === "photos" ? "active" : ""} onClick={() => setSection("photos")}>全部照片</button><button className={section === "albums" ? "active" : ""} onClick={() => setSection("albums")}>相册管理</button></div><div className="library-maintenance"><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button primary" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新图库"}</button></div></div>}
       <TaskCard task={taskBelongsTo(task, "library") ? task : null} cancel={cancelTask} />
       {activeAlbumId ? <>
-        <section className="album-detail-header"><button className="album-back" onClick={leaveAlbum}>← 返回相册</button><div><span>{activeAlbum?.category ?? "相册"}</span><h2>{activeAlbum?.name ?? "相册照片"}</h2><small>{numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片</small></div><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>更新图库</button></section>
+        <section className="album-detail-header"><button className="album-back" onClick={leaveAlbum}>← 返回相册</button><div><span>{activeAlbum?.category ?? "相册"}</span><h2>{activeAlbum?.name ?? "相册照片"}</h2><small>{numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片</small></div><div className="panel-heading-actions"><button className="toolbar-button" onClick={() => openAlbumBursts(activeAlbumId)}>处理本相册连拍</button><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>更新图库</button></div></section>
         <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
       </> : <>
         {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
@@ -2043,6 +2088,8 @@ function App() {
   const [groupOffset, setGroupOffset] = useState(0);
   const [groupPageSize, setGroupPageSize] = useState(40);
   const [groupReviewFilter, setGroupReviewFilter] = useState<"all" | "pending">("all");
+  const [groupAlbumId, setGroupAlbumId] = useState("");
+  const [groupHistoryOpen, setGroupHistoryOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
   const [detailContext, setDetailContext] = useState<number[]>([]);
@@ -2108,7 +2155,7 @@ function App() {
       getJson<AnalysisOverview>("/api/analysis/overview"),
       getJson<AiPreflight>("/api/ai/preflight"),
       getJson<QualityResponse>(`/api/quality?${new URLSearchParams({ limit: String(qualityPageSize), offset: String(qualityOffset), review_filter: qualityFilter, ...(qualitySearch.trim() ? { search: qualitySearch.trim() } : {}) }).toString()}`),
-      getJson<SimilarityGroupsResponse>(`/api/similarity-groups?limit=${groupPageSize}&offset=${groupOffset}&review_filter=${groupReviewFilter}`),
+      getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId)),
       getJson<Statistics>("/api/statistics"),
       getJson<EquipmentCatalog>("/api/equipment"),
       getJson<ArchiveStatus>("/api/archive/status"),
@@ -2136,7 +2183,7 @@ function App() {
     if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
-  }, [albumOffset, albumPageSize, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
+  }, [albumOffset, albumPageSize, groupAlbumId, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
 
   useEffect(() => {
     Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then(setTask)]).catch(
@@ -2191,10 +2238,10 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    getJson<SimilarityGroupsResponse>(`/api/similarity-groups?limit=${groupPageSize}&offset=${groupOffset}&review_filter=${groupReviewFilter}`, { signal: controller.signal })
+    getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId), { signal: controller.signal })
       .then(setSimilarityGroups).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
     return () => controller.abort();
-  }, [groupOffset, groupPageSize, groupReviewFilter]);
+  }, [groupAlbumId, groupOffset, groupPageSize, groupReviewFilter]);
 
   useEffect(() => {
     if (task?.status !== "running") return;
@@ -2366,7 +2413,7 @@ function App() {
         getJson<Overview>("/api/overview"),
         getJson<Statistics>("/api/statistics"),
         getJson<LightroomStatus>("/api/lightroom/status"),
-        getJson<SimilarityGroupsResponse>(`/api/similarity-groups?limit=${groupPageSize}&offset=${groupOffset}&review_filter=${groupReviewFilter}`),
+        getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId)),
       ]).then(([nextOverview, nextStatistics, nextLightroom, nextGroups]) => {
         setOverview(nextOverview);
         setStatistics(nextStatistics);
@@ -2762,8 +2809,9 @@ function App() {
           openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
+          openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }}
         />}
-        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} />}
+        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupAlbumId(albumId); }} openHistory={() => setGroupHistoryOpen(true)} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} />}
@@ -2771,6 +2819,7 @@ function App() {
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {groupHistoryOpen && <SimilarityHistoryModal albums={similarityGroups?.albums ?? []} initialAlbumId={groupAlbumId} close={() => setGroupHistoryOpen(false)} restoreRevision={restoreGroupingRevision} />}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
