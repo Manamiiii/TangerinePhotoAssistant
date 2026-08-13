@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -66,6 +67,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(seeded["reviews"], 6)
             self.assertEqual(seeded["manual_splits"], 1)
             self.assertEqual(seeded["similarity_groups"], 3)
+            self.assertEqual(seeded["metadata_profiles"], 28)
             connection = connect(settings.database_path)
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM capture_reviews WHERE user_pick=1").fetchone()[0],
@@ -79,6 +81,16 @@ class DemoLibraryTests(unittest.TestCase):
                 connection.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0],
                 1,
             )
+            metadata = connection.execute(
+                """SELECT exif_json, metadata_profile_version
+                   FROM files WHERE file_name='BEACH_0001.JPG'"""
+            ).fetchone()
+            self.assertEqual(metadata["metadata_profile_version"], 2)
+            exif = json.loads(metadata["exif_json"])
+            self.assertEqual(exif["ShutterType"], "Mechanical")
+            self.assertEqual(exif["AFMode"], "Zone")
+            self.assertEqual(exif["FilmMode"], "REALA ACE")
+            self.assertEqual(exif["OffsetTimeOriginal"], "+08:00")
             self.assertEqual(
                 connection.execute(
                     """SELECT COUNT(*) FROM similarity_group_captures sgc

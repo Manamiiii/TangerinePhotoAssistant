@@ -12,10 +12,58 @@ from PIL import Image, ImageEnhance, TiffImagePlugin
 
 from .database import connect
 from .inventory import utc_now
+from .metadata import METADATA_PROFILE_VERSION
 from .quality import rebuild_group_recommendations
 from .visual import rebuild_similarity_groups
 
-GENERATOR_VERSION = 3
+GENERATOR_VERSION = 4
+
+# Rich but fictional values for exercising every useful detail-page section on
+# the isolated Mac demo. These values are written only to the demo catalog;
+# privacy-cleaned JPEG fixtures and production photos are never modified.
+DEMO_EXIF_DETAILS: dict[str, Any] = {
+    "ExposureProgram": "Aperture-priority AE",
+    "ExposureMode": "Auto",
+    "ShutterType": "Mechanical",
+    "MeteringMode": "Multi-segment",
+    "WhiteBalance": "Auto",
+    "Flash": "No Flash",
+    "FocusMode": "AF-C",
+    "AFMode": "Zone",
+    "AFAreaMode": "Zone",
+    "FocusPixel": "960 640",
+    "FilmMode": "REALA ACE",
+    "DynamicRange": "DR200",
+    "DynamicRangeSetting": "DR200",
+    "Orientation": "Horizontal (normal)",
+    "OffsetTimeOriginal": "+08:00",
+    "ColorSpace": "sRGB",
+    "BitsPerSample": 8,
+    "Quality": "Fine",
+    "ImageStabilization": "On",
+    "DriveMode": "Continuous Low",
+    "DriveSpeed": "3 fps",
+    "AutoBracketing": "Off",
+    "BlurWarning": "None",
+    "FocusWarning": "Good",
+    "ExposureWarning": "None",
+    "FacesDetected": 0,
+    "RollAngle": 0.4,
+    "CameraElevationAngle": -1.2,
+    "WhiteBalanceFineTune": "Red +1, Blue -1",
+    "HighlightTone": -1,
+    "ShadowTone": 0,
+    "Saturation": 1,
+    "Sharpness": 0,
+    "NoiseReduction": -2,
+    "Clarity": 0,
+    "ColorChromeEffect": "Strong",
+    "ColorChromeFXBlue": "Weak",
+    "GrainEffectRoughness": "Weak",
+    "GrainEffectSize": "Small",
+    "LensModulationOptimizer": "On",
+    "AutoDynamicRange": 200,
+}
 
 DEMO_REVIEWS: dict[str, tuple[int | None, bool, bool, str]] = {
     "BEACH_0001": (2, False, True, "演示：连拍中排除"),
@@ -89,15 +137,25 @@ SCENES: tuple[dict[str, Any], ...] = (
 def _exif(scene: dict[str, Any], captured_at: datetime) -> Image.Exif:
     exif = Image.Exif()
     timestamp = captured_at.strftime("%Y:%m:%d %H:%M:%S")
+    focal_length = TiffImagePlugin.IFDRational(*scene["focal"])
     exif[271] = "FUJIFILM"
     exif[272] = "X-S20"
+    exif[274] = 1
     exif[306] = timestamp
+    exif[34850] = 3
     exif[36867] = timestamp
     exif[42036] = scene["lens"]
     exif[33434] = TiffImagePlugin.IFDRational(*scene["exposure"])
     exif[33437] = TiffImagePlugin.IFDRational(*scene["aperture"])
     exif[34855] = scene["iso"]
-    exif[37386] = TiffImagePlugin.IFDRational(*scene["focal"])
+    exif[37380] = TiffImagePlugin.IFDRational(0, 1)
+    exif[37383] = 5
+    exif[37385] = 0
+    exif[37386] = focal_length
+    exif[40961] = 1
+    exif[41986] = 0
+    exif[41987] = 0
+    exif[41989] = round(float(focal_length) * 1.5)
     return exif
 
 
@@ -193,6 +251,44 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
     connection = connect(database_path)
     try:
         now = utc_now()
+        metadata_updated = 0
+        for row in connection.execute(
+            """SELECT f.id, f.exif_json, f.captured_at, c.stem
+               FROM files f
+               JOIN capture_files cf ON cf.file_id=f.id
+               JOIN captures c ON c.id=cf.capture_id
+               WHERE f.present=1 AND cf.role='jpeg'"""
+        ).fetchall():
+            try:
+                values = json.loads(row["exif_json"] or "{}")
+            except json.JSONDecodeError:
+                values = {}
+            values.update(DEMO_EXIF_DETAILS)
+            captured_at = str(row["captured_at"] or "2026-01-01T00:00:00")
+            values["SubSecDateTimeOriginal"] = (
+                captured_at.replace("-", ":", 2).replace("T", " ") + ".25"
+            )
+            stem = str(row["stem"])
+            sequence = stem.rsplit("_", 1)[-1]
+            values["SequenceNumber"] = int(sequence) if sequence.isdigit() else 1
+            if stem.startswith(("NIGHT_", "DETAIL_")):
+                values.update(
+                    {
+                        "FocusMode": "AF-S",
+                        "AFMode": "Single Point",
+                        "DriveMode": "Single",
+                    }
+                )
+            connection.execute(
+                """UPDATE files SET exif_json=?, metadata_profile_version=?,
+                          metadata_refreshed_at=?, metadata_status='complete', metadata_error=NULL
+                   WHERE id=?""",
+                (
+                    json.dumps(values, ensure_ascii=False, sort_keys=True),
+                    METADATA_PROFILE_VERSION, now, row["id"],
+                ),
+            )
+            metadata_updated += 1
         updated = 0
         for stem, (rating, picked, rejected, note) in DEMO_REVIEWS.items():
             row = connection.execute(
@@ -233,6 +329,7 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
             "reviews": updated,
             "manual_splits": int(split is not None),
             "similarity_groups": groups["similarity_groups"],
+            "metadata_profiles": metadata_updated,
         }
     finally:
         connection.close()
@@ -254,7 +351,8 @@ def main() -> int:
         print(
             f"Demo selections ready: {seeded['reviews']} reviews, "
             f"{seeded['manual_splits']} manual split, "
-            f"{seeded['similarity_groups']} similarity groups"
+            f"{seeded['similarity_groups']} similarity groups, "
+            f"{seeded['metadata_profiles']} rich metadata profiles"
         )
     return 0
 

@@ -39,6 +39,10 @@ To verify burst folding, open `照片图库 → 相册`, then enter `海边散�
 `公园抓拍`. Album details default to `折叠连拍`; `全部照片` intentionally stays
 expanded. The demo seeds persistent burst picks, standalone star ratings, multi-pick, and manual
 split examples so all selection states are visible without editing production data.
+The isolated catalog also seeds fictional rich EXIF examples for shutter, exposure,
+focus, stabilization, drive mode, precise time, and Fujifilm recipe sections. They
+remain visible without ExifTool; installing ExifTool is only needed to test reading
+metadata from other files.
 
 Later starts reuse the environment and catalog. Stop the server with
 `Control-C` in Terminal.
