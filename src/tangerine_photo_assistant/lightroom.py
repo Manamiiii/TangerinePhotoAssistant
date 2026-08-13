@@ -38,10 +38,14 @@ def lightroom_status(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
-def build_lightroom_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+def build_lightroom_rows(
+    connection: sqlite3.Connection,
+    scope: str = "all",
+    album_id: int | None = None,
+) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT c.id AS capture_id, c.captured_at, c.pairing_status,
+        SELECT c.id AS capture_id, c.captured_at, c.pairing_status, e.id AS event_id,
                e.proposed_name AS event_name, e.category, e.status AS event_status,
                MAX(CASE WHEN cf.role='jpeg' THEN f.path END) AS jpeg_path,
                MAX(CASE WHEN cf.role='raw' THEN f.path END) AS raw_path,
@@ -73,6 +77,7 @@ def build_lightroom_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]
             keywords.append(row["ai_subject"])
         result.append({
             "capture_id": row["capture_id"],
+            "event_id": row["event_id"],
             "captured_at": row["captured_at"] or "",
             "event_name": row["event_name"],
             "event_status": row["event_status"],
@@ -93,13 +98,24 @@ def build_lightroom_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]
             "write_xmp": 0,
             "copy_or_move_executed": 0,
         })
+    if scope == "picked":
+        return [row for row in result if row["pick"]]
+    if scope == "rated":
+        return [row for row in result if row["effective_rating"]]
+    if scope == "album":
+        if album_id is None:
+            raise ValueError("按相册生成时必须提供相册 ID")
+        return [row for row in result if row["event_id"] == album_id]
+    if scope != "all":
+        raise ValueError("不支持的 Lightroom 清单范围")
     return result
 
 
 def write_lightroom_manifest(
-    connection: sqlite3.Connection, reports_path: Path
+    connection: sqlite3.Connection, reports_path: Path,
+    scope: str = "all", album_id: int | None = None,
 ) -> dict[str, Any]:
-    rows = build_lightroom_rows(connection)
+    rows = build_lightroom_rows(connection, scope, album_id)
     reports_path.mkdir(parents=True, exist_ok=True)
     csv_path = reports_path / "lightroom-import-plan-latest.csv"
     json_path = reports_path / "lightroom-import-plan-latest.json"
@@ -110,6 +126,7 @@ def write_lightroom_manifest(
         writer.writerows(rows)
     payload = {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "scope": scope,
         "safety": {
             "source_library_mutated": False,
             "xmp_written": False,

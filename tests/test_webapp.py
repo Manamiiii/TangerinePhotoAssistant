@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
+from tangerine_photo_assistant.lightroom import build_lightroom_rows
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.settings import Settings
 from tangerine_photo_assistant.structure import rebuild_structure
@@ -255,7 +256,8 @@ class WebAppQueryTests(unittest.TestCase):
             single = next(item for item in collapsed["items"] if item["item_type"] == "photo")
             self.assertEqual(group["id"], picked_id)
             self.assertEqual(group["group_pick_count"], 1)
-            self.assertEqual(group["selection_capture_ids"], [picked_id])
+            self.assertEqual(len(group["selection_capture_ids"]), 3)
+            self.assertIn(picked_id, group["selection_capture_ids"])
             self.assertGreater(group["size_bytes"], single["size_bytes"])
             self.assertEqual(single["id"], single_id)
 
@@ -344,6 +346,12 @@ class WebAppQueryTests(unittest.TestCase):
                    VALUES (?, 1, 0, 'now')""",
                 (high_id,),
             )
+            connection.execute(
+                """INSERT INTO similarity_group_overrides(
+                       capture_id, action, created_at, updated_at
+                   ) VALUES (?, 'exclude', 'now', 'now')""",
+                (low_id,),
+            )
             connection.commit()
             connection.close()
             groups = _query_similarity_groups(settings, 20, 0)
@@ -354,6 +362,46 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(pending_only["count"], 0)
             self.assertEqual(pending_only["items"], [])
             self.assertEqual(pending_only["total_count"], 1)
+            completed_only = _query_similarity_groups(
+                settings, 20, 0, review_filter="completed"
+            )
+            self.assertEqual(completed_only["count"], 1)
+            self.assertEqual(completed_only["items"][0]["review_status"], "picked")
+            adjusted_only = _query_similarity_groups(
+                settings, 20, 0, review_filter="adjusted"
+            )
+            self.assertEqual(adjusted_only["count"], 1)
+
+    def test_lightroom_manifest_scope_is_explicit(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            source = settings.originals / "2026-08-13_清单范围"
+            source.mkdir(parents=True)
+            for stem in ("DSCF0201", "DSCF0202"):
+                Image.new("RGB", (48, 32), "orange").save(source / f"{stem}.JPG")
+            connection = connect(settings.database_path)
+            scan_library(connection, settings)
+            connection.execute("UPDATE files SET captured_at='2026-08-13T10:00:00'")
+            connection.commit()
+            rebuild_captures(connection)
+            rebuild_structure(connection, settings.burst_time_gap_seconds)
+            capture_ids = [
+                row[0] for row in connection.execute("SELECT id FROM captures ORDER BY id")
+            ]
+            connection.executemany(
+                """INSERT INTO capture_reviews(
+                       capture_id, user_rating, user_pick, user_reject, updated_at
+                   ) VALUES (?, ?, ?, 0, 'now')""",
+                ((capture_ids[0], None, 1), (capture_ids[1], 4, 0)),
+            )
+            connection.commit()
+            album_id = connection.execute("SELECT id FROM events LIMIT 1").fetchone()[0]
+            self.assertEqual(len(build_lightroom_rows(connection, "all")), 2)
+            self.assertEqual(len(build_lightroom_rows(connection, "picked")), 1)
+            self.assertEqual(len(build_lightroom_rows(connection, "rated")), 1)
+            self.assertEqual(len(build_lightroom_rows(connection, "album", album_id)), 2)
+            connection.close()
 
 
 if __name__ == "__main__":

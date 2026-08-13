@@ -143,6 +143,7 @@ type SimilarityGroupItem = {
 };
 type SimilarityAlbumSummary = { id: number; name: string; category: string; total_count: number; pending_count: number };
 type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; albums: SimilarityAlbumSummary[] };
+type SimilarityReviewFilter = "all" | "pending" | "completed" | "adjusted";
 
 type GroupCapture = {
   capture_id: number;
@@ -498,7 +499,7 @@ type SimilarityRevision = {
   can_undo: boolean;
 };
 
-function similarityGroupsUrl(limit: number, offset: number, reviewFilter: "all" | "pending", albumId: string) {
+function similarityGroupsUrl(limit: number, offset: number, reviewFilter: SimilarityReviewFilter, albumId: string) {
   const parameters = new URLSearchParams({ limit: String(limit), offset: String(offset), review_filter: reviewFilter });
   if (albumId) parameters.set("album_id", albumId);
   return `/api/similarity-groups?${parameters}`;
@@ -609,6 +610,7 @@ type LightroomManifest = {
   csv_url: string;
   json_url: string;
 };
+type LightroomManifestScope = "picked" | "rated" | "album" | "all";
 
 type Task = {
   id: string | null;
@@ -888,8 +890,8 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   cancelTask: () => void;
   changeGroupPage: (offset: number) => void;
   changeGroupPageSize: (limit: number) => void;
-  reviewFilter: "all" | "pending";
-  setReviewFilter: (filter: "all" | "pending") => void;
+  reviewFilter: SimilarityReviewFilter;
+  setReviewFilter: (filter: SimilarityReviewFilter) => void;
   albumId: string;
   setAlbumId: (albumId: string) => void;
 }) {
@@ -960,7 +962,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
         <section className="panel similarity-panel">
           <div className="similarity-album-context"><button className="back-navigation" onClick={() => setAlbumId("")}>← 更换相册</button><div><span className="section-kicker">当前相册</span><h3>{selectedAlbum?.name ?? "相册选片"}</h3></div><div><strong>{groups?.pending_count ?? 0}</strong><span>组待选 / 共 {groups?.total_count ?? 0} 组</span></div></div>
           {albumUndo && <div className="similarity-recovery-bar"><span>本相册最近一次人工分组仍可撤销</span><button className="toolbar-button" onClick={() => { if (window.confirm("撤销本相册最近一次人工分组调整？")) void restoreGroupingRevision(albumUndo.id, true); }}>撤销最近调整</button></div>}
-          <div className="similarity-list-controls"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选"><button className={reviewFilter === "pending" ? "active" : ""} onClick={() => setReviewFilter("pending")}>只看待选</button><button className={reviewFilter === "all" ? "active" : ""} onClick={() => setReviewFilter("all")}>全部分组</button></div><span className="batch-count">当前显示 {numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div>
+          <div className="similarity-list-controls"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选">{([['pending', '待选'], ['completed', '已完成'], ['adjusted', '人工调整'], ['all', '全部']] as const).map(([value, label]) => <button key={value} className={reviewFilter === value ? "active" : ""} onClick={() => setReviewFilter(value)}>{label}</button>)}</div><span className="batch-count">当前显示 {numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div>
           <div className="similarity-grid">
             {groupItems.map((group) => (
               <button className="similarity-card" key={group.id} onClick={() => openGroup(group.id)}>
@@ -968,7 +970,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
                 <span className="similarity-copy"><strong>{group.event_name}</strong><small>{group.recommended_stem ? `推荐 ${group.recommended_stem}` : "等待技术评分"}{group.average_score == null ? "" : ` · 均分 ${group.average_score}`}{group.pick_count ? ` · ${group.pick_count} 张入选` : ""}</small></span>
               </button>
             ))}
-            {!groupItems.length && <div className="empty-state">{reviewFilter === "pending" ? "所有相似组都已处理完，可切换到“全部”回顾。" : "还没有相似分组，先运行相似分析。"}</div>}
+            {!groupItems.length && <div className="empty-state">{{ pending: "所有相似组都已处理完，可切换到“全部”回顾。", completed: "还没有完成选片的相似组。", adjusted: "当前没有生效中的人工分组调整。", all: "还没有相似分组，先运行相似分析。" }[reviewFilter]}</div>}
           </div>
           {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
         </section>
@@ -1378,6 +1380,8 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [maxEdge, setMaxEdge] = useState(2048);
   const [exporting, setExporting] = useState(false);
   const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
+  const [selectionGroup, setSelectionGroup] = useState<SimilarityGroupDetail | null>(null);
+  const [selectionGroupDraft, setSelectionGroupDraft] = useState<Set<number>>(new Set());
   useEffect(() => window.localStorage.setItem("tangerine-photo-layout", layout), [layout]);
   const toggle = (captureIds: number[]) => setSelected((current) => {
     const next = new Set(current);
@@ -1407,6 +1411,17 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const leaveSelectionMode = () => {
     setSelected(new Set());
     setSelectionMode(false);
+  };
+  const openGroupSelection = async (groupId: number) => {
+    const group = await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${groupId}`);
+    setSelectionGroup(group);
+    setSelectionGroupDraft(new Set(group.items.filter((item) => selected.has(item.capture_id)).map((item) => item.capture_id)));
+  };
+  const applyGroupSelection = () => {
+    if (!selectionGroup) return;
+    const memberIds = new Set(selectionGroup.items.map((item) => item.capture_id));
+    setSelected((current) => new Set([...current].filter((id) => !memberIds.has(id)).concat([...selectionGroupDraft])));
+    setSelectionGroup(null);
   };
   const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
   const activeFilters: Array<{ key: keyof LibraryQuery; label: string }> = [
@@ -1440,10 +1455,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       <div className="photo-layout-toggle" aria-label="照片显示方式">
         {([['list', '列表'], ['small', '小图'], ['medium', '中图'], ['large', '大图']] as Array<[PhotoLayout, string]>).map(([value, label]) => <button key={value} className={layout === value ? "active" : ""} onClick={() => setLayout(value)}>{label}</button>)}
       </div>
-      <div className="photo-view-actions">{albumContext && <div className="burst-view-toggle"><button className={query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: true })}>折叠连拍</button><button className={!query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: false })}>展开全部</button></div>}<button className={`toolbar-button ${selectionMode ? "active" : ""}`} onClick={() => selectionMode ? leaveSelectionMode() : setSelectionMode(true)}>批量操作</button></div>
+      <div className="photo-view-actions">{albumContext && <div className="burst-view-toggle"><button className={query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: true })}>折叠连拍</button><button className={!query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: false })}>展开全部</button></div>}<button className={`toolbar-button selection-entry ${selectionMode ? "active" : ""}`} onClick={() => selectionMode ? leaveSelectionMode() : setSelectionMode(true)}>{selectionMode ? "完成选择" : "选择照片"}</button></div>
     </section>
     <section className={`selection-toolbar ${selectionMode ? "visible" : ""}`}>
-      <div><strong>临时选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds]))}>{allSelected ? "取消本页" : "选择本页"}</button><button onClick={() => setSelected(new Set())}>清空</button><button onClick={leaveSelectionMode}>退出批量操作</button></div>
+      <div><strong>本次选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds]))}>{allSelected ? "取消本页" : "选择本页"}</button><button onClick={() => setSelected(new Set())}>清空</button><button onClick={leaveSelectionMode}>完成</button></div>
       <div className="selection-actions"><label>归入相册<select value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>应用</button><label>分享尺寸<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出分享包"}</span><b>↓</b></button></div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张照片 · {formatBytes(latestExport.size_bytes)} · EXIF 已移除</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
@@ -1452,13 +1467,18 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
         const itemSelected = item.selection_capture_ids.every((captureId) => selected.has(captureId));
         const isGroup = item.item_type === "group" && item.similarity_group_id != null;
         return <article className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={isGroup ? `group-${item.similarity_group_id}` : `photo-${item.id}`}>
-        {selectionMode && <button className="photo-select" aria-label={`${itemSelected ? "取消批量选择" : "批量选择"} ${item.stem}`} onClick={() => toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : ""}</span></button>}
-        <button className="photo-open" onClick={() => isGroup && openGroup ? openGroup(item.similarity_group_id!) : openCapture(item.id, items.filter((entry) => entry.item_type === "photo").map((entry) => entry.id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张</span>}</button>
+        {selectionMode && <button className="photo-select" aria-label={`${isGroup ? "选择组内照片" : itemSelected ? "取消选择" : "选择"} ${item.stem}`} onClick={() => isGroup ? void openGroupSelection(item.similarity_group_id!) : toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : isGroup ? "…" : ""}</span></button>}
+        <button className="photo-open" onClick={() => isGroup && selectionMode ? void openGroupSelection(item.similarity_group_id!) : isGroup && openGroup ? openGroup(item.similarity_group_id!) : openCapture(item.id, items.filter((entry) => entry.item_type === "photo").map((entry) => entry.id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张{selectionMode ? " · 选择组内" : ""}</span>}</button>
         <div className="photo-card-copy"><div><strong>{isGroup ? `连拍 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{isGroup ? `${item.similarity_group_size} 张 · ${formatBytes(item.size_bytes)} · ${item.group_pick_count ?? 0} 张入选` : `${formatBytes(item.size_bytes)} · ${item.album_name ?? "尚未归入相册"}`}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出连拍</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>连拍组 · {item.similarity_group_size} 张</button> : null}{item.similarity_group_id && (item.user_pick ? <b>组内入选</b> : item.user_reject ? <b className="rejected">组内排除</b> : null)}</div></div></div>
       </article>})}
       {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
     </section>
     {library && <Pagination count={library.count} limit={library.limit} offset={library.offset} onChange={changePage} onLimitChange={changePageSize} />}
+    {selectionGroup && <ModalShell title={`选择组内照片 · ${selectionGroup.capture_count} 张`} close={() => setSelectionGroup(null)} wide>
+      <div className="group-export-tools"><span>这只是本次归类或导出的临时选择，不会改变正式入选结果。</span><div><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.filter((item) => item.user_pick).map((item) => item.capture_id)))}>人工入选</button><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.filter((item) => item.auto_pick).map((item) => item.capture_id)))}>技术推荐</button><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.map((item) => item.capture_id)))}>全选</button><button onClick={() => setSelectionGroupDraft(new Set())}>清空</button></div></div>
+      <div className="group-export-grid">{selectionGroup.items.map((item) => <button key={item.capture_id} className={selectionGroupDraft.has(item.capture_id) ? "selected" : ""} onClick={() => setSelectionGroupDraft((current) => { const next = new Set(current); next.has(item.capture_id) ? next.delete(item.capture_id) : next.add(item.capture_id); return next; })}><img src={item.thumbnail_url} alt={item.stem} /><span>{selectionGroupDraft.has(item.capture_id) ? "✓ " : ""}{item.stem}{item.user_pick ? " · 已入选" : item.auto_pick ? " · 技术推荐" : ""}</span></button>)}</div>
+      <footer className="editor-footer"><span>已选择 {selectionGroupDraft.size} 张</span><button onClick={() => setSelectionGroup(null)}>取消</button><button className="primary" onClick={applyGroupSelection}>确认选择</button></footer>
+    </ModalShell>}
   </>;
 }
 
@@ -1558,13 +1578,14 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   );
 }
 
-function HomeView({ overview, statistics, archive, activeBaseline, library, filters, task, capabilities, openPhotos, openAlbums, openAlbum, openBursts, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+function HomeView({ overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, openPhotos, openAlbums, openAlbum, openBursts, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
   activeBaseline: ArchiveStatus | null;
   library: LibraryCapturesResponse | null;
   filters: LibraryFilters | null;
+  similarity: SimilarityGroupsResponse | null;
   task: Task | null;
   capabilities: SystemCapabilities | null;
   openPhotos: () => void;
@@ -1582,9 +1603,10 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, filt
   const unassigned = overview?.structure.unassigned_capture_count ?? 0;
   const archiveIssue = archive?.comparison && !archive.comparison.healthy;
   const activeIssue = activeBaseline?.comparison && !activeBaseline.comparison.healthy;
+  const pendingSimilarity = similarity?.pending_count ?? 0;
   const monthRows = statistics?.months ?? [];
   const latestMonth = monthRows[monthRows.length - 1] ?? null;
-  const hasPending = pendingEvents > 0 || unassigned > 0 || Boolean(archiveIssue) || Boolean(activeIssue);
+  const hasPending = pendingEvents > 0 || unassigned > 0 || pendingSimilarity > 0 || Boolean(archiveIssue) || Boolean(activeIssue);
   const recentAlbums = (filters?.albums ?? []).slice(0, 4);
   const topCamera = statistics?.cameras[0];
   const topLens = statistics?.lenses[0];
@@ -1608,6 +1630,7 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, filt
       </div></section>
       <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
         {pendingEvents > 0 && <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>}
+        {pendingSimilarity > 0 && <button onClick={openBursts}><span><strong>{numberFormat.format(pendingSimilarity)}</strong> 组相似照片待挑选</span><b>继续选片</b></button>}
         {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
         {archiveIssue && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
         {activeIssue && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
@@ -1651,6 +1674,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
   const [resultVerdict, setResultVerdict] = useState("all");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
+  const [analysisTab, setAnalysisTab] = useState<"overview" | "quality" | "model" | "history">("overview");
   const estimatedBatchSeconds = ai?.latest_run?.average_seconds_per_photo
     ? ai.latest_run.average_seconds_per_photo * batchSize
     : null;
@@ -1677,35 +1701,38 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
     };
   }, [running]);
   return (
-    <>
+    <div className="page-stack analysis-page">
       <section className="structure-hero analysis-hero">
         <div>
           <span className="section-kicker">分层分析</span>
           <h2>照片质量与问题</h2>
           <p>技术检测覆盖全部个人照片；Qwen3-VL 只处理代表帧和问题候选。模型结果仅作复核建议，不会自动删除或改写 Lightroom。</p>
-          <div className="analysis-command-panel">
-            <div className="analysis-command-group"><span>技术检测</span><button className="toolbar-button primary" onClick={startQuality} disabled={running}>分析新增照片</button></div>
-            <div className="analysis-command-divider" />
-            <div className="analysis-command-group"><span>详情数据</span><button className="toolbar-button" onClick={startDetailBackfill} disabled={running || (!analysis?.detail_data.metadata_pending && !analysis?.detail_data.histograms_pending)}>补全拍摄信息与直方图</button>{task?.status === "paused" && task.stage.startsWith("detail-") && <button className="toolbar-button primary" onClick={resumeDetailBackfill}>继续补全</button>}<small>{analysis ? `元数据待补 ${numberFormat.format(analysis.detail_data.metadata_pending)} · 直方图待补 ${numberFormat.format(analysis.detail_data.histograms_pending)}` : "正在读取状态"}</small></div>
-            <div className="analysis-command-divider" />
-            <div className="analysis-command-group model"><span>本地模型</span><button className="toolbar-button" onClick={() => startAi("benchmark", 10)} disabled={running || !summary?.analyzed || !preflight?.ready}>快速验证 · 10 张</button><label><select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} disabled={running}>{[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} 张</option>)}</select><small>{estimatedBatchSeconds ? `约 ${formatDuration(estimatedBatchSeconds)}` : "每批数量"}</small></label><button className="toolbar-button primary" onClick={() => startAi("recommended", batchSize)} disabled={running || !summary?.analyzed || !preflight?.ready}>运行所选批次</button></div>
-            {ai?.latest_run && ["failed", "cancelled", "paused"].includes(ai.latest_run.status) && <button className="toolbar-button" onClick={() => resumeAi(ai.latest_run!.id)} disabled={running}>继续上次任务</button>}
-            {ai?.latest_run && ai.latest_run.status === "complete" && ai.latest_run.failed_count > 0 && <button className="toolbar-button" onClick={() => retryAiFailures(ai.latest_run!.id)} disabled={running || !preflight?.ready}>重试失败项</button>}
-          </div>
         </div>
         <div className={`runtime-card ${preflight?.ready ? "ready" : ""}`}>
           <span>模型运行环境</span><strong>{preflight?.ready ? "预检通过" : "未就绪"}</strong><small>{preflight ? (preflight.ready ? `${preflight.quantization.toUpperCase()} · ${formatFileSize(preflight.model_bytes)} · ${preflight.image_max_edge ?? 1280}px · 显存上限 ${preflight.gpu_memory_limit_gb}GB` : preflight.blockers.join("；")) : analysis?.runtime.message ?? "正在检查"}</small>
           {gpu?.available && <small>{gpu.name} · GPU {gpu.utilization_percent}% · 显存 {((gpu.memory_used_mb ?? 0) / 1024).toFixed(1)} / {((gpu.memory_total_mb ?? 0) / 1024).toFixed(1)} GB · {gpu.temperature_c}°C</small>}
         </div>
       </section>
+      <nav className="analysis-tabs" aria-label="质量分析页面">
+        {([['overview', '分析概览'], ['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
+      </nav>
       <TaskCard task={taskBelongsTo(task, "analysis") ? task : null} cancel={cancelTask} pause={pauseTask} />
+      {analysisTab === "overview" && <>
+      <section className="analysis-action-grid">
+        <article className="panel analysis-action-card"><span className="section-kicker">不使用 GPU</span><h3>技术质量检测</h3><p>检查曝光、清晰度与拍摄参数，未变化的照片会复用已有结果。</p><strong>{summary ? `${numberFormat.format(summary.analyzed)} 张已完成` : "正在读取"}</strong><button className="toolbar-button primary" onClick={startQuality} disabled={running}>检测新增或变化照片</button></article>
+        <article className="panel analysis-action-card"><span className="section-kicker">拍摄信息</span><h3>详情数据补全</h3><p>补充扩展 EXIF、机内配方和 JPG 亮度直方图，不修改照片。</p><strong>{analysis ? `元数据待补 ${numberFormat.format(analysis.detail_data.metadata_pending)} · 直方图待补 ${numberFormat.format(analysis.detail_data.histograms_pending)}` : "正在读取"}</strong>{task?.status === "paused" && task.stage.startsWith("detail-") ? <button className="toolbar-button primary" onClick={resumeDetailBackfill}>继续补全</button> : <button className="toolbar-button" onClick={startDetailBackfill} disabled={running || (!analysis?.detail_data.metadata_pending && !analysis?.detail_data.histograms_pending)}>{analysis && !analysis.detail_data.metadata_pending && !analysis.detail_data.histograms_pending ? "当前无需补全" : "补全详情数据"}</button>}</article>
+        <article className="panel analysis-action-card model"><span className="section-kicker">使用本机 GPU</span><h3>本地模型分析</h3><p>分析画面内容、可见问题和后期建议；仅保存建议，需人工复核。</p><strong>{preflight?.ready ? `${numberFormat.format(ai?.candidates?.recommended_available ?? 0)} 张推荐候选` : preflight?.blockers.join("；") ?? "正在预检"}</strong><div><button className="toolbar-button" onClick={() => startAi("benchmark", 10)} disabled={running || !summary?.analyzed || !preflight?.ready}>验证 10 张</button><label><select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} disabled={running}>{[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} 张</option>)}</select><small>{estimatedBatchSeconds ? `约 ${formatDuration(estimatedBatchSeconds)}` : "批次"}</small></label><button className="toolbar-button primary" onClick={() => startAi("recommended", batchSize)} disabled={running || !summary?.analyzed || !preflight?.ready}>运行批次</button></div></article>
+      </section>
+      {ai?.latest_run && ["failed", "cancelled", "paused"].includes(ai.latest_run.status) && <section className="analysis-recovery"><span>上次模型任务尚未完整结束。</span><button className="toolbar-button" onClick={() => resumeAi(ai.latest_run!.id)} disabled={running}>继续上次任务</button></section>}
+      {ai?.latest_run && ai.latest_run.status === "complete" && ai.latest_run.failed_count > 0 && <section className="analysis-recovery"><span>上次任务有 {ai.latest_run.failed_count} 张失败。</span><button className="toolbar-button" onClick={() => retryAiFailures(ai.latest_run!.id)} disabled={running || !preflight?.ready}>重试失败项</button></section>}
       <section className="metric-grid">
         <article><span>技术分析完成</span><strong>{summary ? numberFormat.format(summary.analyzed) : "—"}</strong><small>{summary?.errors ?? 0} 个读取错误</small></article>
         <article><span>平均技术分</span><strong>{summary?.average_score ?? "—"}</strong><small>算法证据，不代表审美</small></article>
         <article><span>组内推荐</span><strong>{summary ? numberFormat.format(summary.recommended_picks) : "—"}</strong><small>每个相似组一个候选</small></article>
         <article><span>模型分析完成</span><strong>{ai ? numberFormat.format(ai.analyzed_capture_count) : "—"}</strong><small>{ai?.latest_run ? `${ai.latest_run.model_id} · ${ai.latest_run.status}${ai.latest_run.average_seconds_per_photo ? ` · ${ai.latest_run.average_seconds_per_photo.toFixed(1)}秒/张` : ""}` : "尚未启动"}</small></article>
       </section>
-      {ai?.result_audit?.latest && <section className="metric-grid ai-audit-metrics">
+      </>}
+      {analysisTab === "history" && ai?.result_audit?.latest && <details className="panel advanced-diagnostics"><summary>模型质量与运行诊断</summary><section className="metric-grid ai-audit-metrics">
         <article><span>当前提示词结果</span><strong>{numberFormat.format(ai.result_audit.latest.result_count)}</strong><small>{ai.result_audit.latest.prompt_version}</small></article>
         <article><span>发现具体问题</span><strong>{numberFormat.format(ai.result_audit.latest.with_visible_problems)}</strong><small>有画面证据才展开建议</small></article>
         <article><span>过度自信输出</span><strong>{numberFormat.format(ai.result_audit.latest.overconfident)}</strong><small>置信度 ≥ 0.99，v3 将自动校准</small></article>
@@ -1713,8 +1740,8 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
         <article><span>危险操作提及</span><strong>{numberFormat.format(ai.result_audit.latest.unsafe_action_mentions ?? 0)}</strong><small>只提示人工复核，系统不会执行</small></article>
         <article><span>当前版本均速</span><strong>{ai.result_audit.latest.average_seconds_per_photo == null ? "—" : `${ai.result_audit.latest.average_seconds_per_photo.toFixed(1)} 秒`}</strong><small>{numberFormat.format(ai.result_audit.latest.timed_count)} 张有效计时</small></article>
         <article><span>人工复核</span><strong>{numberFormat.format(ai.result_audit.latest.reviewed)}</strong><small>准确 {ai.result_audit.latest.verdicts.accurate} · 部分 {ai.result_audit.latest.verdicts.partial} · 不准确 {ai.result_audit.latest.verdicts.inaccurate}</small></article>
-      </section>}
-      {!!ai?.result_audit?.versions?.length && <section className="panel ai-version-panel">
+      </section></details>}
+      {analysisTab === "history" && !!ai?.result_audit?.versions?.length && <section className="panel ai-version-panel">
         <div className="panel-heading"><div><span className="section-kicker">版本比较</span><h3>提示词质量与速度</h3></div><span className="batch-count">结构异常只提示人工复核</span></div>
         <div className="ai-version-table">
           <div className="ai-version-row ai-version-header"><span>版本</span><span>结果</span><span>均速</span><span>平均置信度</span><span>结构/逻辑警告</span><span>危险提及</span></div>
@@ -1723,16 +1750,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           </div>)}
         </div>
       </section>}
-      {!!ai?.recent_results?.length && <section className="panel ai-results-panel">
-        <div className="panel-heading"><div><span className="section-kicker">最近完成</span><h3>模型分析结果</h3></div><span className="batch-count">点击照片查看完整建议并人工复核</span></div>
-        <div className="ai-result-grid">
-          {ai.recent_results.map((result) => <button key={result.id} className="ai-result-card" onClick={() => openCapture(result.capture_id, ai.recent_results.map((entry) => entry.capture_id))}>
-            <img src={result.thumbnail_url} loading="lazy" alt={`${result.stem} 缩略图`} />
-            <span><strong>{result.stem} · {result.subject_type ?? "未分类"}</strong><small>{result.quality_summary ?? "没有摘要"}</small><em>{result.visible_problem_count} 个问题 · 技术分 {result.technical_score == null ? "—" : Math.round(result.technical_score)} · 置信度 {result.overall_confidence ?? "—"}</em></span>
-          </button>)}
-        </div>
-      </section>}
-      <section className="panel ai-results-panel">
+      {analysisTab === "model" && <section className="panel ai-results-panel">
         <div className="panel-heading"><div><span className="section-kicker">分页复核</span><h3>全部模型结果</h3></div><span className="batch-count">{resultPage ? `${numberFormat.format(resultPage.count)} 条` : "正在读取"}</span></div>
         <div className="ai-results-toolbar">
           <label>提示词版本<select value={resultVersion} onChange={(event) => { setResultVersion(event.target.value); setResultOffset(0); }}>
@@ -1752,8 +1770,8 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
         </div>}
         {resultPage && !resultPage.items.length && <div className="empty-state">当前筛选条件没有模型结果。</div>}
         {resultPage && <Pagination count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
-      </section>
-      {!!ai?.recent_runs.length && (
+      </section>}
+      {analysisTab === "history" && !!ai?.recent_runs.length && (
         <section className="panel ai-history-panel">
           <div className="panel-heading"><div><span className="section-kicker">运行记录</span><h3>模型任务历史</h3></div><span className="batch-count">保留模型、量化和提示词版本</span></div>
           <div className="ai-run-list">
@@ -1777,7 +1795,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           )}
         </section>
       )}
-      <section className="panel quality-review-panel">
+      {analysisTab === "quality" && <section className="panel quality-review-panel">
         <div className="panel-heading"><div><span className="section-kicker">照片复核</span><h3>问题与改进建议</h3></div><span className="batch-count">点击照片查看完整分析</span></div>
         <div className="quality-review-toolbar">
           <input value={qualitySearch} onChange={(event) => setQualitySearch(event.target.value)} placeholder="搜索照片或相册" />
@@ -1798,19 +1816,21 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           {!quality?.items.length && <div className="empty-state">当前筛选条件没有照片。尚未分析时，请先运行技术检测。</div>}
         </div>
         {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
-      </section>
-    </>
+      </section>}
+    </div>
   );
 }
 
-function Distribution({ title, rows, labelKey, onSelect, selectHint }: {
+function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode = "count" }: {
   title: string;
   rows: StatisticRow[];
   labelKey: string;
   onSelect?: (label: string) => void;
   selectHint?: string;
+  valueMode?: "count" | "percent";
 }) {
   const maximum = Math.max(1, ...rows.map((row) => row.count));
+  const total = Math.max(1, rows.reduce((sum, row) => sum + row.count, 0));
   return (
     <section className="panel distribution-panel">
       <div className="panel-heading"><div><span className="section-kicker">分布</span><h3>{title}</h3></div>{onSelect && <span className="batch-count">{selectHint ?? "点击跳到对应照片"}</span>}</div>
@@ -1818,8 +1838,8 @@ function Distribution({ title, rows, labelKey, onSelect, selectHint }: {
         {rows.map((row, index) => {
           const content = <>
             <span title={String(row[labelKey])}>{String(row[labelKey])}</span>
-            <div><i style={{ width: `${Math.max(2, row.count / maximum * 100)}%` }} /></div>
-            <strong>{numberFormat.format(row.count)}</strong>
+            <div><i style={{ width: `${Math.max(2, row.count / (valueMode === "percent" ? total : maximum) * 100)}%` }} /></div>
+            <strong>{valueMode === "percent" ? `${(row.count / total * 100).toFixed(1)}%` : numberFormat.format(row.count)}</strong>
             <small>{row.average_score == null ? "未评分" : `均分 ${row.average_score}`}</small>
           </>;
           return onSelect
@@ -1844,6 +1864,7 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
   deleteItem: (kind: EquipmentKind, item: EquipmentItem) => Promise<void>;
   changeVisibility: (kind: EquipmentKind, item: EquipmentItem, visible: boolean) => Promise<void>;
 }) {
+  const [cameraFilter, setCameraFilter] = useState<"owned" | "all" | "detected" | "unowned">("owned");
   const [lensFilter, setLensFilter] = useState<"all" | "owned" | "unowned">("owned");
   const [lensSearch, setLensSearch] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -1858,6 +1879,7 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
     accessories: "其他配件",
   };
   const categoryLabels: Record<string, string> = { prime: "定焦", zoom: "变焦", macro: "微距", teleconverter: "增距镜", cinema: "电影镜头" };
+  const commonBrands = ["Fujifilm", "Sony", "Canon", "Nikon", "Panasonic / LUMIX", "OM System", "Olympus", "Leica", "Ricoh", "Pentax", "Hasselblad", "DJI", "Sigma", "Tamron"];
   const emptyDraft = (kind: EquipmentKind): EquipmentDraft => ({ kind, brand: kind === "lens" ? "Fujifilm" : "", model: "", display_name: "", category: kind === "lens" ? "prime" : "", section: kind === "accessory" ? "accessories" : "", notes: "", filter_thread_mm: "", thread_mm: "", owned: true });
   const editDraft = (kind: EquipmentKind, item: EquipmentItem): EquipmentDraft => ({ kind, key: item.inventory_key, brand: item.brand ?? "", model: item.model ?? "", display_name: item.display_name ?? "", category: item.category ?? "", section: item.section ?? "", notes: item.notes ?? "", filter_thread_mm: item.filter_thread_mm ? String(item.filter_thread_mm) : "", thread_mm: item.thread_mm ? String(item.thread_mm) : "", owned: item.owned, source: item.source });
   const visibleLenses = (equipment?.lenses ?? []).filter((item) => {
@@ -1865,6 +1887,12 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
     if (lensFilter === "unowned" && item.owned) return false;
     const query = lensSearch.trim().toLocaleLowerCase();
     return !query || `${item.display_name ?? ""} ${item.model ?? ""}`.toLocaleLowerCase().includes(query);
+  });
+  const visibleCameras = (equipment?.cameras ?? []).filter((item) => {
+    if (cameraFilter === "owned") return item.owned;
+    if (cameraFilter === "unowned") return !item.owned;
+    if (cameraFilter === "detected") return (item.capture_count ?? 0) > 0;
+    return true;
   });
   const toggle = async (kind: EquipmentKind, item: EquipmentItem) => {
     setSavingKey(`${kind}:${item.inventory_key}`);
@@ -1893,15 +1921,16 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
         <article><span>未拥有镜头</span><strong>{equipment?.summary.unowned_lens_count ?? "—"}</strong><small>可作为选购和了解目录</small></article>
       </section>
       <section className="panel equipment-panel equipment-camera-panel">
-          <div className="panel-heading"><div><span className="section-kicker">我的相机</span><h3>机身</h3></div><div className="panel-heading-actions"><span className="batch-count">拍摄量按拍摄单元计算</span><button className="toolbar-button" onClick={() => setEditor(emptyDraft("camera"))}>＋ 添加机身</button></div></div>
+          <div className="panel-heading"><div><span className="section-kicker">我的相机</span><h3>机身</h3></div><div className="panel-heading-actions"><div className="section-tabs" role="group" aria-label="机身拥有状态">{([['owned', '已拥有'], ['all', '全部'], ['detected', 'EXIF 发现'], ['unowned', '未拥有']] as const).map(([value, label]) => <button key={value} className={cameraFilter === value ? "active" : ""} onClick={() => setCameraFilter(value)}>{label}</button>)}</div><button className="toolbar-button" onClick={() => setEditor(emptyDraft("camera"))}>＋ 添加机身</button></div></div>
           <div className="equipment-list equipment-camera-list">
-            {(equipment?.cameras ?? []).map((item) => (
+            {visibleCameras.map((item) => (
               <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
                 <div className="equipment-icon">C</div>
                 <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"} · {numberFormat.format(item.capture_count ?? 0)} 个拍摄单元{item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
                 {actions("camera", item)}
               </article>
             ))}
+            {!visibleCameras.length && <div className="empty-state">当前条件下没有机身。</div>}
           </div>
       </section>
       <section className="equipment-layout equipment-main-layout">
@@ -1946,7 +1975,7 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
       </section>}
       {editor && <ModalShell title={`${editor.key ? "编辑" : "添加"}${editor.kind === "camera" ? "机身" : editor.kind === "lens" ? "镜头" : "附件"}`} close={() => setEditor(null)}>
         <div className="equipment-editor-form">
-          <label><span>品牌</span><input value={editor.brand} onChange={(event) => setEditor({ ...editor, brand: event.target.value })} /></label>
+          <label><span>品牌</span><input list="equipment-brand-options" value={editor.brand} onChange={(event) => setEditor({ ...editor, brand: event.target.value })} /><datalist id="equipment-brand-options">{commonBrands.map((brand) => <option key={brand} value={brand} />)}</datalist></label>
           <label><span>型号{editor.key && editor.source !== "custom" ? "（用于关联 EXIF）" : ""}</span><input value={editor.model} disabled={Boolean(editor.key && editor.source !== "custom")} onChange={(event) => setEditor({ ...editor, model: event.target.value })} /></label>
           <label className="wide"><span>显示名称</span><input value={editor.display_name} onChange={(event) => setEditor({ ...editor, display_name: event.target.value })} placeholder="可留空，默认显示型号" /></label>
           {editor.kind === "lens" && <><label><span>镜头类型</span><select value={editor.category} onChange={(event) => setEditor({ ...editor, category: event.target.value })}><option value="prime">定焦</option><option value="zoom">变焦</option><option value="macro">微距</option><option value="teleconverter">增距镜</option><option value="cinema">电影镜头</option></select></label><label><span>滤镜口径 mm</span><input type="number" min="1" value={editor.filter_thread_mm} onChange={(event) => setEditor({ ...editor, filter_thread_mm: event.target.value })} /></label></>}
@@ -1999,6 +2028,8 @@ function StatisticsView({ statistics, openLibraryWith }: {
   statistics: Statistics | null;
   openLibraryWith: (changes: Partial<LibraryQuery>) => void;
 }) {
+  const [statisticsView, setStatisticsView] = useState<"overview" | "parameters" | "time">("overview");
+  const [distributionMode, setDistributionMode] = useState<"count" | "percent">("percent");
   const summary = statistics?.summary;
   const qualityCoverage = summary?.capture_count
     ? Math.round(summary.quality_analyzed / summary.capture_count * 100)
@@ -2021,15 +2052,12 @@ function StatisticsView({ statistics, openLibraryWith }: {
         <article><span>质量分析覆盖</span><strong>{summary ? `${qualityCoverage}%` : "—"}</strong><small>{summary ? `${numberFormat.format(summary.quality_analyzed)} / ${numberFormat.format(summary.capture_count)} 张` : "—"}</small></article>
         <article><span>平均技术分</span><strong>{summary?.average_technical_score ?? "—"}</strong><small>只计算已有质量分析的照片</small></article>
       </section>
+      <div className="statistics-view-toolbar"><div className="section-tabs" role="tablist" aria-label="统计视图">{([['overview', '概览'], ['parameters', '拍摄参数'], ['time', '时间趋势']] as const).map(([value, label]) => <button key={value} className={statisticsView === value ? "active" : ""} onClick={() => setStatisticsView(value)}>{label}</button>)}</div>{statisticsView !== "time" && <div className="section-tabs" role="group" aria-label="统计值显示"><button className={distributionMode === "count" ? "active" : ""} onClick={() => setDistributionMode("count")}>数量</button><button className={distributionMode === "percent" ? "active" : ""} onClick={() => setDistributionMode("percent")}>占比</button></div>}</div>
+      {statisticsView === "overview" && <>
       <section className="statistics-grid">
-        <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" onSelect={(category) => openLibraryWith({ category })} />
-        <Distribution title="主要相机" rows={statistics?.cameras ?? []} labelKey="camera_model" onSelect={(camera) => openLibraryWith({ camera })} />
-        <Distribution title="主要镜头" rows={statistics?.lenses ?? []} labelKey="lens_model" onSelect={(lens) => openLibraryWith({ lens })} />
-        <Distribution title="焦段习惯" rows={statistics?.focal_ranges ?? []} labelKey="bucket" />
-        <Distribution title="ISO分布" rows={statistics?.iso_ranges ?? []} labelKey="bucket" />
-        <Distribution title="光圈分布" rows={statistics?.aperture_ranges ?? []} labelKey="bucket" />
-        <Distribution title="快门分布" rows={statistics?.shutter_ranges ?? []} labelKey="bucket" />
-        <Distribution title="曝光补偿" rows={statistics?.exposure_compensation_ranges ?? []} labelKey="bucket" />
+        <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" valueMode={distributionMode} onSelect={(category) => openLibraryWith({ category })} />
+        <Distribution title="主要相机" rows={statistics?.cameras ?? []} labelKey="camera_model" valueMode={distributionMode} onSelect={(camera) => openLibraryWith({ camera })} />
+        <Distribution title="主要镜头" rows={statistics?.lenses ?? []} labelKey="lens_model" valueMode={distributionMode} onSelect={(lens) => openLibraryWith({ lens })} />
       </section>
       <section className="statistics-grid">
         <section className="panel lens-efficiency-panel">
@@ -2054,24 +2082,37 @@ function StatisticsView({ statistics, openLibraryWith }: {
           </div>
         </section>
       </section>
+      </>}
+      {statisticsView === "parameters" && <section className="statistics-grid">
+        <Distribution title="焦段习惯" rows={statistics?.focal_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
+        <Distribution title="ISO 分布" rows={statistics?.iso_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
+        <Distribution title="光圈分布" rows={statistics?.aperture_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
+        <Distribution title="快门分布" rows={statistics?.shutter_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
+        <Distribution title="曝光补偿" rows={statistics?.exposure_compensation_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
+      </section>}
+      {statisticsView === "time" &&
       <section className="panel month-panel">
         <div className="panel-heading"><div><span className="section-kicker">时间趋势</span><h3>最近拍摄月份</h3></div><span className="batch-count">点击月份跳到对应照片</span></div>
         <div className="month-strip">{(statistics?.months ?? []).slice(-24).map((month) => <button type="button" key={month.month} onClick={() => openMonth(month.month)}><span>{month.month}</span><i style={{ height: `${Math.max(8, Math.min(100, month.count / Math.max(1, ...(statistics?.months ?? []).map((item) => item.count)) * 100))}%` }} /><strong>{month.count}</strong><small>{month.average_score ?? "—"}</small></button>)}</div>
       </section>
+      }
     </>
   );
 }
 
-function LightroomView({ status, manifest, capabilities, generateManifest }: {
+function LightroomView({ status, manifest, capabilities, albums, generateManifest }: {
   status: LightroomStatus | null;
   manifest: LightroomManifest | null;
   capabilities: SystemCapabilities | null;
-  generateManifest: () => void;
+  albums: LibraryFilters["albums"];
+  generateManifest: (scope: LightroomManifestScope, albumId?: number) => void;
 }) {
+  const [scope, setScope] = useState<LightroomManifestScope>("picked");
+  const [albumId, setAlbumId] = useState("");
   return (
     <>
       <section className="structure-hero lightroom-hero">
-        <div><span className="section-kicker">Lightroom Classic</span><h2>后期准备清单</h2><p>汇总已选照片、评级和相册信息。</p><button className="primary-action" onClick={generateManifest}><span>生成准备清单</span><b>→</b></button></div>
+        <div><span className="section-kicker">Lightroom Classic</span><h2>后期准备清单</h2><p>按明确范围汇总路径、评级、选片和相册信息；只生成报告，不导入或写入照片。</p><div className="manifest-scope-controls"><label>清单范围<select value={scope} onChange={(event) => setScope(event.target.value as LightroomManifestScope)}><option value="picked">仅人工入选</option><option value="rated">已有评级</option><option value="album">指定相册</option><option value="all">全部照片及状态</option></select></label>{scope === "album" && <label>相册<select value={albumId} onChange={(event) => setAlbumId(event.target.value)}><option value="">选择相册</option>{albums.map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label>}<button className="primary-action" disabled={scope === "album" && !albumId} onClick={() => generateManifest(scope, albumId ? Number(albumId) : undefined)}><span>生成准备清单</span><b>→</b></button></div></div>
         <div className="structure-stat"><strong>{status ? numberFormat.format(status.capture_count) : "—"}</strong><span>个待准备拍摄单元</span></div>
       </section>
       <section className="metric-grid">
@@ -2124,6 +2165,7 @@ function SettingsView({ status, task, save }: {
         <label><span>缩略图上限 GB</span><input type="number" min="1" value={draft.cache.thumbnail_max_size_gb} onChange={(event) => update("cache", "thumbnail_max_size_gb", Number(event.target.value))} /></label>
       </div>
       <div className="effective-settings"><span>当前实际图库 <b>{status?.effective.library_root}</b></span><span>当前实际工作目录 <b>{status?.effective.workspace_root}</b></span><small>已迁移的数据库会优先使用其活动图库记录。要连接一套全新图库，建议同时选择新的工作目录。</small></div>
+      <div className="settings-folder-actions"><span>在资源管理器中打开当前实际目录</span><div>{([['library', '照片目录'], ['workspace', '工作目录'], ['cache', '缓存目录'], ['reports', '报告目录']] as const).map(([kind, label]) => <button key={kind} className="toolbar-button" type="button" onClick={() => void getJson(`/api/system/folders/${kind}/open`, { method: "POST" })}>{label}</button>)}</div></div>
     </section>
     <section className="panel settings-section">
       <div className="panel-heading"><div><span className="section-kicker">分析参数</span><h3>元数据、RAW 与连拍</h3></div></div>
@@ -2184,7 +2226,7 @@ function App() {
   const [similarityGroups, setSimilarityGroups] = useState<SimilarityGroupsResponse | null>(null);
   const [groupOffset, setGroupOffset] = useState(0);
   const [groupPageSize, setGroupPageSize] = useState(40);
-  const [groupReviewFilter, setGroupReviewFilter] = useState<"all" | "pending">("pending");
+  const [groupReviewFilter, setGroupReviewFilter] = useState<SimilarityReviewFilter>("pending");
   const [groupAlbumId, setGroupAlbumId] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
@@ -2832,10 +2874,10 @@ function App() {
     }
   };
 
-  const generateManifest = async () => {
+  const generateManifest = async (scope: LightroomManifestScope, albumId?: number) => {
     setError(null);
     try {
-      setLightroomManifest(await getJson<LightroomManifest>("/api/lightroom/manifest", { method: "POST" }));
+      setLightroomManifest(await getJson<LightroomManifest>("/api/lightroom/manifest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope, album_id: albumId ?? null }) }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -2987,7 +3029,7 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} filters={libraryFilters} task={task} capabilities={capabilities} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似组选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} filters={libraryFilters} similarity={similarityGroups} task={task} capabilities={capabilities} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似组选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} query={libraryQuery}
           requestedSection={libraryLandingSection}
@@ -3004,7 +3046,7 @@ function App() {
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
-        {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} generateManifest={generateManifest} />}
+        {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">

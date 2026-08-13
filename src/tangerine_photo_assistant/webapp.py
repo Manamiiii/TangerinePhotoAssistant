@@ -159,6 +159,11 @@ class PhoneShareExportRequest(BaseModel):
     quality: int = Field(default=90, ge=70, le=95)
 
 
+class LightroomManifestRequest(BaseModel):
+    scope: Literal["all", "picked", "rated", "album"] = "picked"
+    album_id: int | None = Field(default=None, ge=1)
+
+
 class AiReviewUpdateRequest(BaseModel):
     user_verdict: Literal["accurate", "partial", "inaccurate"] | None = None
     user_note: str | None = Field(default=None, max_length=2000)
@@ -1335,8 +1340,7 @@ def _query_library_captures(
                     folded[positions[group_id]] = replacement
             for group_id, group_members in members.items():
                 group_item = folded[positions[group_id]]
-                picked_ids = [item["id"] for item in group_members if item["user_pick"]]
-                group_item["selection_capture_ids"] = picked_ids or [group_item["id"]]
+                group_item["selection_capture_ids"] = [item["id"] for item in group_members]
                 group_item["size_bytes"] = sum(item["size_bytes"] for item in group_members)
             total = len(folded)
             return {
@@ -1695,6 +1699,30 @@ def _query_similarity_groups(
     try:
         album_filter = " AND b.event_id=?" if album_id is not None else ""
         count_parameters = (album_id,) if album_id is not None else ()
+        pending_condition = """
+            NOT EXISTS (
+                SELECT 1 FROM similarity_group_captures psgc
+                JOIN capture_reviews pcr ON pcr.capture_id = psgc.capture_id
+                WHERE psgc.group_id = sg.id AND COALESCE(pcr.user_pick, 0) = 1
+            ) AND EXISTS (
+                SELECT 1 FROM similarity_group_captures rsgc
+                LEFT JOIN capture_reviews rcr ON rcr.capture_id = rsgc.capture_id
+                WHERE rsgc.group_id = sg.id AND COALESCE(rcr.user_reject, 0) = 0
+            )
+        """
+        completed_condition = f"NOT ({pending_condition})"
+        adjusted_condition = """
+            EXISTS (
+                SELECT 1 FROM similarity_group_captures asgc
+                JOIN similarity_group_overrides aso ON aso.capture_id = asgc.capture_id
+                WHERE asgc.group_id = sg.id
+            )
+        """
+        review_condition = {
+            "pending": pending_condition,
+            "completed": completed_condition,
+            "adjusted": adjusted_condition,
+        }.get(review_filter, "1=1")
         total = connection.execute(
             f"""SELECT COUNT(*) FROM similarity_groups sg
                 JOIN bursts b ON b.id=sg.burst_id WHERE 1=1{album_filter}""",
@@ -1704,16 +1732,7 @@ def _query_similarity_groups(
             f"""
             SELECT COUNT(*) FROM similarity_groups sg
             JOIN bursts b ON b.id=sg.burst_id
-            WHERE NOT EXISTS (
-                SELECT 1 FROM similarity_group_captures sgc
-                JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
-                WHERE sgc.group_id = sg.id
-                  AND COALESCE(cr.user_pick, 0) = 1
-            ) AND EXISTS (
-                SELECT 1 FROM similarity_group_captures sgc
-                LEFT JOIN capture_reviews cr ON cr.capture_id = sgc.capture_id
-                WHERE sgc.group_id = sg.id AND COALESCE(cr.user_reject, 0) = 0
-            )
+            WHERE {pending_condition}
             {album_filter}
             """,
             count_parameters,
@@ -1738,13 +1757,12 @@ def _query_similarity_groups(
              ORDER BY pending_count DESC, total_count DESC, e.start_at DESC
             """
         ).fetchall()
-        having_sql = ""
-        if review_filter == "pending":
-            having_sql = (
-                "HAVING SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) = 0"
-                " AND SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END)"
-                " < COUNT(*)"
-            )
+        filtered_count = connection.execute(
+            f"""SELECT COUNT(*) FROM similarity_groups sg
+                JOIN bursts b ON b.id=sg.burst_id
+                WHERE {review_condition}{album_filter}""",
+            count_parameters,
+        ).fetchone()[0]
         rows = connection.execute(
             f"""
             SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
@@ -1763,9 +1781,8 @@ def _query_similarity_groups(
             JOIN captures c ON c.id = sgc.capture_id
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
-            WHERE 1=1 {album_filter}
+            WHERE {review_condition} {album_filter}
             GROUP BY sg.id
-            {having_sql}
             ORDER BY sg.capture_count DESC, b.start_at DESC
             LIMIT ? OFFSET ?
             """,
@@ -1778,9 +1795,8 @@ def _query_similarity_groups(
                 "picked" if item["pick_count"] else
                 "skipped" if item["reject_count"] >= item["capture_count"] else "pending"
             )
-        count = pending_count if review_filter == "pending" else total
         return {
-            "count": count, "limit": limit, "offset": offset, "items": items,
+            "count": filtered_count, "limit": limit, "offset": offset, "items": items,
             "total_count": total, "pending_count": pending_count,
             "albums": [dict(row) for row in album_rows],
         }
@@ -2196,6 +2212,27 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             ) from exc
         return {"opened": True, "path": str(path)}
 
+    @app.post("/api/system/folders/{folder_kind}/open")
+    def open_configured_folder(folder_kind: str) -> dict[str, Any]:
+        paths = {
+            "library": settings.originals,
+            "workspace": settings.workspace,
+            "cache": settings.cache_root,
+            "reports": settings.reports_path,
+        }
+        path = paths.get(folder_kind)
+        if path is None:
+            raise HTTPException(status_code=404, detail="不支持的目录类型")
+        if not path.is_dir():
+            raise HTTPException(status_code=404, detail=f"目录不存在：{path}")
+        try:
+            _open_folder(path)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"无法打开系统文件管理器：{exc}"
+            ) from exc
+        return {"opened": True, "path": str(path)}
+
     @app.get("/api/library/captures")
     def library_captures(
         limit: int = Query(default=60, ge=1, le=200),
@@ -2581,10 +2618,14 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             connection.close()
 
     @app.post("/api/lightroom/manifest", status_code=201)
-    def generate_lightroom_manifest() -> dict[str, Any]:
+    def generate_lightroom_manifest(request: LightroomManifestRequest) -> dict[str, Any]:
+        if request.scope == "album" and request.album_id is None:
+            raise HTTPException(status_code=422, detail="按相册生成时必须选择相册")
         connection = connect_readonly(settings.database_path)
         try:
-            result = write_lightroom_manifest(connection, settings.reports_path)
+            result = write_lightroom_manifest(
+                connection, settings.reports_path, request.scope, request.album_id
+            )
         finally:
             connection.close()
         return {
