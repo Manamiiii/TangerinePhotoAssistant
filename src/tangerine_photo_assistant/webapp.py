@@ -2382,7 +2382,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def similarity_groups(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
-        review_filter: Literal["all", "pending"] = "all",
+        review_filter: Literal["all", "pending", "completed", "adjusted"] = "all",
         album_id: int | None = Query(default=None, ge=1),
     ) -> dict[str, Any]:
         return _query_similarity_groups(

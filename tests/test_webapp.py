@@ -10,7 +10,7 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.lightroom import build_lightroom_rows
 from tangerine_photo_assistant.pairing import rebuild_captures
-from tangerine_photo_assistant.settings import Settings
+from tangerine_photo_assistant.settings import Settings, write_safe_config
 from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.visual import (
     build_visual_fingerprints,
@@ -31,6 +31,7 @@ from tangerine_photo_assistant.webapp import (
     _query_library_filters,
     _query_overview,
     _runtime_capabilities,
+    create_app,
     _query_quality,
     _query_similarity_groups,
 )
@@ -371,6 +372,20 @@ class WebAppQueryTests(unittest.TestCase):
                 settings, 20, 0, review_filter="adjusted"
             )
             self.assertEqual(adjusted_only["count"], 1)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            operation = create_app(config_path).openapi()["paths"][
+                "/api/similarity-groups"
+            ]["get"]
+            review_parameter = next(
+                item for item in operation["parameters"] if item["name"] == "review_filter"
+            )
+            self.assertEqual(
+                set(review_parameter["schema"]["enum"]),
+                {"all", "pending", "completed", "adjusted"},
+            )
 
     def test_lightroom_manifest_scope_is_explicit(self) -> None:
         with TemporaryDirectory() as directory:
