@@ -748,6 +748,15 @@ function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => v
   );
 }
 
+function taskBelongsTo(task: Task | null, area: "library" | "visual" | "analysis") {
+  if (!task || task.status === "idle") return false;
+  const stage = task.stage.toLocaleLowerCase();
+  const message = task.message;
+  if (area === "visual") return ["duplicates", "fingerprints"].includes(stage) || /视觉预筛|相似分组|画面指纹|精确重复/.test(message);
+  if (area === "analysis") return stage === "quality" || stage.startsWith("detail-") || stage.startsWith("ai-") || /技术质量|详情数据|扩展拍摄信息|直方图|模型任务|本地模型|Qwen/.test(message);
+  return ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(message);
+}
+
 function ModalShell({ title, close, children, wide = false }: { title: string; close: () => void; children: ReactNode; wide?: boolean }) {
   return <div className="editor-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={close}>
     <section className={`editor-modal ${wide ? "wide" : ""}`} onClick={(event) => event.stopPropagation()}>
@@ -843,7 +852,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   reviewFilter: "all" | "pending";
   setReviewFilter: (filter: "all" | "pending") => void;
 }) {
-  const [editingGrouping, setEditingGrouping] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const groupItems = groups?.items ?? [];
   const currentIndex = selectedGroup ? groupItems.findIndex((item) => item.id === selectedGroup.id) : -1;
   const nextPending = groupItems.find((item, index) => index > currentIndex && item.review_status === "pending")
@@ -855,14 +864,14 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
         <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><p>比较连拍和相似画面。</p><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
         <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span></div>
       </section>
-      <TaskCard task={task} cancel={cancelTask} />
+      <TaskCard task={taskBelongsTo(task, "visual") ? task : null} cancel={cancelTask} />
       {selectedGroup ? (
         <section className="panel comparison-panel">
           <div className="panel-heading comparison-heading">
             <div><button className="back-navigation" onClick={closeGroup}>← 返回相似组</button><span className="section-kicker">组内对比</span><h3>{selectedGroup.event_name}</h3></div>
-            <div className="panel-heading-actions"><button className="toolbar-button" onClick={() => setEditingGrouping(true)}>调整分组</button>{nextPending && <button className="toolbar-button primary" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}</div>
+            <div className="panel-heading-actions"><button className="toolbar-button" onClick={() => setEditingGroupId(selectedGroup.id)}>调整分组</button>{nextPending && <button className="toolbar-button primary" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}</div>
           </div>
-          {editingGrouping ? <SimilarityGroupingEditor group={selectedGroup} cancel={() => setEditingGrouping(false)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
+          {editingGroupId === selectedGroup.id ? <SimilarityGroupingEditor key={selectedGroup.id} group={selectedGroup} cancel={() => setEditingGroupId(null)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
           <div className="comparison-note">共 {selectedGroup.capture_count} 张 · 按拍摄顺序排列 · 点击图片查看完整参数</div>
           <div className="comparison-grid">
             {selectedGroup.items.map((item) => (
@@ -937,30 +946,95 @@ function ScoreBar({ label, score }: { label: string; score: number | null }) {
   );
 }
 
+type ParameterHelpEntry = { title: string; meaning: string; options: Array<readonly [string, string]>; note?: string };
 const parameterHelp = {
-  shutter: ["快门速度", "控制曝光持续时间。高速快门更容易凝固动作；慢门会记录运动轨迹，也更容易因手抖变糊。", "常见参考：1/1000 秒以上凝固快速动作；1/125–1/500 秒适合一般手持；1/30 秒以下通常需要防抖或支撑。"],
-  aperture: ["光圈", "控制进光量和景深。较小的 f 数代表更大的光圈、更多进光和更浅景深。", "常见约 f/1.2–f/22，取决于镜头。大光圈适合弱光和主体分离；过小光圈可能受衍射影响。"],
-  iso: ["ISO 感光度", "表示传感器信号增益。提高 ISO 能换取更快快门或更小光圈，但通常会增加噪点并降低动态范围。", "常见原生范围约 ISO 64–12800，扩展值因机型而异。通常优先使用满足快门需求的最低 ISO。"],
-  focal: ["焦距", "影响视角和画面透视呈现。等效焦距便于比较不同画幅相机的视角。", "全画幅等效参考：24mm 以下超广角，24–35mm 广角，40–60mm 标准，70–200mm 长焦。"],
-  compensation: ["曝光补偿", "在相机自动测光结果上主动增亮或压暗。正值更亮，负值更暗。", "常见范围为 -5 EV 到 +5 EV，以 1/3 EV 调整。雪景、逆光人物常需正补偿；保高光常用负补偿。"],
-  film: ["胶片模拟", "相机对 JPG 色彩、对比度和色调的预设，不等同于 RAW 文件本身的全部可调空间。", "选项因品牌和机型而异；富士常见 Provia、Velvia、Astia、Classic Chrome、Classic Neg.、Acros 等。"],
-  program: ["曝光程序与模式", "决定快门、光圈和 ISO 中哪些由摄影者控制，哪些由相机自动决定。", "常见 P 程序自动、A/Av 光圈优先、S/Tv 快门优先、M 手动，以及 Auto、场景和 Bulb。"],
-  shutterType: ["快门类型", "机械快门通常滚动快门效应较小；电子快门安静且更高速，但快速运动和频闪光源下可能变形或产生条纹。", "常见机械、电子前帘、电子快门和自动切换，支持情况因机型而异。"],
-  metering: ["测光模式", "决定相机使用画面哪些区域估算曝光。", "常见多区/评价、中央重点、点测光和平均测光；逆光或高反差场景下差异最明显。"],
-  whiteBalance: ["白平衡", "校正不同光源的色温和色偏，让中性色更自然，也可用于创造冷暖氛围。", "常见自动、日光、阴影、钨丝灯、荧光灯、闪光灯、色温 K 值和自定义。"],
-  focus: ["对焦模式", "决定相机锁定一次焦点，还是持续跟随主体变化。", "常见 AF-S/单次、AF-C/连续、AF-A 自动切换和 MF 手动；名称会随品牌变化。"],
-  afArea: ["AF 区域", "决定相机可从多大范围内选择对焦点。范围越大越容易捕捉运动主体，也更可能选错对象。", "常见单点、区域、宽域/自动、追踪，以及人脸、眼睛或动物识别。"],
-  stabilization: ["防抖", "通过镜头或机身补偿手持抖动，主要改善静止主体的低速快门成功率，不能冻结主体自身运动。", "常见镜头 OIS/VR/OSS、机身 IBIS、组合防抖、仅拍摄时启用和关闭。"],
-  dynamicRange: ["动态范围设置", "相机通过曝光和 JPG 曲线保护高光或抬升阴影，主要影响机内 JPG，并可能提高最低 ISO。", "富士常见 DR100、DR200、DR400 和自动；其他品牌名称和策略不同。"],
-} satisfies Record<string, readonly [string, string, string]>;
+  shutter: { title: "快门速度", meaning: "控制曝光持续时间。它是连续数值，不存在有限的全部选项。", options: [["1/1000 秒及更快", "凝固运动、飞鸟和体育"], ["1/125–1/500 秒", "一般手持和日常动作"], ["1/30–1/100 秒", "静止主体可尝试手持，需留意防抖和焦距"], ["1 秒及更慢", "记录流水、车轨等运动，通常需要支撑"], ["Bulb / Time", "由摄影者控制超长曝光时长"]] },
+  aperture: { title: "光圈", meaning: "控制进光量和景深，是由镜头决定范围的连续档位。f 数越小，光圈越大。", options: [["f/1.0–f/2.0", "大进光量、浅景深"], ["f/2.8–f/4", "主体分离与清晰范围的平衡"], ["f/5.6–f/8", "常见最佳画质区间"], ["f/11–f/22", "扩大景深，但过小可能出现衍射"]] },
+  iso: { title: "ISO 感光度", meaning: "表示传感器信号增益，是连续档位；提高 ISO 通常会增加噪点并降低动态范围。", options: [["原生低 ISO", "通常有最佳画质和动态范围"], ["自动 ISO", "相机按快门下限等规则自动选择"], ["高 ISO", "弱光下换取快门速度"], ["扩展 ISO（L/H）", "机内推拉值，画质或高光余量可能受限"]] },
+  focal: { title: "焦距", meaning: "影响视角和画面透视呈现，是镜头提供的连续或固定数值。", options: [["24mm 以下（等效）", "超广角"], ["24–35mm", "广角"], ["40–60mm", "标准视角"], ["70–200mm", "中长焦到长焦"], ["200mm 以上", "超长焦"]] },
+  compensation: { title: "曝光补偿", meaning: "在自动测光结果上主动增亮或压暗，是连续档位。", options: [["0 EV", "采用相机测光结果"], ["正补偿", "整体增亮，常用于雪景或逆光人物"], ["负补偿", "整体压暗，常用于保护高光"], ["自动包围曝光", "连续拍摄不同补偿值以便选择或合成"]] },
+  film: { title: "胶片模拟", meaning: "相机对 JPG 色彩、对比度和色调的预设，不等同于 RAW 的全部可调空间。", options: [["Provia / Standard", "自然、通用"], ["Velvia / Vivid", "高饱和、高反差，常用于风景"], ["Astia / Soft", "较柔和的人像色调"], ["Classic Chrome", "低饱和、纪实感"], ["Classic Neg.", "较强色彩层次和负片感"], ["Nostalgic Neg.", "暖高光与柔和怀旧色调"], ["ETERNA / Cinema", "低反差、电影感"], ["ETERNA Bleach Bypass", "低饱和、高反差"], ["Acros / Monochrome", "黑白；可带黄/红/绿滤镜"], ["Sepia", "棕褐色单色"]], note: "胶片模拟是厂商专有枚举；此处列出当前图库富士设备的常见全集，新机型可能增加选项。" },
+  program: { title: "曝光程序与模式", meaning: "决定快门、光圈和 ISO 中哪些由摄影者控制。", options: [["Auto / 全自动", "相机决定主要曝光参数"], ["P / Program AE", "相机组合快门与光圈，可程序偏移"], ["A / Av", "摄影者设光圈，相机决定快门"], ["S / Tv", "摄影者设快门，相机决定光圈"], ["M / Manual", "摄影者设快门和光圈"], ["Bulb / Time", "超长曝光"], ["Scene / 场景模式", "针对人像、运动、夜景等的自动策略"]] },
+  shutterType: { title: "快门类型", meaning: "不同快门的静音、最高速度、闪光同步和运动畸变特性不同。", options: [["机械快门（Mechanical Shutter）", "实体帘幕曝光；闪光兼容好，运动畸变较少，但有声音和机械震动"], ["电子前帘（Electronic Front Curtain / EFCS）", "电子开始、机械结束；震动较小，但高速大光圈可能影响焦外或曝光均匀"], ["电子快门（Electronic Shutter）", "完全静音、可达更高速度；快速运动可能滚动变形，频闪灯下可能有条纹"], ["机械 + 电子（Mechanical + Electronic）", "相机按速度或条件自动切换"], ["电子前帘 + 机械", "相机在 EFCS 和机械之间自动切换"], ["自动（Auto）", "由机身根据当前功能选择"]], note: "部分机型还提供全局快门或特殊高速模式；实际选项以相机型号为准。" },
+  metering: { title: "测光模式", meaning: "决定相机用画面哪些区域估算曝光。", options: [["多区 / 评价（Multi-segment / Evaluative）", "综合全画面与主体信息，最通用"], ["中央重点（Center-weighted）", "全画面测光但提高中央区域权重"], ["点测光（Spot）", "只测很小区域，适合精确控制主体亮度"], ["局部测光（Partial）", "测量中央较小区域，范围大于点测光"], ["平均测光（Average）", "平均考虑整个画面"], ["高光重点（Highlight-weighted）", "优先避免亮部过曝"]] },
+  whiteBalance: { title: "白平衡", meaning: "校正不同光源的色温和色偏，也可用于创造冷暖氛围。", options: [["自动（Auto / AWB）", "相机判断中性色；部分机型可选保留白色或保留暖色"], ["日光（Daylight）", "晴天日光"], ["阴影（Shade）", "增加暖色以修正阴影偏蓝"], ["阴天（Cloudy）", "比日光略暖"], ["钨丝灯（Tungsten）", "修正暖色白炽灯"], ["荧光灯（Fluorescent）", "修正不同类型荧光灯偏色"], ["闪光灯（Flash）", "匹配机顶闪光灯"], ["色温 K 值", "直接指定色温"], ["自定义 / Custom", "使用灰卡或已测量白点"]] },
+  focus: { title: "对焦模式", meaning: "决定相机锁定一次焦点，还是持续跟随主体变化。", options: [["AF-S / Single", "半按后锁定，适合静止主体"], ["AF-C / Continuous", "持续更新焦点，适合运动主体"], ["AF-A / Automatic", "相机在单次和连续之间判断"], ["MF / Manual", "手动对焦"], ["DMF", "自动对焦后允许手动微调"]] },
+  afArea: { title: "AF 区域", meaning: "决定相机可从多大范围内选择对焦点。", options: [["单点 / Single Point", "精确指定一个对焦点"], ["区域 / Zone", "在一组对焦点内识别主体"], ["宽域 / Wide", "相机在大范围内自动选择"], ["全域 / All", "使用整个对焦覆盖区"], ["追踪 / Tracking", "识别并持续跟随指定主体"], ["人脸 / 眼睛识别", "优先人物面部或眼睛"], ["动物 / 鸟类 / 交通工具识别", "机型支持的专用主体识别"]] },
+  stabilization: { title: "防抖", meaning: "补偿手持抖动，不能冻结主体自身运动。", options: [["关闭（Off）", "不进行光学或传感器补偿"], ["持续（Continuous / Mode 1）", "持续稳定取景与曝光"], ["仅拍摄时（Shooting Only）", "曝光前后启用，较省电"], ["摇摄（Panning / Mode 2）", "保留一个方向的主动移动"], ["机身防抖（IBIS）", "移动传感器补偿"], ["镜头防抖（OIS / VR / OSS）", "移动镜片组补偿"], ["协同防抖", "机身和镜头配合"]] },
+  dynamicRange: { title: "动态范围设置", meaning: "通过曝光和 JPG 曲线保护高光或抬升阴影，主要影响机内 JPG。", options: [["DR100", "标准基准，不额外压缩高光"], ["DR200", "约增加 1 档高光保护，通常要求较高最低 ISO"], ["DR400", "约增加 2 档高光保护，最低 ISO 要求更高"], ["Auto DR", "相机根据场景选择 DR100/200/400"], ["D-Range Priority", "综合调整高光与阴影曲线；部分配方参数会被限制"]], note: "其他品牌可能称 Active D-Lighting、DRO、Highlight Tone Priority 等，机制并不完全相同。" },
+} satisfies Record<string, ParameterHelpEntry>;
 
 function ParameterHelp({ kind }: { kind: keyof typeof parameterHelp }) {
   const [open, setOpen] = useState(false);
-  const [title, meaning, values] = parameterHelp[kind];
-  return <span className="parameter-help">
-    <button type="button" aria-label={`解释${title}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>
-    {open && <span className="parameter-help-popover" role="note"><strong>{title}</strong><span>{meaning}</span><small>{values}</small></span>}
+  const rootRef = useRef<HTMLSpanElement | null>(null);
+  const help: ParameterHelpEntry = parameterHelp[kind];
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeEscape);
+    };
+  }, [open]);
+  return <span ref={rootRef} className="parameter-help">
+    <button type="button" aria-label={`解释${help.title}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>
+    {open && <span className="parameter-help-popover" role="note"><span className="parameter-help-heading"><strong>{help.title}</strong><button type="button" aria-label="关闭解释" onClick={() => setOpen(false)}>×</button></span><span>{help.meaning}</span><b>可能的选项与含义</b><span className="parameter-help-options">{help.options.map(([value, meaning]) => <span key={value}><strong>{value}</strong><small>{meaning}</small></span>)}</span>{help.note && <em>{help.note}</em>}</span>}
   </span>;
+}
+
+const metadataValueTranslations: Record<string, string> = {
+  "auto": "自动", "automatic": "自动", "manual": "手动", "normal": "标准", "standard": "标准",
+  "on": "开启", "off": "关闭", "yes": "是", "no": "否", "none": "无", "unknown": "未知",
+  "mechanical": "机械快门", "mechanical shutter": "机械快门", "electronic": "电子快门", "electronic shutter": "电子快门",
+  "electronic front curtain": "电子前帘", "electronic front curtain shutter": "电子前帘",
+  "mechanical + electronic": "机械 + 电子自动切换", "mechanical + electronic shutter": "机械 + 电子自动切换",
+  "program ae": "程序自动曝光（P）", "aperture-priority ae": "光圈优先（A/Av）", "aperture priority": "光圈优先（A/Av）",
+  "shutter speed priority ae": "快门优先（S/Tv）", "shutter-priority ae": "快门优先（S/Tv）", "manual exposure": "手动曝光（M）",
+  "multi-segment": "多区测光", "multi-zone": "多区测光", "evaluative": "评价测光", "center-weighted average": "中央重点平均测光",
+  "center-weighted": "中央重点测光", "spot": "点测光", "partial": "局部测光", "average": "平均测光", "highlight-weighted": "高光重点测光",
+  "daylight": "日光", "shade": "阴影", "cloudy": "阴天", "tungsten": "钨丝灯", "incandescent": "白炽灯",
+  "fluorescent": "荧光灯", "flash": "闪光灯", "custom": "自定义", "auto white priority": "自动（白色优先）", "auto ambiance priority": "自动（氛围优先）",
+  "single": "单次", "single af": "单次自动对焦（AF-S）", "continuous": "连续", "continuous af": "连续自动对焦（AF-C）",
+  "manual focus": "手动对焦（MF）", "af-s": "单次自动对焦（AF-S）", "af-c": "连续自动对焦（AF-C）", "af-a": "自动切换对焦（AF-A）",
+  "single point": "单点", "single-point": "单点", "zone": "区域", "wide": "宽域", "wide/tracking": "宽域 / 追踪", "tracking": "追踪", "all": "全域",
+  "continuous, mode 1": "持续防抖（模式 1）", "shooting only": "仅拍摄时防抖", "panning": "摇摄防抖",
+  "sr+": "智能场景识别自动", "fine": "精细", "fine jpeg": "精细 JPEG", "raw + jpeg": "RAW + JPEG",
+  "uncompressed": "未压缩", "lossless compressed": "无损压缩", "compressed": "有损压缩",
+  "srgb": "sRGB", "adobe rgb": "Adobe RGB", "horizontal (normal)": "横向（正常）",
+  "rotate 90 cw": "顺时针旋转 90°", "rotate 270 cw": "顺时针旋转 270°", "high": "高", "low": "低", "strong": "强", "weak": "弱",
+  "provia/standard": "Provia / 标准", "velvia/vivid": "Velvia / 鲜艳", "astia/soft": "Astia / 柔和",
+  "f0/standard (provia)": "Provia / 标准", "f1/studio portrait": "Studio Portrait / 棚拍人像", "f2/fujichrome": "Fujichrome / 鲜艳",
+  "classic chrome": "经典正片", "classic neg": "经典负片", "nostalgic neg": "怀旧负片", "eterna/cinema": "Eterna / 电影",
+  "eterna bleach bypass": "Eterna 漂白效果", "acros": "Acros 黑白", "monochrome": "黑白", "sepia": "棕褐色",
+  "single frame": "单张拍摄", "continuous low": "低速连拍", "continuous high": "高速连拍", "movie": "视频",
+  "no flash": "未闪光", "fired": "已闪光", "fired, compulsory flash mode": "已闪光（强制闪光）", "auto, did not fire": "自动闪光（未触发）",
+  "face detection": "人脸识别", "eye detection": "眼睛识别", "subject tracking": "主体追踪",
+  "ois lens": "镜头光学防抖", "on (mode 1, continuous)": "开启（模式 1，持续）", "on (mode 2, shooting only)": "开启（模式 2，仅拍摄时）",
+};
+
+function formatMetadataText(value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (Array.isArray(value)) return value.map(formatMetadataText).join(" · ");
+  if (typeof value !== "string") return String(value);
+  const trimmed = value.trim();
+  const translated = metadataValueTranslations[trimmed.toLocaleLowerCase()];
+  if (!translated && trimmed.includes(";")) {
+    const segments = trimmed.split(";").map((item) => item.trim());
+    const localized = segments.map((item) => metadataValueTranslations[item.toLocaleLowerCase()] ?? item);
+    if (localized.some((item, index) => item !== segments[index])) return `${localized.join("；")}（${value}）`;
+  }
+  return translated && translated !== value ? `${translated}（${value}）` : value;
 }
 
 function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate, hasPrev, hasNext }: {
@@ -1000,10 +1074,7 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
       document.body.style.paddingRight = previousPaddingRight;
     };
   }, []);
-  const metadataText = (value: unknown) => {
-    if (value == null || value === "") return "—";
-    return Array.isArray(value) ? value.join(" · ") : String(value);
-  };
+  const metadataText = formatMetadataText;
   const review = (changes: Partial<ReviewPayload>) => saveReview(detail.id, {
     user_rating: detail.user_rating,
     user_pick: Boolean(detail.user_pick),
@@ -1074,7 +1145,7 @@ function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate,
               <div><dt>拍摄时间</dt><dd>{detail.captured_at ? detail.captured_at.replace("T", " ") : "—"}</dd></div>
               <div><dt>尺寸</dt><dd>{exif?.width && exif?.height ? `${exif.width} × ${exif.height}` : "—"}</dd></div>
               <div><dt>曝光补偿 <ParameterHelp kind="compensation" /></dt><dd>{exif?.exposure_compensation == null ? "—" : `${exif.exposure_compensation > 0 ? "+" : ""}${exif.exposure_compensation} EV`}</dd></div>
-              <div><dt>胶片模拟 <ParameterHelp kind="film" /></dt><dd>{exif?.film_simulation ?? "—"}</dd></div>
+              <div><dt>胶片模拟 <ParameterHelp kind="film" /></dt><dd>{metadataText(exif?.film_simulation)}</dd></div>
               <div><dt>GPS</dt><dd>{exif?.gps_latitude != null && exif?.gps_longitude != null ? `${exif.gps_latitude.toFixed(5)}, ${exif.gps_longitude.toFixed(5)}` : "—"}</dd></div>
             </dl>
             {informationLevel !== "compact" && <details className="metadata-details" open={informationLevel === "full"}><summary>拍摄方式与对焦</summary><dl className="exif-grid">
@@ -1204,10 +1275,10 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number }>;
   restoreGroupingRevision: (revisionId: number) => Promise<void>;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   return <ModalShell title={`${group.event_name} · 相似照片`} close={close} wide>
-    {editing ? <SimilarityGroupingEditor group={group} cancel={() => setEditing(false)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
-    <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><button className="toolbar-button" onClick={() => setEditing(true)}>调整分组</button></div>
+    {editingGroupId === group.id ? <SimilarityGroupingEditor key={group.id} group={group} cancel={() => setEditingGroupId(null)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
+    <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><button className="toolbar-button" onClick={() => setEditingGroupId(group.id)}>调整分组</button></div>
     <div className="similarity-picker-grid">{group.items.map((item) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
       <button className="similarity-picker-photo" onClick={() => openCapture(item.capture_id, group.items.map((member) => member.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{item.auto_pick && <span>技术推荐</span>}</button>
       <div className="similarity-picker-copy"><strong>{item.stem}</strong><small>{item.technical_score == null ? "未评分" : `技术分 ${Math.round(item.technical_score)}`} · ISO {item.iso ?? "—"}</small></div>
@@ -1400,7 +1471,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   return (
     <>
       {!activeAlbumId && <div className="library-navigation"><div className="section-tabs" role="tablist" aria-label="图库功能"><button className={section === "photos" ? "active" : ""} onClick={() => setSection("photos")}>全部照片</button><button className={section === "albums" ? "active" : ""} onClick={() => setSection("albums")}>相册管理</button></div><div className="library-maintenance"><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button primary" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新图库"}</button></div></div>}
-      <TaskCard task={task} cancel={cancelTask} />
+      <TaskCard task={taskBelongsTo(task, "library") ? task : null} cancel={cancelTask} />
       {activeAlbumId ? <>
         <section className="album-detail-header"><button className="album-back" onClick={leaveAlbum}>← 返回相册</button><div><span>{activeAlbum?.category ?? "相册"}</span><h2>{activeAlbum?.name ?? "相册照片"}</h2><small>{numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片</small></div><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>更新图库</button></section>
         <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
@@ -1560,7 +1631,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           {gpu?.available && <small>{gpu.name} · GPU {gpu.utilization_percent}% · 显存 {((gpu.memory_used_mb ?? 0) / 1024).toFixed(1)} / {((gpu.memory_total_mb ?? 0) / 1024).toFixed(1)} GB · {gpu.temperature_c}°C</small>}
         </div>
       </section>
-      <TaskCard task={task} cancel={cancelTask} pause={pauseTask} />
+      <TaskCard task={taskBelongsTo(task, "analysis") ? task : null} cancel={cancelTask} pause={pauseTask} />
       <section className="metric-grid">
         <article><span>技术分析完成</span><strong>{summary ? numberFormat.format(summary.analyzed) : "—"}</strong><small>{summary?.errors ?? 0} 个读取错误</small></article>
         <article><span>平均技术分</span><strong>{summary?.average_score ?? "—"}</strong><small>算法证据，不代表审美</small></article>

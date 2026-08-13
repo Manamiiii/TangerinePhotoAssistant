@@ -1202,10 +1202,17 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .detail-backdrop.immersive .detail-close { top: 16px; right: 16px; }
 .parameter-help { position: relative; display: inline-flex; vertical-align: middle; }
 .parameter-help > button { width: 15px; height: 15px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: transparent; font: inherit; font-size: 8px; line-height: 13px; cursor: pointer; }
-.parameter-help-popover { position: absolute; z-index: 15; left: 20px; top: -8px; width: min(300px, 70vw); padding: 12px; border: 1px solid #66513e; border-radius: 10px; color: var(--text); background: #211d18; box-shadow: 0 12px 36px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 7px; text-align: left; white-space: normal; }
+.parameter-help-popover { position: fixed; z-index: 210; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: min(560px, calc(100dvh - 48px)); padding: 13px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #66513e; border-radius: 10px; color: var(--text); background: #211d18; box-shadow: 0 12px 36px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 9px; text-align: left; white-space: normal; }
 .parameter-help-popover strong { font-size: 10px; }
-.parameter-help-popover > span { color: #c2b9af; font-size: 9px; line-height: 1.55; }
+.parameter-help-popover > span:not(.parameter-help-heading):not(.parameter-help-options) { color: #c2b9af; font-size: 9px; line-height: 1.55; }
+.parameter-help-popover > b { color: var(--orange-soft); font-size: 8px; }
+.parameter-help-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.parameter-help-heading > button { width: 22px; height: 22px; padding: 0; border: 0; color: var(--muted); background: transparent; font: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
+.parameter-help-options { display: flex; flex-direction: column; gap: 7px; }
+.parameter-help-options > span { padding-top: 7px; border-top: 1px solid rgba(128,118,105,.2); display: flex; flex-direction: column; gap: 2px; }
+.parameter-help-options strong { color: #d9d1c8; font-size: 9px; }
 .parameter-help-popover small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.parameter-help-popover em { color: var(--muted); font-size: 8px; font-style: normal; line-height: 1.5; }
 
 /* Lightweight home workspace */
 .home-workspace-grid { margin-bottom: 16px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(340px, .75fr); gap: 16px; }
