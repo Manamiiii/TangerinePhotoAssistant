@@ -76,6 +76,28 @@ export type Statistics = {
     selected_count: number;
     selection_keep_rate: number | null;
   }>;
+  growth_subjects: Array<StatisticRow & {
+    subject: string;
+    rated_count: number;
+    high_rated_count: number;
+    high_rating_rate: number | null;
+    quality_count: number;
+    technical_failure_count: number;
+    technical_failure_rate: number | null;
+    similar_capture_count: number;
+    repeat_capture_rate: number | null;
+  }>;
+  selection_efficiency: {
+    completed_sessions: number;
+    average_active_seconds: number | null;
+    average_decisions: number | null;
+  };
+  edit_feedback: {
+    reviewed_recipes: number;
+    accepted_count: number;
+    dismissed_count: number;
+    draft_count: number;
+  };
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
   cameras: Array<StatisticRow & { camera_model: string }>;
@@ -99,6 +121,7 @@ type StatisticsLibraryQuery = {
   selectionReason?: string;
   modelProblem?: string;
   reviewCondition?: string;
+  tagSubject?: string;
 };
 
 function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode = "count" }: {
@@ -238,6 +261,28 @@ export function StatisticsView({ statistics, openLibraryWith }: {
             </button>)}
             {!(statistics?.growth_months ?? []).length && <div className="empty-state">暂无可按月份统计的拍摄数据。</div>}
           </div>
+        </section>
+        <section className="panel growth-subject-panel">
+          <div className="panel-heading"><div><span className="section-kicker">同题材对照</span><h3>人工结果与技术基线</h3></div><span className="batch-count">每个题材至少 3 张；多标签照片会进入多行</span></div>
+          <div className="growth-month-table growth-subject-table">
+            <div className="growth-month-head"><span>题材 / 样本</span><span>人工高星</span><span>技术低分</span><span>相似拍摄</span><span>技术均分</span></div>
+            {(statistics?.growth_subjects ?? []).map((subject) => <button key={subject.subject} onClick={() => openLibraryWith({ tagSubject: subject.subject })}>
+              <span><strong>{subject.subject}</strong><small>{subject.count} 张</small></span>
+              <span><strong>{subject.high_rating_rate == null ? "—" : `${subject.high_rating_rate}%`}</strong><small>{subject.high_rated_count}/{subject.rated_count}</small></span>
+              <span><strong>{subject.technical_failure_rate == null ? "—" : `${subject.technical_failure_rate}%`}</strong><small>{subject.technical_failure_count}/{subject.quality_count}</small></span>
+              <span><strong>{subject.repeat_capture_rate == null ? "—" : `${subject.repeat_capture_rate}%`}</strong><small>{subject.similar_capture_count}/{subject.count}</small></span>
+              <span><strong>{subject.average_score ?? "—"}</strong><small>已分析均分</small></span>
+            </button>)}
+            {!(statistics?.growth_subjects ?? []).length && <div className="empty-state">题材样本还不足，继续积累人工标签和评分后会自动出现。</div>}
+          </div>
+        </section>
+        <section className="panel growth-feedback-panel">
+          <div className="panel-heading"><div><span className="section-kicker">数据积累</span><h3>选片效率与修图反馈</h3></div><span className="batch-count">从本版本开始记录，不反推历史</span></div>
+          <div className="growth-summary-grid">
+            <article><span>完成选片会话</span><strong>{statistics?.selection_efficiency.completed_sessions ?? 0}</strong><small>{statistics?.selection_efficiency.average_active_seconds == null ? "少于 3 组时不计算平均值" : `平均活跃 ${statistics.selection_efficiency.average_active_seconds} 秒 · ${statistics.selection_efficiency.average_decisions} 次决策`}</small></article>
+            <article><span>有最新修图方案</span><strong>{statistics?.edit_feedback.reviewed_recipes ?? 0}</strong><small>采用 {statistics?.edit_feedback.accepted_count ?? 0} · 暂不采用 {statistics?.edit_feedback.dismissed_count ?? 0} · 草稿 {statistics?.edit_feedback.draft_count ?? 0}</small></article>
+          </div>
+          <p className="growth-method-note">活跃耗时仅累计相邻选片动作，单次间隔最多计 5 分钟。“采用”是人工反馈，在没有同条件后续样本前不解释为修图建议已带来改善。</p>
         </section>
       </>}
     </>

@@ -141,13 +141,16 @@ export type EditParameters = {
   tint: number;
   saturation: number;
   sharpness: number;
+  noise_reduction: number;
+  crop_percent: number;
+  straighten_deg: number;
 };
 
 export type EditRecipe = {
   id: number;
   capture_id: number;
   source_analysis_id: number | null;
-  parameter_space: "tangerine-preview-v1";
+  parameter_space: "tangerine-preview-v1" | "tangerine-preview-v2";
   parameters: EditParameters;
   status: "draft" | "accepted" | "dismissed";
   note: string | null;

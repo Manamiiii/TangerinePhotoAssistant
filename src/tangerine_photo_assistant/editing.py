@@ -21,7 +21,11 @@ PARAMETER_LIMITS: dict[str, tuple[float, float]] = {
     "tint": (-100.0, 100.0),
     "saturation": (-100.0, 100.0),
     "sharpness": (0.0, 100.0),
+    "noise_reduction": (0.0, 100.0),
+    "crop_percent": (0.0, 30.0),
+    "straighten_deg": (-10.0, 10.0),
 }
+PARAMETER_SPACE = "tangerine-preview-v2"
 EDIT_STATUSES = frozenset({"draft", "accepted", "dismissed"})
 
 
@@ -49,12 +53,13 @@ def normalize_edit_parameters(raw: Mapping[str, Any]) -> dict[str, float]:
 
 
 def _row_to_recipe(row: sqlite3.Row) -> dict[str, Any]:
+    parameters = normalize_edit_parameters(json.loads(row["parameters_json"]))
     return {
         "id": int(row["id"]),
         "capture_id": int(row["capture_id"]),
         "source_analysis_id": row["source_analysis_id"],
         "parameter_space": row["parameter_space"],
-        "parameters": json.loads(row["parameters_json"]),
+        "parameters": parameters,
         "status": row["status"],
         "note": row["note"],
         "created_at": row["created_at"],
@@ -95,11 +100,13 @@ def save_edit_recipe(
     with transaction(connection):
         cursor = connection.execute(
             """INSERT INTO edit_recipe_revisions(
-                   capture_id, source_analysis_id, parameters_json, status, note, created_at
-               ) VALUES (?, ?, ?, ?, ?, ?)""",
+                   capture_id, source_analysis_id, parameter_space,
+                   parameters_json, status, note, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 capture_id,
                 source_analysis_id,
+                PARAMETER_SPACE,
                 json.dumps(normalized, ensure_ascii=False, separators=(",", ":")),
                 status,
                 cleaned_note,
@@ -164,12 +171,37 @@ def render_edit_preview(source: Path, parameters: Mapping[str, Any]) -> bytes:
     image = ImageEnhance.Color(image).enhance(
         max(0.0, 1.0 + values["saturation"] / 100.0)
     )
+    if values["noise_reduction"]:
+        size = 5 if values["noise_reduction"] >= 65 else 3
+        reduced = image.filter(ImageFilter.MedianFilter(size=size))
+        image = Image.blend(image, reduced, min(0.8, values["noise_reduction"] / 125.0))
     if values["sharpness"]:
         image = image.filter(ImageFilter.UnsharpMask(
             radius=1.2,
             percent=round(values["sharpness"] * 1.5),
             threshold=3,
         ))
+    angle = values["straighten_deg"]
+    if angle:
+        image = image.rotate(
+            -angle,
+            resample=Image.Resampling.BICUBIC,
+            expand=False,
+            fillcolor=image.resize((1, 1), Image.Resampling.BOX).getpixel((0, 0)),
+        )
+        # Hide the largest corner artifacts conservatively; this is only a preview mapping.
+        auto_crop = min(0.16, abs(angle) / 55.0)
+        width, height = image.size
+        x_margin = round(width * auto_crop / 2)
+        y_margin = round(height * auto_crop / 2)
+        if x_margin or y_margin:
+            image = image.crop((x_margin, y_margin, width - x_margin, height - y_margin))
+    crop = values["crop_percent"] / 200.0
+    if crop:
+        width, height = image.size
+        x_margin = round(width * crop)
+        y_margin = round(height * crop)
+        image = image.crop((x_margin, y_margin, width - x_margin, height - y_margin))
     output = BytesIO()
     image.save(output, format="JPEG", quality=88, optimize=True)
     return output.getvalue()

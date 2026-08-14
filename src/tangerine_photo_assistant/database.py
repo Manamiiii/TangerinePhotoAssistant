@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -406,6 +406,21 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_capture_reviews_auto_pick
             ON capture_reviews(auto_pick, auto_rating);
+
+        CREATE TABLE IF NOT EXISTS selection_sessions (
+            id INTEGER PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES similarity_groups(id) ON DELETE CASCADE,
+            started_at TEXT NOT NULL,
+            last_activity_at TEXT NOT NULL,
+            completed_at TEXT,
+            active_seconds REAL NOT NULL DEFAULT 0,
+            decision_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK(status IN ('active', 'completed', 'abandoned'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_selection_sessions_group_status
+            ON selection_sessions(group_id, status, id DESC);
 
         CREATE TABLE IF NOT EXISTS tag_definitions (
             id INTEGER PRIMARY KEY,

@@ -152,6 +152,7 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
                    cr.selection_reason_json,
                    sgo.action AS grouping_override, sgo.manual_batch_key,
+                   vf.dhash64, vf.mean_r, vf.mean_g, vf.mean_b,
                    f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
                    f.focal_length_35mm, f.camera_model, f.lens_model
             FROM similarity_group_captures sgc
@@ -164,6 +165,7 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
             LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id = c.id
+            LEFT JOIN visual_fingerprints vf ON vf.capture_id = c.id AND vf.error IS NULL
             WHERE sgc.group_id = ? ORDER BY sgc.sequence_index
             """,
             (group_id,),
@@ -235,6 +237,93 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
                 f"较推荐片{strongest[1]}低 {strongest[0]:.0f} 分"
                 if strongest[0] >= 1 else f"较推荐片技术分低 {gap:.1f} 分"
             )
+        _add_diversity_recommendations(items, best)
+        for item in items:
+            for internal_key in ("dhash64", "mean_r", "mean_g", "mean_b"):
+                item.pop(internal_key, None)
         return {**dict(group), "items": items}
     finally:
         connection.close()
+
+
+def _fingerprint_difference(left: dict[str, Any], right: dict[str, Any]) -> float | None:
+    """Return a conservative 0-100 visual difference from existing JPEG fingerprints."""
+    if not left.get("dhash64") or not right.get("dhash64"):
+        return None
+    try:
+        hamming = (int(left["dhash64"], 16) ^ int(right["dhash64"], 16)).bit_count()
+    except (TypeError, ValueError):
+        return None
+    color_values = (
+        left.get("mean_r"), left.get("mean_g"), left.get("mean_b"),
+        right.get("mean_r"), right.get("mean_g"), right.get("mean_b"),
+    )
+    color_distance = 0.0
+    if all(value is not None for value in color_values):
+        color_distance = sum(
+            abs(float(left[channel]) - float(right[channel]))
+            for channel in ("mean_r", "mean_g", "mean_b")
+        ) / 7.65
+    return round(min(100.0, hamming / 64.0 * 85.0 + color_distance * 0.15), 1)
+
+
+def _add_diversity_recommendations(
+    items: list[dict[str, Any]], best: dict[str, Any] | None
+) -> None:
+    """Add an optional stable review order; never changes automatic or manual picks."""
+    for item in items:
+        item["visual_difference"] = None
+        item["diversity_candidate"] = False
+        item["diversity_reason"] = None
+        item["balanced_rank"] = item.get("similarity_rank")
+    if best is None:
+        return
+
+    best_score = float(best["technical_score"])
+    scored: list[tuple[dict[str, Any], float]] = []
+    for item in items:
+        if item["capture_id"] == best["capture_id"]:
+            item["visual_difference"] = 0.0
+            scored.append((item, 10_000.0))
+            continue
+        difference = _fingerprint_difference(best, item)
+        item["visual_difference"] = difference
+        technical = float(item["technical_score"]) if item["technical_score"] is not None else -1.0
+        # A difference can lift a technically close alternative, but cannot rescue a weak frame.
+        viable = technical >= 70 and best_score - technical <= 10
+        bonus = min(difference or 0.0, 40.0) * 0.22 if viable else 0.0
+        scored.append((item, technical + bonus))
+
+    ordered = sorted(
+        scored,
+        key=lambda entry: (
+            entry[0]["capture_id"] != best["capture_id"],
+            -entry[1],
+            entry[0].get("similarity_rank") or 10_000,
+            entry[0]["sequence_index"],
+        ),
+    )
+    for rank, (item, _) in enumerate(ordered, start=1):
+        item["balanced_rank"] = rank
+
+    alternatives = [
+        item for item in items
+        if item["capture_id"] != best["capture_id"]
+        and item["technical_score"] is not None
+        and float(item["technical_score"]) >= 70
+        and best_score - float(item["technical_score"]) <= 10
+        and item["visual_difference"] is not None
+    ]
+    if len(items) < 3 or not alternatives:
+        return
+    candidate = max(
+        alternatives,
+        key=lambda item: (item["visual_difference"], -item["sequence_index"]),
+    )
+    if float(candidate["visual_difference"]) < 10:
+        return
+    candidate["diversity_candidate"] = True
+    candidate["diversity_reason"] = (
+        f"与技术最佳画面差异 {candidate['visual_difference']:.0f}%，"
+        "可人工复核动作、表情或构图差异"
+    )

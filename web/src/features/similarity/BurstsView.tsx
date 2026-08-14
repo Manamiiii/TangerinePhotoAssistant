@@ -98,7 +98,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
 }) {
   const [browseMode, setBrowseMode] = useState<CollectionScope>("all");
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
-  const [comparisonOrder, setComparisonOrder] = useState<"recommended" | "capture">("recommended");
+  const [comparisonOrder, setComparisonOrder] = useState<"recommended" | "balanced" | "capture">("recommended");
   const [albumUndo, setAlbumUndo] = useState<SimilarityRevision | null>(null);
   const groupItems = groups?.items ?? [];
   const currentIndex = selectedGroup ? groupItems.findIndex((item) => item.id === selectedGroup.id) : -1;
@@ -112,7 +112,10 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   const comparisonItems = selectedGroup ? [...selectedGroup.items].sort((left, right) => (
     comparisonOrder === "capture"
       ? left.sequence_index - right.sequence_index
-      : (left.similarity_rank ?? 10_000) - (right.similarity_rank ?? 10_000)
+      : comparisonOrder === "balanced"
+        ? (left.balanced_rank ?? 10_000) - (right.balanced_rank ?? 10_000)
+          || left.sequence_index - right.sequence_index
+        : (left.similarity_rank ?? 10_000) - (right.similarity_rank ?? 10_000)
         || (right.technical_score ?? -1) - (left.technical_score ?? -1)
         || left.sequence_index - right.sequence_index
   )) : [];
@@ -143,7 +146,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
             {editingGroupId !== selectedGroup.id && nextPending && <button className="toolbar-button primary next-group-action" onClick={() => openGroup(nextPending.id)}>下一组待选 →</button>}
           </div>
           {editingGroupId === selectedGroup.id ? <SimilarityGroupingEditor key={selectedGroup.id} group={selectedGroup} cancel={() => setEditingGroupId(null)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
-          <div className="comparison-note comparison-context"><span>共 {selectedGroup.capture_count} 张 · 点击图片查看完整参数</span><div className="comparison-context-actions"><div className="burst-view-toggle" role="group" aria-label="组内照片排序"><button className={comparisonOrder === "recommended" ? "active" : ""} onClick={() => setComparisonOrder("recommended")}>推荐顺序</button><button className={comparisonOrder === "capture" ? "active" : ""} onClick={() => setComparisonOrder("capture")}>拍摄顺序</button></div><button className="toolbar-button" onClick={() => setEditingGroupId(selectedGroup.id)}>调整这一组</button></div></div>
+          <div className="comparison-note comparison-context"><span>共 {selectedGroup.capture_count} 张 · 点击图片查看完整参数</span><div className="comparison-context-actions"><div className="burst-view-toggle" role="group" aria-label="组内照片排序"><button className={comparisonOrder === "recommended" ? "active" : ""} onClick={() => setComparisonOrder("recommended")}>技术推荐</button><button className={comparisonOrder === "balanced" ? "active" : ""} onClick={() => setComparisonOrder("balanced")}>兼顾差异</button><button className={comparisonOrder === "capture" ? "active" : ""} onClick={() => setComparisonOrder("capture")}>拍摄顺序</button></div><button className="toolbar-button" onClick={() => setEditingGroupId(selectedGroup.id)}>调整这一组</button></div></div>
           <div className="comparison-grid">
             {comparisonItems.map((item) => (
               <article className={`comparison-card ${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id} onClick={() => openCapture(item.capture_id, comparisonItems.map((member) => member.capture_id))}>
@@ -151,9 +154,10 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
                   <img src={item.thumbnail_url} loading="lazy" alt={`${item.stem} 缩略图`} />
                   {item.similarity_rank && <span className="photo-rank">#{item.similarity_rank}</span>}
                   {item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}
+                  {comparisonOrder === "balanced" && item.diversity_candidate ? <span className="photo-flag diversity">差异候选</span> : null}
                   {item.user_pick ? <span className="photo-flag user">组内入选</span> : null}
                 </div>
-                <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span><small className={`recommendation-tier ${item.recommendation_tier}`}>{tierLabels[item.recommendation_tier]}</small><small className="comparison-reason">{item.recommendation_reason}</small></div>
+                <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span><small className={`recommendation-tier ${item.recommendation_tier}`}>{tierLabels[item.recommendation_tier]}</small><small className="comparison-reason">{comparisonOrder === "balanced" && item.diversity_reason ? item.diversity_reason : item.recommendation_reason}</small></div>
                 <div className="photo-review" onClick={(event) => event.stopPropagation()}>
                   <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                     <option value="">星级</option><option value="1">1★</option><option value="2">2★</option><option value="3">3★</option><option value="4">4★</option><option value="5">5★</option>

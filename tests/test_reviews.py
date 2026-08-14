@@ -6,11 +6,52 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.reviews import (
     CaptureReviewError,
     CaptureReviewNotFoundError,
+    begin_selection_session,
     save_capture_review,
 )
 
 
 class CaptureReviewTests(unittest.TestCase):
+    def test_selection_session_completes_with_first_explicit_pick(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            connection = connect(Path(temporary) / "catalog.sqlite3")
+            connection.execute(
+                """INSERT INTO events(event_key, proposed_name, category, capture_count,
+                          confidence, reason_json, created_at, updated_at)
+                   VALUES ('event:1', '测试相册', '日常', 2, 1, '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"""
+            )
+            connection.execute(
+                """INSERT INTO bursts(event_id, burst_key, start_at, end_at,
+                          capture_count, grouping_method)
+                   VALUES (1, 'burst:1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 2, 'test')"""
+            )
+            connection.execute(
+                """INSERT INTO similarity_groups(burst_id, group_key, capture_count,
+                          max_adjacent_hamming) VALUES (1, 'group:1', 2, 4)"""
+            )
+            for index in range(2):
+                connection.execute(
+                    """INSERT INTO captures(capture_key, stem, parent_relative, pairing_status)
+                       VALUES (?, ?, '', 'jpeg_only')""",
+                    (f"capture:{index}", f"C{index}"),
+                )
+                connection.execute(
+                    "INSERT INTO similarity_group_captures VALUES (1, ?, ?, NULL)",
+                    (index + 1, index),
+                )
+            connection.commit()
+            session = begin_selection_session(connection, 1)
+            save_capture_review(
+                connection, 1, user_rating=None, user_pick=True, user_reject=False,
+                user_note=None, selection_session_id=int(session["id"]),
+            )
+            saved = connection.execute(
+                "SELECT status, decision_count FROM selection_sessions WHERE id=?",
+                (session["id"],),
+            ).fetchone()
+            self.assertEqual(tuple(saved), ("completed", 1))
+            connection.close()
+
     def test_review_upsert_and_validation_are_atomic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             connection = connect(Path(temporary) / "catalog.sqlite3")

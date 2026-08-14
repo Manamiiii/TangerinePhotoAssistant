@@ -36,6 +36,10 @@ export type GroupCapture = {
   score_gap: number | null;
   recommendation_reason: string;
   recommendation_tier: "best" | "alternative" | "candidate" | "weak" | "unrated";
+  balanced_rank: number | null;
+  visual_difference: number | null;
+  diversity_candidate: boolean;
+  diversity_reason: string | null;
   user_rating: number | null;
   user_pick: number | null;
   user_reject: number;
@@ -61,6 +65,7 @@ export type SimilarityGroupDetail = {
   event_name: string;
   category: string;
   items: GroupCapture[];
+  selection_session_id?: number;
 };
 
 export type SimilarityRevision = {

@@ -491,7 +491,12 @@ function App() {
         await getJson(`/api/reviews/${captureId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(review),
+          body: JSON.stringify({
+            ...review,
+            selection_session_id: selectedGroup?.items.some((item) => item.capture_id === captureId)
+              ? selectedGroup.selection_session_id
+              : undefined,
+          }),
         });
         if (reviewVersions.current.get(captureId) === version) {
           pushToast("success", "已保存评价");
@@ -530,7 +535,17 @@ function App() {
   const openGroup = async (groupId: number) => {
     setError(null);
     try {
-      setSelectedGroup(await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${groupId}`));
+      const group = await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${groupId}`);
+      const pending = !group.items.some((item) => Boolean(item.user_pick))
+        && group.items.some((item) => !item.user_reject);
+      if (!pending) {
+        setSelectedGroup(group);
+        return;
+      }
+      const session = await getJson<{ id: number }>(
+        `/api/similarity-groups/${groupId}/selection-session`, { method: "POST" },
+      );
+      setSelectedGroup({ ...group, selection_session_id: session.id });
     } catch (reason) {
       setError((reason as Error).message);
     }

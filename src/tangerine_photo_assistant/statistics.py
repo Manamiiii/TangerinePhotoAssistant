@@ -161,6 +161,34 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         "selection_decisions", "selected_count",
     ):
         growth_summary[key] = int(growth_summary[key] or 0)
+    selection_efficiency = dict(connection.execute(
+        """SELECT COUNT(*) AS completed_sessions,
+                  ROUND(AVG(active_seconds), 1) AS average_active_seconds,
+                  ROUND(AVG(decision_count), 1) AS average_decisions
+           FROM selection_sessions
+           WHERE status='completed' AND decision_count>0"""
+    ).fetchone())
+    selection_efficiency["completed_sessions"] = int(
+        selection_efficiency["completed_sessions"] or 0
+    )
+    if selection_efficiency["completed_sessions"] < 3:
+        selection_efficiency["average_active_seconds"] = None
+        selection_efficiency["average_decisions"] = None
+    edit_feedback = dict(connection.execute(
+        """WITH latest AS (
+               SELECT er.status
+               FROM edit_recipe_revisions er
+               WHERE er.id=(SELECT MAX(newest.id) FROM edit_recipe_revisions newest
+                            WHERE newest.capture_id=er.capture_id)
+           )
+           SELECT COUNT(*) AS reviewed_recipes,
+                  SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted_count,
+                  SUM(CASE WHEN status='dismissed' THEN 1 ELSE 0 END) AS dismissed_count,
+                  SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) AS draft_count
+           FROM latest"""
+    ).fetchone())
+    for key in ("reviewed_recipes", "accepted_count", "dismissed_count", "draft_count"):
+        edit_feedback[key] = int(edit_feedback[key] or 0)
     return {
         "summary": dict(summary),
         "selection_benchmark": selection_benchmark,
@@ -169,6 +197,32 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         "shooting_review_problems": shooting_review_problems,
         "conditional_review_insights": build_conditional_review_insights(connection),
         "growth_summary": growth_summary,
+        "selection_efficiency": selection_efficiency,
+        "edit_feedback": edit_feedback,
+        "growth_subjects": _rows(
+            connection,
+            """SELECT td.name AS subject, COUNT(*) AS count,
+                      COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END) AS rated_count,
+                      SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END) AS high_rated_count,
+                      ROUND(100.0 * SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END)
+                            / NULLIF(COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END), 0), 1)
+                          AS high_rating_rate,
+                      COUNT(technical_score) AS quality_count,
+                      SUM(CASE WHEN technical_score<70 THEN 1 ELSE 0 END) AS technical_failure_count,
+                      ROUND(100.0 * SUM(CASE WHEN technical_score<70 THEN 1 ELSE 0 END)
+                            / NULLIF(COUNT(technical_score), 0), 1) AS technical_failure_rate,
+                      SUM(in_similarity_group) AS similar_capture_count,
+                      ROUND(100.0 * SUM(in_similarity_group) / NULLIF(COUNT(*), 0), 1)
+                          AS repeat_capture_rate,
+                      ROUND(AVG(technical_score), 1) AS average_score
+               FROM capture_exif
+               JOIN (SELECT DISTINCT capture_id, tag_id FROM capture_tags) ct
+                    ON ct.capture_id=capture_exif.id
+               JOIN tag_definitions td ON td.id=ct.tag_id
+                    AND td.dimension='subject' AND td.active=1
+               GROUP BY td.id HAVING COUNT(*)>=3
+               ORDER BY count DESC, td.name LIMIT 12""",
+        ),
         "growth_months": _rows(
             connection,
             """SELECT substr(captured_at, 1, 7) AS month, COUNT(*) AS count,

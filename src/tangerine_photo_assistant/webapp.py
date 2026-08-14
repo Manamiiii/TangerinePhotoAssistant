@@ -103,7 +103,12 @@ from .quality import (
     measure_luminance_histogram,
     rebuild_group_recommendations,
 )
-from .reviews import CaptureReviewError, CaptureReviewNotFoundError, save_capture_review
+from .reviews import (
+    CaptureReviewError,
+    CaptureReviewNotFoundError,
+    begin_selection_session,
+    save_capture_review,
+)
 from .tags import (
     analysis_subject_tag_status,
     clear_analysis_subject_tags,
@@ -158,6 +163,7 @@ class ReviewUpdateRequest(BaseModel):
     user_reject: bool = False
     user_note: str | None = None
     selection_reasons: list[str] | None = Field(default=None, max_length=5)
+    selection_session_id: int | None = Field(default=None, ge=1)
 
 
 class CaptureTagInput(BaseModel):
@@ -1884,6 +1890,9 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         tint: float = Query(default=0, ge=-100, le=100),
         saturation: float = Query(default=0, ge=-100, le=100),
         sharpness: float = Query(default=0, ge=0, le=100),
+        noise_reduction: float = Query(default=0, ge=0, le=100),
+        crop_percent: float = Query(default=0, ge=0, le=30),
+        straighten_deg: float = Query(default=0, ge=-10, le=10),
     ) -> Response:
         try:
             source = thumbnail_cache.get(capture_id, 1280)
@@ -1896,6 +1905,9 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 "tint": tint,
                 "saturation": saturation,
                 "sharpness": sharpness,
+                "noise_reduction": noise_reduction,
+                "crop_percent": crop_percent,
+                "straighten_deg": straighten_deg,
             })
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2485,12 +2497,23 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 user_reject=request.user_reject,
                 user_note=request.user_note,
                 selection_reasons=request.selection_reasons,
+                selection_session_id=request.selection_session_id,
             )
             return {"capture_id": capture_id, "status": "saved"}
         except CaptureReviewNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except CaptureReviewError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.post("/api/similarity-groups/{group_id}/selection-session")
+    def start_selection_session(group_id: int) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return begin_selection_session(connection, group_id)
+        except CaptureReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:
             connection.close()
 

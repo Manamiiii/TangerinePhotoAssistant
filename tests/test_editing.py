@@ -30,10 +30,12 @@ class EditRecipeTests(unittest.TestCase):
                 "exposure_ev": 0.4, "contrast": 15, "highlights": -30,
                 "shadows": 20, "temperature": 18, "tint": -8,
                 "saturation": 12, "sharpness": 30,
+                "noise_reduction": 35, "crop_percent": 8, "straighten_deg": 2.5,
             })
             self.assertEqual(source.read_bytes(), original_bytes)
             with Image.open(source) as before, Image.open(BytesIO(rendered)) as after:
-                self.assertEqual(after.size, before.size)
+                self.assertLess(after.width, before.width)
+                self.assertLess(after.height, before.height)
                 self.assertIsNotNone(ImageChops.difference(before.convert("RGB"), after.convert("RGB")).getbbox())
 
     def test_recipe_versions_are_non_destructive_and_restorable(self) -> None:
@@ -55,6 +57,8 @@ class EditRecipeTests(unittest.TestCase):
             self.assertEqual(second["note"], "保留自然肤色")
             self.assertEqual(second["parameters"]["contrast"], 12)
             self.assertEqual(second["parameters"]["exposure_ev"], 0)
+            self.assertEqual(second["parameter_space"], "tangerine-preview-v2")
+            self.assertEqual(second["parameters"]["noise_reduction"], 0)
 
             restored = restore_edit_recipe(connection, 1, first["id"])
             self.assertEqual(restored["status"], "draft")

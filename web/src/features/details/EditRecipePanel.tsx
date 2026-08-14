@@ -4,6 +4,7 @@ import type { CaptureDetail, EditParameters, EditRecipe } from "./types";
 const emptyParameters: EditParameters = {
   exposure_ev: 0, contrast: 0, highlights: 0, shadows: 0,
   temperature: 0, tint: 0, saturation: 0, sharpness: 0,
+  noise_reduction: 0, crop_percent: 0, straighten_deg: 0,
 };
 
 const controls: Array<{ key: keyof EditParameters; label: string; min: number; max: number; step: number }> = [
@@ -15,6 +16,9 @@ const controls: Array<{ key: keyof EditParameters; label: string; min: number; m
   { key: "tint", label: "色调", min: -100, max: 100, step: 1 },
   { key: "saturation", label: "饱和度", min: -100, max: 100, step: 1 },
   { key: "sharpness", label: "锐化", min: 0, max: 100, step: 1 },
+  { key: "noise_reduction", label: "降噪", min: 0, max: 100, step: 1 },
+  { key: "crop_percent", label: "居中裁剪", min: 0, max: 30, step: 1 },
+  { key: "straighten_deg", label: "水平校正", min: -10, max: 10, step: .1 },
 ];
 
 function modelParameters(detail: CaptureDetail): EditParameters | null {
@@ -30,6 +34,8 @@ function modelParameters(detail: CaptureDetail): EditParameters | null {
 
 function formatValue(key: keyof EditParameters, value: number) {
   if (key === "exposure_ev") return `${value > 0 ? "+" : ""}${value.toFixed(1)} EV`;
+  if (key === "straighten_deg") return `${value > 0 ? "+" : ""}${value.toFixed(1)}°`;
+  if (key === "crop_percent") return `${value}%`;
   return `${value > 0 ? "+" : ""}${value}`;
 }
 
@@ -67,7 +73,8 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
       {!showOriginal && previewLoading && <span className="edit-preview-loading">正在更新预览…</span>}
       <button onPointerDown={() => setShowOriginal(true)} onPointerUp={() => setShowOriginal(false)} onPointerLeave={() => setShowOriginal(false)}>{showOriginal ? "原图" : "按住看原图"}</button>
     </div>
-    <div className="edit-parameter-grid">{controls.map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
+    <div className="edit-parameter-grid">{controls.slice(0, 8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
+    <details className="edit-advanced-controls"><summary>几何与细节调整</summary><div className="edit-parameter-grid">{controls.slice(8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div><small>裁剪为居中预览；水平校正会自动裁去旋转边缘。正式裁剪仍建议在 Lightroom 中完成。</small></details>
     <label className="edit-recipe-note"><span>方案备注 / 暂不采用原因（可选）</span><textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="例如：肤色偏暖，暂时不采用；或记录本次调整意图" /></label>
     <div className="edit-recipe-actions">
       <button onClick={() => setParameters(suggested ?? emptyParameters)} disabled={!suggested}>载入模型起点</button>
@@ -76,7 +83,7 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
       <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "draft", sourceAnalysisId, note || null)}>保存草稿</button>
       <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "accepted", sourceAnalysisId, note || null)}>标记采用</button>
     </div>
-    <small>低分辨率预览会渲染全部 8 个通用参数，但不等同于 Lightroom 的处理算法和数值。只读取缓存缩略图，不会写入照片或 XMP。</small>
+    <small>低分辨率预览会渲染 11 个通用参数，但不等同于 Lightroom 的处理算法和数值。只读取缓存缩略图，不会写入照片或 XMP。</small>
     {detail.edit_recipes.length > 0 && <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}><summary>方案历史 · {detail.edit_recipes.length} 个最近版本</summary><div className="edit-recipe-history">{detail.edit_recipes.map((recipe) => <button key={recipe.id} disabled={recipe.id === latest?.id} onClick={() => void restoreRecipe(detail.id, recipe.id)}><span>版本 {recipe.id} · {{ draft: "草稿", accepted: "已采用", dismissed: "暂不采用" }[recipe.status]}</span><small>{recipe.created_at.replace("T", " ")}{recipe.note ? ` · ${recipe.note}` : ""}</small></button>)}</div></details>}
   </div>;
 }
