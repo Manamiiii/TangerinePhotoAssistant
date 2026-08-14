@@ -151,12 +151,14 @@ kind = "neutral_density"
                 self.assertNotIn(custom_key, {item["inventory_key"] for item in catalog["cameras"]})
 
                 with self.assertRaisesRegex(ValueError, "已存在"):
+                    inventory_before_duplicate = inventory.read_bytes()
                     save_equipment_item(
                         inventory,
                         "lens",
                         {"brand": "Fujifilm", "model": "XF35mmF2 R WR"},
                         existing_items=catalog["lenses"],
                     )
+                self.assertEqual(inventory.read_bytes(), inventory_before_duplicate)
 
                 official_item = next(item for item in catalog["lenses"] if item["model"] == "XF35mmF2 R WR")
                 save_equipment_item(
@@ -170,8 +172,10 @@ kind = "neutral_density"
                 official_item = next(item for item in catalog["lenses"] if item["inventory_key"] == official_item["inventory_key"])
                 self.assertEqual(official_item["model"], "XF35mmF2 R WR")
                 self.assertEqual(official_item["display_name"], "我的 35 定焦")
+                inventory_before_protected_delete = inventory.read_bytes()
                 with self.assertRaisesRegex(ValueError, "只能删除"):
                     delete_equipment_item(inventory, "lens", official_item["inventory_key"])
+                self.assertEqual(inventory.read_bytes(), inventory_before_protected_delete)
 
                 set_equipment_visibility(inventory, "lens", official_item["inventory_key"], False)
                 catalog = build_equipment_catalog(connection, profile, official, inventory)

@@ -92,6 +92,8 @@ schema 20 的 `similarity_group_revisions` 保存一次分组写入的前后 JSO
 `features/equipment/` 和 `features/statistics/`，入口文件只负责加载数据和页面编排。
 质量分析主视图及技术检测/本地模型结果契约位于 `features/analysis/`；任务归属、结果分页
 和分析页内部浏览状态由该 feature 自己维护，不再依赖入口文件内部实现。
+相似组选片、人工拖拽分组编辑器及相似组契约位于 `features/similarity/`；图库中的组内选片
+弹层复用同一编辑器，撤销和恢复语义保持一致。
 页面业务状态和接口契约均未改变，后续模块继续使用同样的“小范围迁移 + 现有回归测试”
 方式推进。
 

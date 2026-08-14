@@ -84,9 +84,22 @@ class SettingsTests(unittest.TestCase):
 
             invalid = editable_config(config)
             invalid["cache"]["thumbnail_max_size_gb"] = 40
+            config_before_invalid_save = config.read_bytes()
+            backups_before_invalid_save = set(root.glob("config.backup-*.toml"))
             with self.assertRaises(ValueError):
                 save_editable_config(config, invalid)
+            self.assertEqual(config.read_bytes(), config_before_invalid_save)
+            self.assertEqual(
+                set(root.glob("config.backup-*.toml")), backups_before_invalid_save
+            )
             self.assertEqual(Settings.load(config).thumbnail_max_size_gb, 6)
+
+            missing_library = editable_config(config)
+            missing_library["library"]["originals"] = str(root / "missing-photos")
+            with self.assertRaises(ValueError):
+                save_editable_config(config, missing_library)
+            self.assertEqual(config.read_bytes(), config_before_invalid_save)
+            self.assertFalse((root / "missing-photos").exists())
 
 
 if __name__ == "__main__":

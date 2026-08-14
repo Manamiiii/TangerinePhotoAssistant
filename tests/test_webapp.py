@@ -375,6 +375,22 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(album_quality["albums"][0]["id"], album_id)
             self.assertEqual(album_quality["albums"][0]["analyzed_count"], 2)
             self.assertEqual(album_quality["albums"][0]["problem_count"], 1)
+            problem_page = _query_quality(
+                settings, 1, 0, review_filter="problems", album_id=album_id
+            )
+            self.assertEqual(problem_page["count"], 1)
+            self.assertEqual([item["capture_id"] for item in problem_page["items"]], [low_id])
+            second_page = _query_quality(settings, 1, 1, album_id=album_id)
+            self.assertEqual(second_page["count"], 2)
+            self.assertEqual(second_page["limit"], 1)
+            self.assertEqual(second_page["offset"], 1)
+            self.assertEqual(len(second_page["items"]), 1)
+            searched_quality = _query_quality(
+                settings, 20, 0, search="DSCF0102", album_id=album_id
+            )
+            self.assertEqual(
+                [item["capture_id"] for item in searched_quality["items"]], [high_id]
+            )
             self.assertEqual(
                 _query_quality(settings, 20, 0, album_id=album_id + 1000)["items"],
                 [],

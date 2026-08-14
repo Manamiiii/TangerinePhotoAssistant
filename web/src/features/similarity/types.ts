@@ -1,0 +1,73 @@
+export type SimilarityGroupItem = {
+  id: number;
+  capture_count: number;
+  max_adjacent_hamming: number;
+  start_at: string;
+  end_at: string;
+  event_id: number;
+  event_name: string;
+  category: string;
+  average_score: number | null;
+  recommended_capture_id: number | null;
+  recommended_stem: string | null;
+  cover_capture_id: number;
+  pick_count: number;
+  reject_count: number;
+  review_status: "pending" | "picked" | "skipped";
+  thumbnail_url: string;
+};
+export type SimilarityAlbumSummary = { id: number; name: string; category: string; total_count: number; pending_count: number };
+export type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; albums: SimilarityAlbumSummary[] };
+export type SimilarityReviewFilter = "all" | "pending" | "completed" | "adjusted";
+
+export type GroupCapture = {
+  capture_id: number;
+  stem: string;
+  captured_at: string | null;
+  sequence_index: number;
+  distance_from_previous: number | null;
+  technical_score: number | null;
+  exposure_score: number | null;
+  sharpness_score: number | null;
+  exif_score: number | null;
+  auto_rating: number | null;
+  auto_pick: number;
+  similarity_rank: number | null;
+  user_rating: number | null;
+  user_pick: number | null;
+  user_reject: number;
+  user_note: string | null;
+  grouping_override: "exclude" | "split_before" | null;
+  manual_batch_key: string | null;
+  exposure_time: number | null;
+  f_number: number | null;
+  iso: number | null;
+  focal_length_mm: number | null;
+  camera_model: string | null;
+  lens_model: string | null;
+  issues: Array<{ code: string; severity: string; message: string }>;
+  thumbnail_url: string;
+};
+export type SimilarityGroupDetail = {
+  id: number;
+  capture_count: number;
+  max_adjacent_hamming: number;
+  start_at: string;
+  end_at: string;
+  event_name: string;
+  category: string;
+  items: GroupCapture[];
+};
+
+export type SimilarityRevision = {
+  id: number;
+  operation: string;
+  label: string;
+  created_at: string;
+  group_count: number;
+  excluded_count: number;
+  automatic: boolean;
+  representative_capture_id: number;
+  album_names: string[];
+  can_undo: boolean;
+};
