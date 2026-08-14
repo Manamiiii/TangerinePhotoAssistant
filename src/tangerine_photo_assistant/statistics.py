@@ -54,8 +54,31 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         GROUP BY code, message ORDER BY count DESC
         """
     ).fetchall()]
+    selection_benchmark = dict(connection.execute(
+        """WITH group_results AS (
+               SELECT sg.id,
+                      MAX(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) AS has_pick,
+                      MAX(CASE WHEN COALESCE(cr.user_pick, 0)=1
+                                    AND COALESCE(cr.auto_pick, 0)=1 THEN 1 ELSE 0 END) AS top1_hit,
+                      MAX(CASE WHEN COALESCE(cr.user_pick, 0)=1
+                                    AND cr.similarity_rank<=2 THEN 1 ELSE 0 END) AS top2_hit
+               FROM similarity_groups sg
+               JOIN similarity_group_captures sgc ON sgc.group_id=sg.id
+               LEFT JOIN capture_reviews cr ON cr.capture_id=sgc.capture_id
+               GROUP BY sg.id
+           )
+           SELECT SUM(has_pick) AS reviewed_groups,
+                  SUM(CASE WHEN has_pick=1 THEN top1_hit ELSE 0 END) AS top1_hits,
+                  SUM(CASE WHEN has_pick=1 THEN top2_hit ELSE 0 END) AS top2_hits,
+                  ROUND(100.0 * SUM(CASE WHEN has_pick=1 THEN top1_hit ELSE 0 END)
+                        / NULLIF(SUM(has_pick), 0), 1) AS top1_rate,
+                  ROUND(100.0 * SUM(CASE WHEN has_pick=1 THEN top2_hit ELSE 0 END)
+                        / NULLIF(SUM(has_pick), 0), 1) AS top2_rate
+           FROM group_results"""
+    ).fetchone())
     return {
         "summary": dict(summary),
+        "selection_benchmark": selection_benchmark,
         "categories": _rows(
             connection,
             """SELECT category, COUNT(*) AS count,

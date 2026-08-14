@@ -322,6 +322,10 @@ class QualityAndAiTests(unittest.TestCase):
             connection = connect(settings.database_path)
             statistics = build_statistics(connection)
             self.assertEqual(statistics["summary"]["capture_count"], 3)
+            self.assertIn("reviewed_groups", statistics["selection_benchmark"])
+            if statistics["selection_benchmark"]["top1_rate"] is not None:
+                self.assertGreaterEqual(statistics["selection_benchmark"]["top1_rate"], 0)
+                self.assertLessEqual(statistics["selection_benchmark"]["top1_rate"], 100)
             self.assertEqual(statistics["cameras"][0]["camera_model"], "X-Test")
             self.assertEqual(statistics["cameras"][0]["count"], 3)
             self.assertEqual(lightroom_status(connection)["capture_count"], 3)

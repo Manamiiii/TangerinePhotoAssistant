@@ -14,6 +14,13 @@ export type Statistics = {
     user_picks: number;
     user_rejects: number;
   };
+  selection_benchmark: {
+    reviewed_groups: number | null;
+    top1_hits: number | null;
+    top2_hits: number | null;
+    top1_rate: number | null;
+    top2_rate: number | null;
+  };
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
   cameras: Array<StatisticRow & { camera_model: string }>;
@@ -96,6 +103,10 @@ export function StatisticsView({ statistics, openLibraryWith }: {
       </section>
       <div className="statistics-view-toolbar"><div className="section-tabs" role="tablist" aria-label="统计视图">{([['overview', '概览'], ['parameters', '拍摄参数'], ['time', '时间趋势']] as const).map(([value, label]) => <button key={value} className={statisticsView === value ? "active" : ""} onClick={() => setStatisticsView(value)}>{label}</button>)}</div>{statisticsView !== "time" && <div className="section-tabs" role="group" aria-label="统计值显示"><button className={distributionMode === "count" ? "active" : ""} onClick={() => setDistributionMode("count")}>数量</button><button className={distributionMode === "percent" ? "active" : ""} onClick={() => setDistributionMode("percent")}>占比</button></div>}</div>
       {statisticsView === "overview" && <>
+      <section className="panel selection-benchmark-panel">
+        <div className="panel-heading"><div><span className="section-kicker">选片基准</span><h3>技术推荐与人工入选</h3></div><span className="batch-count">只统计已有人工入选的相似组</span></div>
+        {(statistics?.selection_benchmark.reviewed_groups ?? 0) > 0 ? <div className="selection-benchmark-grid"><article><span>已形成基准</span><strong>{numberFormat.format(statistics?.selection_benchmark.reviewed_groups ?? 0)}</strong><small>个人已完成选片的相似组</small></article><article><span>Top‑1 命中</span><strong>{statistics?.selection_benchmark.top1_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top1_hits ?? 0} 组人工入选包含技术最佳</small></article><article><span>Top‑2 覆盖</span><strong>{statistics?.selection_benchmark.top2_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top2_hits ?? 0} 组人工入选进入前两名</small></article></div> : <div className="empty-state">完成一些相似组选片后，这里会评估推荐命中率；未选组不会被算作失败。</div>}
+      </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" valueMode={distributionMode} onSelect={(category) => openLibraryWith({ category })} />
         <Distribution title="主要相机" rows={statistics?.cameras ?? []} labelKey="camera_model" valueMode={distributionMode} onSelect={(camera) => openLibraryWith({ camera })} />
