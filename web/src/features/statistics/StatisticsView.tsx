@@ -22,6 +22,20 @@ export type Statistics = {
     top2_rate: number | null;
   };
   selection_reasons: Array<{ reason: string; count: number }>;
+  shooting_review_summary: {
+    reviewed_captures: number;
+    with_observations: number | null;
+    with_next_time: number | null;
+    with_editing: number | null;
+    average_confidence: number | null;
+  };
+  shooting_review_problems: Array<{
+    problem: string;
+    count: number;
+    average_confidence: number | null;
+    repairability: "limited" | "partial" | "unknown";
+    repairability_label: string;
+  }>;
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
   cameras: Array<StatisticRow & { camera_model: string }>;
@@ -43,6 +57,7 @@ type StatisticsLibraryQuery = {
   dateFrom?: string;
   dateTo?: string;
   selectionReason?: string;
+  modelProblem?: string;
 };
 
 function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode = "count" }: {
@@ -109,6 +124,18 @@ export function StatisticsView({ statistics, openLibraryWith }: {
         <div className="panel-heading"><div><span className="section-kicker">选片基准</span><h3>技术推荐与人工入选</h3></div><span className="batch-count">只统计已有人工入选的相似组</span></div>
         {(statistics?.selection_benchmark.reviewed_groups ?? 0) > 0 ? <><div className="selection-benchmark-grid"><article><span>已形成基准</span><strong>{numberFormat.format(statistics?.selection_benchmark.reviewed_groups ?? 0)}</strong><small>个人已完成选片的相似组</small></article><article><span>Top‑1 命中</span><strong>{statistics?.selection_benchmark.top1_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top1_hits ?? 0} 组人工入选包含技术最佳</small></article><article><span>Top‑2 覆盖</span><strong>{statistics?.selection_benchmark.top2_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top2_hits ?? 0} 组人工入选进入前两名</small></article></div>{(statistics?.selection_reasons.length ?? 0) > 0 && <div className="selection-reason-summary"><span>人工保留理由</span>{statistics?.selection_reasons.map((item) => <button key={item.reason} onClick={() => openLibraryWith({ selectionReason: item.reason })}>{item.reason}<small>{numberFormat.format(item.count)}</small></button>)}</div>}</> : <div className="empty-state">完成一些相似组选片后，这里会评估推荐命中率；未选组不会被算作失败。</div>}
       </section>
+      <section className="panel shooting-review-stats-panel">
+        <div className="panel-heading"><div><span className="section-kicker">拍摄复盘</span><h3>模型观察与后期建议</h3></div><span className="batch-count">仅汇总每张照片最近一次完成的分析</span></div>
+        {(statistics?.shooting_review_summary.reviewed_captures ?? 0) > 0 ? <>
+          <div className="shooting-review-stat-grid">
+            <article><span>已复盘</span><strong>{numberFormat.format(statistics?.shooting_review_summary.reviewed_captures ?? 0)}</strong><small>张照片</small></article>
+            <article><span>发现观察</span><strong>{numberFormat.format(statistics?.shooting_review_summary.with_observations ?? 0)}</strong><small>有明确可见问题</small></article>
+            <article><span>下次建议</span><strong>{numberFormat.format(statistics?.shooting_review_summary.with_next_time ?? 0)}</strong><small>有拍摄改进建议</small></article>
+            <article><span>平均置信度</span><strong>{statistics?.shooting_review_summary.average_confidence == null ? "—" : `${statistics.shooting_review_summary.average_confidence}%`}</strong><small>模型自报置信度</small></article>
+          </div>
+          {(statistics?.shooting_review_problems.length ?? 0) > 0 && <div className="shooting-review-problem-list"><span>常见模型观察</span>{statistics?.shooting_review_problems.map((item) => <button key={item.problem} onClick={() => openLibraryWith({ modelProblem: item.problem })}><span>{item.problem}</span><small>{item.repairability_label} · 置信度 {item.average_confidence ?? "—"}%</small><b>{numberFormat.format(item.count)}</b></button>)}</div>}
+        </> : <div className="empty-state">完成本地模型分析后，这里会汇总观察、拍摄建议和后期可处理性。</div>}
+      </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" valueMode={distributionMode} onSelect={(category) => openLibraryWith({ category })} />
         <Distribution title="主要相机" rows={statistics?.cameras ?? []} labelKey="camera_model" valueMode={distributionMode} onSelect={(camera) => openLibraryWith({ camera })} />
@@ -127,7 +154,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
           </div>
         </section>
         <section className="panel issue-stats-panel">
-          <div className="panel-heading"><div><span className="section-kicker">拍摄复盘</span><h3>高频问题</h3></div><span className="batch-count">点击查看有问题的照片</span></div>
+          <div className="panel-heading"><div><span className="section-kicker">基础分析</span><h3>高频技术问题</h3></div><span className="batch-count">点击查看有问题的照片</span></div>
           <div className="issue-stats-list">
             {(statistics?.issues ?? []).slice(0, 8).map((issue) => <button key={issue.code} onClick={() => openLibraryWith({ quality: "problems" })}>
               <span>{issue.message}</span>

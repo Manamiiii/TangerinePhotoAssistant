@@ -44,6 +44,10 @@ from tangerine_photo_assistant.quality import (
     measure_image,
     measure_luminance_histogram,
 )
+from tangerine_photo_assistant.queries.library import (
+    query_library_captures,
+    query_library_filters,
+)
 from tangerine_photo_assistant.settings import Settings
 from tangerine_photo_assistant.statistics import build_statistics
 from tangerine_photo_assistant.structure import rebuild_structure
@@ -191,8 +195,18 @@ class QualityAndAiTests(unittest.TestCase):
             ).fetchall()
             model_result = {
                 "subject_type": "风景", "quality_summary": "测试结果",
-                "visible_problems": [], "shooting_advice": [],
-                "lightroom_suggestions": [], "photoshop_needed": False,
+                "visible_problems": [{
+                    "name": "天空高光略亮", "evidence": "亮部接近上限",
+                    "severity": "low", "confidence": 0.75,
+                }],
+                "shooting_advice": [{
+                    "suggestion": "拍摄时减少三分之一档曝光补偿", "reason": "避免细节损失",
+                    "exif_basis": "曝光补偿 0 EV",
+                }],
+                "lightroom_suggestions": [{
+                    "adjustment": "高光", "direction": "降低",
+                    "reason": "恢复天空层次",
+                }], "photoshop_needed": False,
                 "photoshop_reason": "不需要", "overall_confidence": 0.8,
             }
             connection.execute(
@@ -307,6 +321,12 @@ class QualityAndAiTests(unittest.TestCase):
             capture = _query_capture_detail(settings, group["items"][0]["capture_id"])
             self.assertEqual(capture["pairing_status"], "jpeg_only")
             self.assertEqual(len(capture["histogram"]), 64)
+            self.assertIn("observations", capture["shooting_review"])
+            self.assertIn("technical_evidence", capture["shooting_review"])
+            self.assertEqual(
+                capture["shooting_review"]["has_model_result"],
+                bool(capture["ai_analyses"]),
+            )
             reviewed = [item for item in capture["ai_analyses"] if item["user_verdict"]]
             if reviewed:
                 self.assertEqual(reviewed[0]["user_verdict"], "partial")
@@ -324,6 +344,21 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(statistics["summary"]["capture_count"], 3)
             self.assertIn("reviewed_groups", statistics["selection_benchmark"])
             self.assertIn("selection_reasons", statistics)
+            self.assertEqual(statistics["shooting_review_summary"]["reviewed_captures"], 1)
+            self.assertEqual(statistics["shooting_review_summary"]["with_observations"], 1)
+            self.assertEqual(statistics["shooting_review_problems"][0]["problem"], "天空高光略亮")
+            self.assertEqual(statistics["shooting_review_problems"][0]["repairability"], "partial")
+            model_problem_page = query_library_captures(
+                settings.database_path, 20, 0, model_problem="天空高光略亮"
+            )
+            self.assertEqual(
+                [item["id"] for item in model_problem_page["items"]],
+                [expected_capture_id],
+            )
+            self.assertEqual(
+                query_library_filters(settings.database_path)["model_problems"],
+                [{"name": "天空高光略亮", "capture_count": 1}],
+            )
             if statistics["selection_benchmark"]["top1_rate"] is not None:
                 self.assertGreaterEqual(statistics["selection_benchmark"]["top1_rate"], 0)
                 self.assertLessEqual(statistics["selection_benchmark"]["top1_rate"], 100)

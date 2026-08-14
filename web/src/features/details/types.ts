@@ -20,6 +20,42 @@ export type CaptureDetail = {
   user_note: string | null;
   selection_reasons: string[];
   issues: Array<{ code: string; severity: string; message: string; evidence?: Record<string, unknown> }>;
+  shooting_review: {
+    summary: string | null;
+    subject_type: string | null;
+    overall_confidence: number | null;
+    observations: Array<{
+      phenomenon: string;
+      evidence: string | null;
+      severity: string | null;
+      confidence: number | null;
+      repairability: "limited" | "partial" | "unknown";
+      repairability_label: string;
+      source: "model";
+    }>;
+    next_time: Array<{
+      suggestion: string;
+      reason: string | null;
+      exif_basis: string | null;
+      source: "model";
+    }>;
+    editing: Array<{
+      adjustment: string;
+      direction: string | null;
+      reason: string | null;
+      tool: "Lightroom";
+    }>;
+    photoshop: { needed: boolean; reason: string | null } | null;
+    technical_evidence: Array<{
+      code: string;
+      message: string;
+      severity: string | null;
+      evidence: Record<string, unknown>;
+      inference: boolean;
+      source: "technical";
+    }>;
+    has_model_result: boolean;
+  };
   tags: CaptureTag[];
   tag_catalog: CaptureTagDefinition[];
   files: Array<{

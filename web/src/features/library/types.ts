@@ -38,6 +38,7 @@ export type LibraryFilters = {
     name: string;
     capture_count: number;
   }>;
+  model_problems: Array<{ name: string; capture_count: number }>;
 };
 export type LibraryQuery = {
   pageSize: number;
@@ -53,6 +54,7 @@ export type LibraryQuery = {
   tagProblem: string;
   tagLocation: string;
   selectionReason: string;
+  modelProblem: string;
   dateFrom: string;
   dateTo: string;
   search: string;

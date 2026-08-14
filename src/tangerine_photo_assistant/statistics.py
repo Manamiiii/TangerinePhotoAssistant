@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from .critique import classify_repairability
+
 CAPTURE_CTE = """
 WITH capture_exif AS (
     SELECT c.id, c.captured_at, e.category, e.id AS event_id,
@@ -84,10 +86,50 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
            GROUP BY reason.value
            ORDER BY count DESC, reason.value"""
     ).fetchall()]
+    shooting_review_summary = dict(connection.execute(
+        """WITH latest AS (
+               SELECT aa.result_json
+               FROM ai_analyses aa
+               WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+                 AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                            WHERE newest.capture_id=aa.capture_id
+                              AND newest.status='complete')
+           )
+           SELECT COUNT(*) AS reviewed_captures,
+                  SUM(CASE WHEN json_array_length(json_extract(result_json, '$.visible_problems'))>0 THEN 1 ELSE 0 END) AS with_observations,
+                  SUM(CASE WHEN json_array_length(json_extract(result_json, '$.shooting_advice'))>0 THEN 1 ELSE 0 END) AS with_next_time,
+                  SUM(CASE WHEN json_array_length(json_extract(result_json, '$.lightroom_suggestions'))>0 THEN 1 ELSE 0 END) AS with_editing,
+                  ROUND(AVG(CAST(json_extract(result_json, '$.overall_confidence') AS REAL))*100, 1) AS average_confidence
+           FROM latest"""
+    ).fetchone())
+    shooting_review_problems = []
+    for row in connection.execute(
+        """WITH latest AS (
+               SELECT aa.capture_id, aa.result_json
+               FROM ai_analyses aa
+               WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+                 AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                            WHERE newest.capture_id=aa.capture_id
+                              AND newest.status='complete')
+           )
+           SELECT json_extract(problem.value, '$.name') AS problem,
+                  COUNT(DISTINCT latest.capture_id) AS count,
+                  ROUND(AVG(CAST(json_extract(problem.value, '$.confidence') AS REAL))*100, 1) AS average_confidence
+           FROM latest, json_each(json_extract(latest.result_json, '$.visible_problems')) problem
+           WHERE json_extract(problem.value, '$.name') IS NOT NULL
+           GROUP BY problem ORDER BY count DESC, problem LIMIT 12"""
+    ).fetchall():
+        item = dict(row)
+        item["repairability"], item["repairability_label"] = classify_repairability(
+            str(item["problem"])
+        )
+        shooting_review_problems.append(item)
     return {
         "summary": dict(summary),
         "selection_benchmark": selection_benchmark,
         "selection_reasons": selection_reasons,
+        "shooting_review_summary": shooting_review_summary,
+        "shooting_review_problems": shooting_review_problems,
         "categories": _rows(
             connection,
             """SELECT category, COUNT(*) AS count,

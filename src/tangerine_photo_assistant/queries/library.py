@@ -24,6 +24,7 @@ def query_library_captures(
     tag_problem: str | None = None,
     tag_location: str | None = None,
     selection_reason: str | None = None,
+    model_problem: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -98,6 +99,20 @@ def query_library_captures(
                    )"""
             )
             parameters.append(selection_reason)
+        if model_problem:
+            conditions.append(
+                """EXISTS (
+                       SELECT 1
+                       FROM ai_analyses filter_ai,
+                            json_each(json_extract(filter_ai.result_json, '$.visible_problems')) problem
+                       WHERE filter_ai.capture_id=c.id AND filter_ai.status='complete'
+                         AND filter_ai.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                                          WHERE newest.capture_id=c.id
+                                            AND newest.status='complete')
+                         AND json_extract(problem.value, '$.name')=?
+                   )"""
+            )
+            parameters.append(model_problem)
         if date_from:
             conditions.append("substr(c.captured_at, 1, 10) >= ?")
             parameters.append(date_from)
@@ -266,12 +281,29 @@ def query_library_filters(database_path: Path) -> dict[str, Any]:
                             WHEN 'problem' THEN 3 ELSE 4 END,
                         td.sort_order, td.name"""
         ).fetchall()
+        model_problems = connection.execute(
+            """WITH latest AS (
+                   SELECT aa.capture_id, aa.result_json
+                   FROM ai_analyses aa
+                   WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+                     AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                                WHERE newest.capture_id=aa.capture_id
+                                  AND newest.status='complete')
+               )
+               SELECT json_extract(problem.value, '$.name') AS name,
+                      COUNT(DISTINCT latest.capture_id) AS capture_count
+               FROM latest,
+                    json_each(json_extract(latest.result_json, '$.visible_problems')) problem
+               WHERE json_extract(problem.value, '$.name') IS NOT NULL
+               GROUP BY name ORDER BY capture_count DESC, name"""
+        ).fetchall()
         return {
             "albums": [dict(row) for row in albums],
             "album_types": [dict(row) for row in types],
             "cameras": [row[0] for row in cameras],
             "lenses": [row[0] for row in lenses],
             "tags": [dict(row) for row in tags],
+            "model_problems": [dict(row) for row in model_problems],
         }
     finally:
         connection.close()

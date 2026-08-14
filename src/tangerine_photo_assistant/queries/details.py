@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database import connect_readonly
+from ..critique import build_structured_critique
 
 METERING_MODE_LABELS = {
     0: "未知", 1: "平均", 2: "中央重点", 3: "点测光",
@@ -164,6 +165,10 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
         ]
         for analysis in item["ai_analyses"]:
             analysis.pop("result_json", None)
+        latest_result = item["ai_analyses"][0]["result"] if item["ai_analyses"] else None
+        item["shooting_review"] = build_structured_critique(
+            latest_result, item["issues"]
+        )
         item["tags"] = [dict(tag) for tag in connection.execute(
             """SELECT td.id, td.dimension, td.name, td.built_in,
                       ct.source, ct.confidence

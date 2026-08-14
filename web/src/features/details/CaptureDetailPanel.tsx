@@ -216,10 +216,7 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, sa
 }) {
   const exif = detail.files.find((file) => file.role === "jpeg") ?? detail.files[0];
   const latestAnalysis = detail.ai_analyses[0];
-  const latestAi = latestAnalysis?.result as Record<string, unknown> | undefined;
-  const visibleProblems = Array.isArray(latestAi?.visible_problems) ? latestAi.visible_problems as Array<Record<string, unknown>> : [];
-  const shootingAdvice = Array.isArray(latestAi?.shooting_advice) ? latestAi.shooting_advice as Array<Record<string, unknown>> : [];
-  const lightroomSuggestions = Array.isArray(latestAi?.lightroom_suggestions) ? latestAi.lightroom_suggestions as Array<Record<string, unknown>> : [];
+  const shootingReview = detail.shooting_review;
   const [aiNote, setAiNote] = useState(latestAnalysis?.user_note ?? "");
   const [immersive, setImmersive] = useState(false);
   const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
@@ -355,13 +352,12 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, sa
               <ScoreBar label="参数" score={detail.exif_score} />
             </div>}
           </div>
-          <div className="detail-section"><h3>问题证据</h3>{detail.issues.length ? <ul>{detail.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}</ul> : <p>尚未发现或尚未分析。</p>}</div>
-          <div className="detail-section"><h3>本地模型建议</h3><p>{typeof latestAi?.quality_summary === "string" ? latestAi.quality_summary : "尚未运行本地模型分析。"}</p>
-            {latestAnalysis && <small className="ai-result-version">{latestAnalysis.model_id} · {latestAnalysis.prompt_version} · {formatDate(latestAnalysis.finished_at)}</small>}
-            {!!visibleProblems.length && <div className="ai-advice-block"><strong>可见问题</strong><ul>{visibleProblems.map((problem, index) => <li key={index}><b>{String(problem.name ?? "问题")}</b>：{String(problem.evidence ?? "没有证据说明")}（{String(problem.severity ?? "—")} / {String(problem.confidence ?? "—")}）</li>)}</ul></div>}
-            {!!shootingAdvice.length && <div className="ai-advice-block"><strong>下次拍摄</strong><ul>{shootingAdvice.map((advice, index) => <li key={index}><b>{String(advice.suggestion ?? "建议")}</b>：{String(advice.reason ?? "")} <em>{String(advice.exif_basis ?? "")}</em></li>)}</ul></div>}
-            {!!lightroomSuggestions.length && <div className="ai-advice-block"><strong>Lightroom</strong><ul>{lightroomSuggestions.map((advice, index) => <li key={index}><b>{String(advice.adjustment ?? "调整")}</b> · {String(advice.direction ?? "")}：{String(advice.reason ?? "")}</li>)}</ul></div>}
-            {latestAnalysis && <div className="ai-advice-block"><strong>Photoshop</strong><p>{latestAi?.photoshop_needed === true ? "建议使用" : "不需要"} · {String(latestAi?.photoshop_reason ?? "未说明")}</p></div>}
+          <div className="detail-section shooting-review-section"><div className="detail-section-heading"><h3>拍摄复盘</h3><span className={`review-source-badge ${shootingReview.has_model_result ? "model" : "technical"}`}>{shootingReview.has_model_result ? "本地模型 + 技术证据" : "仅技术证据"}</span></div>
+            <p className="shooting-review-summary">{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "当前只有基础技术检测，尚未形成画面语义复盘。" : "尚未发现明确问题，也没有本地模型复盘。")}</p>
+            {latestAnalysis && <small className="ai-result-version">{latestAnalysis.model_id} · {latestAnalysis.prompt_version} · {formatDate(latestAnalysis.finished_at)}{shootingReview.overall_confidence == null ? "" : ` · 整体置信度 ${Math.round(shootingReview.overall_confidence * 100)}%`}</small>}
+            {!!shootingReview.observations.length && <div className="critique-block"><h4>观察到什么</h4><div className="critique-card-list">{shootingReview.observations.map((observation, index) => <article className="critique-card" key={`${observation.phenomenon}-${index}`}><header><strong>{observation.phenomenon}</strong><span className={`repairability ${observation.repairability}`}>{observation.repairability_label}</span></header><p>{observation.evidence ?? "模型没有提供可核对的画面证据。"}</p><small>{observation.severity ? `程度 ${observation.severity}` : "程度未标注"}{observation.confidence == null ? "" : ` · 置信度 ${Math.round(observation.confidence * 100)}%`} · 模型观察，需人工确认</small></article>)}</div></div>}
+            {!!shootingReview.next_time.length && <div className="critique-block"><h4>下次怎么拍</h4><div className="critique-card-list">{shootingReview.next_time.map((advice, index) => <article className="critique-card next-time" key={`${advice.suggestion}-${index}`}><strong>{advice.suggestion}</strong>{advice.reason && <p>{advice.reason}</p>}{advice.exif_basis && <small>参数依据：{advice.exif_basis}</small>}</article>)}</div></div>}
+            {!!shootingReview.technical_evidence.length && <details className="technical-evidence-details"><summary>基础技术证据 · {shootingReview.technical_evidence.length} 项</summary><ul>{shootingReview.technical_evidence.map((issue) => <li key={issue.code}><span>{issue.inference ? "规则推测" : "测量结果"}</span><p>{issue.message}</p></li>)}</ul></details>}
             {latestAnalysis && <div className="ai-review-controls">
               <span>这条分析是否可信？</span>
               <div>
@@ -372,6 +368,11 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, sa
               <textarea value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="可选：记录误判、漏判或参数建议问题" maxLength={2000} />
               <button onClick={() => saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote)}>保存备注</button>
             </div>}
+          </div>
+          <div className="detail-section editing-review-section"><h3>后期建议</h3>
+            {shootingReview.editing.length ? <div className="editing-suggestion-list">{shootingReview.editing.map((advice, index) => <article key={`${advice.adjustment}-${index}`}><span>{advice.tool}</span><strong>{advice.adjustment}{advice.direction ? ` · ${advice.direction}` : ""}</strong>{advice.reason && <p>{advice.reason}</p>}</article>)}</div> : <p>{shootingReview.has_model_result ? "当前结果没有建议基础调整。" : "运行本地模型复盘后才会生成后期建议。"}</p>}
+            {shootingReview.photoshop && <div className="photoshop-decision"><span>Photoshop</span><strong>{shootingReview.photoshop.needed ? "建议列入精修待办" : "当前不需要"}</strong><p>{shootingReview.photoshop.reason ?? "模型未说明原因"}</p></div>}
+            <small className="advice-safety-note">建议仅供预览和人工判断，不会自动写入 XMP 或修改照片。</small>
           </div>
           <div className="detail-section"><h3>文件</h3><p>{detail.files.map((file) => `${file.file_name} · ${formatFileSize(file.size_bytes)}`).join(" / ")}</p></div>
         </div>
