@@ -6,6 +6,7 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.equipment import (
     build_equipment_catalog,
     delete_equipment_item,
+    equipment_album_reference_count,
     save_equipment_item,
     save_equipment_ownership,
     set_equipment_visibility,
@@ -83,6 +84,24 @@ kind = "neutral_density"
                     encoding="utf-8",
                 )
 
+                connection.execute(
+                    """INSERT INTO events(
+                           event_key, proposed_name, category, capture_count, status,
+                           confidence, reason_json, created_at, updated_at
+                       ) VALUES ('album:gear', '器材测试', '日常', 0, 'confirmed',
+                                 1.0, '{}', '2026-01-01', '2026-01-01')"""
+                )
+                album_id = connection.execute(
+                    "SELECT id FROM events WHERE event_key='album:gear'"
+                ).fetchone()[0]
+                connection.execute(
+                    """INSERT INTO event_equipment(
+                           event_id, equipment_kind, equipment_key, source, created_at
+                       ) VALUES (?, 'accessory', 'filters:ND64', 'manual', '2026-01-01')""",
+                    (album_id,),
+                )
+                connection.commit()
+
                 catalog = build_equipment_catalog(connection, profile)
 
                 self.assertEqual(catalog["summary"]["camera_count"], 1)
@@ -90,6 +109,11 @@ kind = "neutral_density"
                 self.assertEqual(catalog["summary"]["accessory_count"], 1)
                 self.assertEqual(catalog["cameras"][0]["capture_count"], 1)
                 self.assertEqual(catalog["lenses"][0]["capture_count"], 1)
+                self.assertEqual(catalog["accessories"][0]["album_count"], 1)
+                self.assertEqual(
+                    equipment_album_reference_count(connection, "accessory", "filters:ND64"),
+                    1,
+                )
             finally:
                 connection.close()
 

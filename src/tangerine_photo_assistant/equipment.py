@@ -39,6 +39,26 @@ def _capture_usage(connection: sqlite3.Connection, field: str) -> dict[str, int]
     return {str(row["model"]): int(row["capture_count"]) for row in rows}
 
 
+def _album_equipment_usage(connection: sqlite3.Connection, kind: EquipmentKind) -> dict[str, int]:
+    rows = connection.execute(
+        """SELECT equipment_key, COUNT(DISTINCT event_id) AS album_count
+           FROM event_equipment WHERE equipment_kind=?
+           GROUP BY equipment_key""",
+        (kind,),
+    ).fetchall()
+    return {str(row["equipment_key"]): int(row["album_count"]) for row in rows}
+
+
+def equipment_album_reference_count(
+    connection: sqlite3.Connection, kind: EquipmentKind, key: str
+) -> int:
+    return int(connection.execute(
+        """SELECT COUNT(DISTINCT event_id) FROM event_equipment
+           WHERE equipment_kind=? AND equipment_key=?""",
+        (kind, key),
+    ).fetchone()[0])
+
+
 def _normalize_model(value: str) -> str:
     value = re.sub(r"\b(?:FUJINON|FUJIFILM|LENS)\b", "", value.upper())
     return re.sub(r"[^A-Z0-9]", "", value)
@@ -198,6 +218,7 @@ def _decorate(
     usage: dict[str, int],
     inventory: dict[str, Any],
     default_owned: bool,
+    album_usage: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     key = _inventory_key(kind, item)
     identity_model = str(item.get("model", ""))
@@ -209,6 +230,7 @@ def _decorate(
         **item,
         "display_name": item.get("display_name") or item.get("model") or "未命名设备",
         "capture_count": count,
+        "album_count": (album_usage or {}).get(key, 0),
         "inventory_key": key,
         "owned": owned,
         "status": status,
@@ -266,6 +288,7 @@ def build_equipment_catalog(
     inventory = _load_inventory(inventory_path)
     camera_usage = _capture_usage(connection, "camera_model")
     lens_usage = _capture_usage(connection, "lens_model")
+    accessory_album_usage = _album_equipment_usage(connection, "accessory")
 
     camera = dict(profile.get("camera") or {})
     camera_pairs: list[tuple[dict[str, Any], bool]] = [({**camera, "source": "profile"}, True)] if camera else []
@@ -285,12 +308,12 @@ def build_equipment_catalog(
     for section in ACCESSORY_SECTIONS:
         for raw_item in profile.get(section, []):
             item = {**dict(raw_item), "section": section, "source": "profile"}
-            accessories.append(_decorate(item, "accessory", {}, inventory, True))
+            accessories.append(_decorate(item, "accessory", {}, inventory, True, accessory_album_usage))
 
     for custom in inventory["custom"]["lens"]:
         lens_pairs.append(({**deepcopy(custom), "source": "custom"}, True))
     for custom in inventory["custom"]["accessory"]:
-        accessories.append(_decorate({**deepcopy(custom), "source": "custom"}, "accessory", {}, inventory, True))
+        accessories.append(_decorate({**deepcopy(custom), "source": "custom"}, "accessory", {}, inventory, True, accessory_album_usage))
 
     cameras = [_decorate(item, "camera", camera_usage, inventory, owned) for item, owned in camera_pairs]
     lenses = [_decorate(item, "lens", lens_usage, inventory, owned) for item, owned in lens_pairs]

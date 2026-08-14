@@ -104,7 +104,7 @@ export function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem
             {(equipment?.accessories ?? []).map((item) => (
               <article className="equipment-row" key={item.inventory_key}>
                 <div className="equipment-icon accessory">{String(accessoryLabels[item.section ?? ""] ?? "附件").slice(0, 1)}</div>
-                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}{item.album_count ? ` · 用于 ${numberFormat.format(item.album_count)} 个相册` : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
                 {actions("accessory", item)}
               </article>
             ))}

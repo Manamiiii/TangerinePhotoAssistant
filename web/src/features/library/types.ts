@@ -81,6 +81,8 @@ export type EventItem = {
   source_count: number;
   burst_count: number;
   largest_burst: number;
+  equipment_count: number;
+  equipment_keys: string[];
   sources: string[];
   reason: { method: string; legacy_buckets: string[] };
 };

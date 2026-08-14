@@ -27,6 +27,7 @@ export type EquipmentItem = {
   lens_thread_mm?: number;
   stops?: number;
   capture_count?: number;
+  album_count?: number;
   category?: string;
   source?: string;
   notes?: string;

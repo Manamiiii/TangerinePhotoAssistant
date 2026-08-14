@@ -418,6 +418,12 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .equipment-editor-form textarea { min-height: 76px; resize: vertical; }
 .equipment-editor-form .equipment-owned-check { grid-column: 1 / -1; flex-direction: row; align-items: center; }
 .equipment-editor-form .equipment-owned-check input { width: auto; }
+.album-equipment-field { padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.album-equipment-field legend { padding: 0 5px; font-size: 10px; font-weight: 700; }
+.album-equipment-field > p, .album-equipment-field > small { margin: 0 0 10px; color: var(--muted); font-size: 9px; }
+.album-equipment-field > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.album-equipment-field label { padding: 8px; border-radius: 8px; background: var(--surface-raised); flex-direction: row; align-items: center; }
+.album-equipment-field input { width: auto; }
 .equipment-layout, .equipment-note, .equipment-hidden-panel { margin-top: 18px; }
 .editor-footer { padding: 14px 20px 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .editor-footer button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }

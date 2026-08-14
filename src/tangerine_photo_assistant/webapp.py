@@ -62,6 +62,7 @@ from .database import SCHEMA_VERSION, connect, connect_readonly
 from .equipment import (
     build_equipment_catalog,
     delete_equipment_item,
+    equipment_album_reference_count,
     save_equipment_item,
     save_equipment_ownership,
     set_equipment_visibility,
@@ -217,6 +218,7 @@ class EventUpdateRequest(BaseModel):
     proposed_name: str
     category: str
     status: str
+    accessory_keys: list[str] | None = Field(default=None, max_length=100)
 
 
 class AlbumCreateRequest(BaseModel):
@@ -1927,7 +1929,16 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
 
     @app.delete("/api/equipment/items")
     def remove_equipment_item(request: EquipmentDeleteRequest) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
         try:
+            reference_count = equipment_album_reference_count(
+                connection, request.kind, request.key
+            )
+            if reference_count:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"该设备仍被 {reference_count} 个相册引用，请先在相册中取消勾选",
+                )
             delete_equipment_item(
                 settings.workspace / "Equipment" / "inventory.json",
                 request.kind,
@@ -1935,6 +1946,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
         return equipment()
 
     @app.get("/api/lightroom/status")
@@ -2158,8 +2171,23 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def save_album(album_id: int, request: EventUpdateRequest) -> dict[str, Any]:
         connection = connect(settings.database_path)
         try:
+            if request.accessory_keys is not None:
+                project_root = Path(__file__).resolve().parents[2]
+                catalog = build_equipment_catalog(
+                    connection,
+                    project_root / "equipment" / "profile.toml",
+                    project_root / "equipment" / "catalogs" / "fujifilm-x.toml",
+                    settings.workspace / "Equipment" / "inventory.json",
+                )
+                known_keys = {
+                    item["inventory_key"]
+                    for item in [*catalog["accessories"], *catalog["hidden"]["accessory"]]
+                }
+                if not set(request.accessory_keys).issubset(known_keys):
+                    raise HTTPException(status_code=422, detail="选择中包含不存在的附件")
             return update_album_record(
-                connection, album_id, request.proposed_name, request.category, request.status
+                connection, album_id, request.proposed_name, request.category, request.status,
+                request.accessory_keys,
             )
         except AlbumNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

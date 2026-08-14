@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -227,6 +227,19 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_event_captures_capture
             ON event_captures(capture_id);
+
+        CREATE TABLE IF NOT EXISTS event_equipment (
+            event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            equipment_kind TEXT NOT NULL,
+            equipment_key TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            note TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (event_id, equipment_kind, equipment_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_event_equipment_kind_key
+            ON event_equipment(equipment_kind, equipment_key, event_id);
 
         CREATE TABLE IF NOT EXISTS bursts (
             id INTEGER PRIMARY KEY,

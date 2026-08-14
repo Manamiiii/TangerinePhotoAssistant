@@ -546,6 +546,17 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
         groups = rebuild_similarity_groups(connection)
         rebuild_group_recommendations(connection)
         ai_results = _seed_demo_ai_results(connection)
+        equipment_album = connection.execute(
+            """SELECT id FROM events WHERE status!='archived'
+               ORDER BY start_at IS NULL, start_at DESC, id DESC LIMIT 1"""
+        ).fetchone()
+        if equipment_album is not None:
+            connection.execute(
+                """INSERT OR IGNORE INTO event_equipment(
+                       event_id, equipment_kind, equipment_key, source, created_at
+                   ) VALUES (?, 'accessory', 'custom:demo-tripod', 'manual', ?)""",
+                (equipment_album["id"], now),
+            )
         connection.commit()
         return {
             "reviews": updated,
@@ -554,6 +565,7 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
             "similarity_groups": groups["similarity_groups"],
             "metadata_profiles": metadata_updated,
             "ai_results": ai_results,
+            "album_equipment": int(equipment_album is not None),
         }
     finally:
         connection.close()

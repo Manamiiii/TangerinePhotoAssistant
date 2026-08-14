@@ -84,6 +84,29 @@ class AlbumServiceTests(unittest.TestCase):
 
             update_album(connection, int(source["id"]), "来源相册", built_in, "confirmed")
             update_album(connection, int(target["id"]), "目标相册", built_in, "confirmed")
+            update_album(
+                connection, int(target["id"]), "目标相册", built_in, "confirmed",
+                ["filters:ND64", "supports:tripod"],
+            )
+            self.assertEqual(
+                [row[0] for row in connection.execute(
+                    "SELECT equipment_key FROM event_equipment WHERE event_id=? ORDER BY equipment_key",
+                    (target["id"],),
+                )],
+                ["filters:ND64", "supports:tripod"],
+            )
+            update_album(connection, int(target["id"]), "保留附件", built_in, "confirmed")
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM event_equipment WHERE event_id=?", (target["id"],)
+                ).fetchone()[0], 2,
+            )
+            update_album(connection, int(target["id"]), "清空附件", built_in, "confirmed", [])
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM event_equipment WHERE event_id=?", (target["id"],)
+                ).fetchone()[0], 0,
+            )
             self.assertEqual(delete_album_type(connection, "整理类型")["status"], "deleted")
             connection.close()
 

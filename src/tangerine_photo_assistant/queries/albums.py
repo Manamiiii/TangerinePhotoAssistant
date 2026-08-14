@@ -22,7 +22,9 @@ def query_albums(
                 e.capture_count, e.status, e.confidence, e.reason_json,
                 COUNT(DISTINCT es.parent_relative) AS source_count,
                 COUNT(DISTINCT b.id) AS burst_count,
-                COALESCE(MAX(b.capture_count), 0) AS largest_burst
+                COALESCE(MAX(b.capture_count), 0) AS largest_burst,
+                (SELECT COUNT(*) FROM event_equipment ee
+                 WHERE ee.event_id=e.id AND ee.equipment_kind='accessory') AS equipment_count
             FROM events e
             LEFT JOIN event_sources es ON es.event_id = e.id
             LEFT JOIN bursts b ON b.event_id = e.id
@@ -44,6 +46,15 @@ def query_albums(
                     SELECT parent_relative FROM event_sources
                     WHERE event_id = ? ORDER BY parent_relative
                     """,
+                    (row["id"],),
+                )
+            ]
+            item["equipment_keys"] = [
+                equipment[0]
+                for equipment in connection.execute(
+                    """SELECT equipment_key FROM event_equipment
+                       WHERE event_id=? AND equipment_kind='accessory'
+                       ORDER BY equipment_key""",
                     (row["id"],),
                 )
             ]

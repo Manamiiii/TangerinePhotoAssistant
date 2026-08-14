@@ -7,6 +7,7 @@ import { formatBytes, formatDate, numberFormat } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
 import type { Overview } from "../overview/types";
 import type { CaptureTagDimension } from "../details/types";
+import type { EquipmentCatalog } from "../equipment/types";
 import { SimilarityGroupingEditor } from "../similarity/BurstsView";
 import type { SimilarityGroupDetail } from "../similarity/types";
 import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport, PhotoInboxStatus, PhotoLayout } from "./types";
@@ -17,10 +18,11 @@ function isLibraryTask(task: Task | null) {
   return ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(task.message);
 }
 
-function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
+function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
-  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+  equipment: EquipmentCatalog | null;
+  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => void;
   createAlbum: (name: string, category: string) => void;
   createAlbumType: (name: string) => void;
   renameAlbumType: (name: string, nextName: string) => void;
@@ -32,18 +34,27 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
   const [albumEditor, setAlbumEditor] = useState<EventItem | "new" | null>(null);
   const [albumName, setAlbumName] = useState("");
   const [albumCategory, setAlbumCategory] = useState("");
+  const [albumEquipmentKeys, setAlbumEquipmentKeys] = useState<string[]>([]);
   const [newTypeName, setNewTypeName] = useState("");
   const [editingType, setEditingType] = useState<string | null>(null);
   const [editedTypeName, setEditedTypeName] = useState("");
+  const selectableAccessories = [
+    ...(equipment?.accessories ?? []),
+    ...(equipment?.hidden.accessory ?? []),
+  ].filter((item, index, items) =>
+    (item.owned || albumEquipmentKeys.includes(item.inventory_key))
+    && items.findIndex((candidate) => candidate.inventory_key === item.inventory_key) === index
+  );
   const openAlbumEditor = (album: EventItem | "new") => {
     setAlbumEditor(album);
     setAlbumName(album === "new" ? "" : album.proposed_name);
     setAlbumCategory(album === "new" ? (filters?.album_types[0]?.name ?? "日常") : album.category);
+    setAlbumEquipmentKeys(album === "new" ? [] : album.equipment_keys);
   };
   const saveAlbum = () => {
     if (!albumName.trim() || !albumCategory) return;
     if (albumEditor === "new") createAlbum(albumName.trim(), albumCategory);
-    else if (albumEditor) updateAlbum(albumEditor, { proposed_name: albumName.trim(), category: albumCategory });
+    else if (albumEditor) updateAlbum(albumEditor, { proposed_name: albumName.trim(), category: albumCategory, equipment_keys: albumEquipmentKeys, equipment_count: albumEquipmentKeys.length });
     setAlbumEditor(null);
   };
   return (
@@ -54,7 +65,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
           {(albums?.items ?? []).map((album) => (
             <article className="event-row album-row" key={album.id}>
               <div className={`category-chip category-${album.category}`}>{album.category}</div>
-              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.source_count ? `${album.source_count} 个来源目录` : "手动创建"}</span></div>
+              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.source_count ? `${album.source_count} 个来源目录` : "手动创建"}{album.equipment_count ? ` · ${album.equipment_count} 件拍摄附件` : ""}</span></div>
               <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
               <div className="album-date"><strong>{album.start_at?.slice(0, 10) ?? "—"}</strong><span>拍摄日期</span></div>
               <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button><button className={album.status === "confirmed" ? "confirmed" : ""} disabled={album.status === "confirmed"} onClick={() => updateAlbum(album, { status: "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认"}</button><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button></div>
@@ -78,6 +89,7 @@ function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType
         <form className="editor-form" onSubmit={(event) => { event.preventDefault(); saveAlbum(); }}>
           <label><span>相册名称</span><input autoFocus value={albumName} onChange={(event) => setAlbumName(event.target.value)} maxLength={180} /></label>
           <label><span>相册类型</span><select value={albumCategory} onChange={(event) => setAlbumCategory(event.target.value)}>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label>
+          {albumEditor !== "new" && <fieldset className="album-equipment-field"><legend>本次拍摄使用的附件</legend><p>仅记录 EXIF 无法确认的脚架、滤镜、闪光灯等附件。</p><div>{selectableAccessories.map((item) => <label key={item.inventory_key}><input type="checkbox" checked={albumEquipmentKeys.includes(item.inventory_key)} onChange={(event) => setAlbumEquipmentKeys((current) => event.target.checked ? [...current, item.inventory_key] : current.filter((key) => key !== item.inventory_key))} /><span>{item.display_name ?? item.model}{!item.owned ? "（当前未拥有）" : ""}</span></label>)}</div>{!selectableAccessories.length && <small>请先在设备管理中添加或标记已拥有附件。</small>}</fieldset>}
           <footer><button type="button" className="toolbar-button" onClick={() => setAlbumEditor(null)}>取消</button><button className="toolbar-button primary" disabled={!albumName.trim() || !albumCategory}>保存</button></footer>
         </form>
       </ModalShell>}
@@ -248,18 +260,19 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   </>;
 }
 
-export function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts, openAlbumQuality }: {
+export function LibraryView({ overview, library, albums, filters, equipment, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts, openAlbumQuality }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
+  equipment: EquipmentCatalog | null;
   query: LibraryQuery;
   updateQuery: (changes: Partial<LibraryQuery>) => void;
   requestedSection: LibrarySection;
   task: Task | null;
   startScan: (albumId: number) => void;
   cancelTask: () => void;
-  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status">>) => void;
+  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => void;
   createAlbum: (name: string, category: string) => Promise<number | null>;
   createAlbumType: (name: string) => void;
   renameAlbumType: (name: string, nextName: string) => void;
@@ -338,7 +351,7 @@ export function LibraryView({ overview, library, albums, filters, query, updateQ
         <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} albumContext />
       </> : <>
         {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} />}
-        {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
+        {section === "albums" && <AlbumsView albums={albums} filters={filters} equipment={equipment} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
       </>}
       {updateOpen && <ModalShell title="更新图库" close={() => setUpdateOpen(false)}><form className="editor-form" onSubmit={(event) => { event.preventDefault(); void runUpdate(); }}>
         <div className="photo-inbox-card"><span>先把相机中的新照片复制到</span><strong>{photoInbox?.path ?? "正在读取目录…"}</strong><div><button type="button" className="toolbar-button" disabled={!photoInbox?.can_open} onClick={() => void getJson("/api/system/photo-inbox/open", { method: "POST" })}>在资源管理器中打开</button><button type="button" className="toolbar-button" disabled={!photoInbox?.path} onClick={() => photoInbox?.path && void navigator.clipboard.writeText(photoInbox.path)}>复制路径</button></div>{photoInbox && !photoInbox.exists && <small>目录尚不存在，请先在活动图库中创建“待整理”文件夹。</small>}</div>

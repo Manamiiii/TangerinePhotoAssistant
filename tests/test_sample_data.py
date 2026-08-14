@@ -77,6 +77,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(seeded["similarity_groups"], 3)
             self.assertEqual(seeded["metadata_profiles"], 28)
             self.assertEqual(seeded["ai_results"], 3)
+            self.assertEqual(seeded["album_equipment"], 1)
             connection = connect(settings.database_path)
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM capture_reviews WHERE user_pick=1").fetchone()[0],
@@ -165,6 +166,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(equipment["summary"]["camera_count"], 1)
             self.assertGreaterEqual(equipment["summary"]["lens_count"], 3)
             self.assertEqual(equipment["summary"]["accessory_count"], 1)
+            self.assertEqual(equipment["accessories"][0]["album_count"], 1)
             self.assertTrue(any(
                 item["display_name"] == "我修改过的三脚架"
                 for item in equipment["accessories"]

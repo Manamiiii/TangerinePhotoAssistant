@@ -51,6 +51,7 @@ def update_album(
     name: str,
     category: str,
     status: str,
+    accessory_keys: Sequence[str] | None = None,
 ) -> dict[str, int | str]:
     name = name.strip()
     category = category.strip()
@@ -59,6 +60,11 @@ def update_album(
     if status not in {"proposed", "confirmed"}:
         raise AlbumError("相册状态不受支持")
     _require_album_type(connection, category)
+    clean_accessory_keys = None
+    if accessory_keys is not None:
+        clean_accessory_keys = sorted({key.strip() for key in accessory_keys if key.strip()})
+        if len(clean_accessory_keys) > 100 or any(len(key) > 300 for key in clean_accessory_keys):
+            raise AlbumError("相册附件选择无效")
     with _album_transaction(connection):
         cursor = connection.execute(
             """UPDATE events
@@ -68,6 +74,17 @@ def update_album(
         )
         if cursor.rowcount == 0:
             raise AlbumNotFoundError("相册不存在")
+        if clean_accessory_keys is not None:
+            connection.execute(
+                "DELETE FROM event_equipment WHERE event_id=? AND equipment_kind='accessory'",
+                (album_id,),
+            )
+            connection.executemany(
+                """INSERT INTO event_equipment(
+                       event_id, equipment_kind, equipment_key, source, created_at
+                   ) VALUES (?, 'accessory', ?, 'manual', ?)""",
+                ((album_id, key, utc_now()) for key in clean_accessory_keys),
+            )
     return {"id": album_id, "status": "saved"}
 
 
