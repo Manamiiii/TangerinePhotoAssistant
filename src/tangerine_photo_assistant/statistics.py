@@ -76,9 +76,18 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                         / NULLIF(SUM(has_pick), 0), 1) AS top2_rate
            FROM group_results"""
     ).fetchone())
+    selection_reasons = [dict(row) for row in connection.execute(
+        """SELECT reason.value AS reason, COUNT(DISTINCT cr.capture_id) AS count
+           FROM capture_reviews cr,
+                json_each(COALESCE(cr.selection_reason_json, '[]')) AS reason
+           WHERE COALESCE(cr.user_pick, 0)=1
+           GROUP BY reason.value
+           ORDER BY count DESC, reason.value"""
+    ).fetchall()]
     return {
         "summary": dict(summary),
         "selection_benchmark": selection_benchmark,
+        "selection_reasons": selection_reasons,
         "categories": _rows(
             connection,
             """SELECT category, COUNT(*) AS count,

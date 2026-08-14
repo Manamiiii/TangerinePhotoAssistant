@@ -18,6 +18,7 @@ export type CaptureDetail = {
   user_pick: number | null;
   user_reject: number | null;
   user_note: string | null;
+  selection_reasons: string[];
   issues: Array<{ code: string; severity: string; message: string; evidence?: Record<string, unknown> }>;
   tags: CaptureTag[];
   tag_catalog: CaptureTagDefinition[];

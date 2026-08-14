@@ -146,6 +146,7 @@ export type QualityItem = {
   user_pick: number | null;
   user_reject: number;
   user_note: string | null;
+  selection_reasons?: string[];
   thumbnail_url: string;
   issues: Array<{ code: string; severity: string; message: string }>;
   ai_result: {
@@ -165,4 +166,5 @@ export type ReviewPayload = {
   user_pick: boolean;
   user_reject: boolean;
   user_note: string | null;
+  selection_reasons?: string[];
 };

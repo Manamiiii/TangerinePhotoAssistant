@@ -10,6 +10,8 @@ const tagDimensionLabels: Record<CaptureTagDimension, string> = {
   location: "地点",
 };
 
+const selectionReasonOptions = ["动作差异", "表情差异", "构图差异", "关键瞬间", "叙事补充"];
+
 function ReviewHelp() {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement | null>(null);
@@ -298,6 +300,7 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, sa
             <ReviewHelp />
             <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
           </div>
+          {detail.user_pick ? <div className="detail-selection-reasons"><span>为什么保留这张</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
           <TagEditor detail={detail} saveTags={saveTags} />
           <div className="exif-strip">
             <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门 <ParameterHelp kind="shutter" /></span></div>

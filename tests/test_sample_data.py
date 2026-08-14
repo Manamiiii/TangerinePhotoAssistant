@@ -84,6 +84,14 @@ class DemoLibraryTests(unittest.TestCase):
                 3,
             )
             self.assertEqual(
+                connection.execute(
+                    """SELECT COUNT(*) FROM capture_reviews
+                       WHERE selection_reason_json IS NOT NULL
+                         AND selection_reason_json != '[]'"""
+                ).fetchone()[0],
+                3,
+            )
+            self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM capture_reviews WHERE user_reject=1").fetchone()[0],
                 1,
             )

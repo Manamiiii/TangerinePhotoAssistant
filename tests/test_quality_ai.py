@@ -323,6 +323,7 @@ class QualityAndAiTests(unittest.TestCase):
             statistics = build_statistics(connection)
             self.assertEqual(statistics["summary"]["capture_count"], 3)
             self.assertIn("reviewed_groups", statistics["selection_benchmark"])
+            self.assertIn("selection_reasons", statistics)
             if statistics["selection_benchmark"]["top1_rate"] is not None:
                 self.assertGreaterEqual(statistics["selection_benchmark"]["top1_rate"], 0)
                 self.assertLessEqual(statistics["selection_benchmark"]["top1_rate"], 100)

@@ -28,7 +28,12 @@ class CaptureReviewTests(unittest.TestCase):
                 user_pick=True,
                 user_reject=False,
                 user_note="首选",
+                selection_reasons=["表情差异", "关键瞬间"],
             )
+            reasons = connection.execute(
+                "SELECT selection_reason_json FROM capture_reviews"
+            ).fetchone()[0]
+            self.assertEqual(reasons, '["表情差异", "关键瞬间"]')
             save_capture_review(
                 connection,
                 capture_id,
@@ -41,6 +46,23 @@ class CaptureReviewTests(unittest.TestCase):
                 "SELECT user_rating, user_pick, user_reject, user_note FROM capture_reviews"
             ).fetchone()
             self.assertEqual(tuple(row), (5, 0, 0, "复核后调整"))
+            self.assertEqual(
+                connection.execute(
+                    "SELECT selection_reason_json FROM capture_reviews"
+                ).fetchone()[0],
+                "[]",
+            )
+
+            with self.assertRaises(CaptureReviewError):
+                save_capture_review(
+                    connection,
+                    capture_id,
+                    user_rating=5,
+                    user_pick=True,
+                    user_reject=False,
+                    user_note=None,
+                    selection_reasons=["技术分高"],
+                )
 
             with self.assertRaises(CaptureReviewError):
                 save_capture_review(

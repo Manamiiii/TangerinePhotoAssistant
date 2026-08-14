@@ -79,6 +79,12 @@ DEMO_REVIEWS: dict[str, tuple[int | None, bool, bool, str]] = {
     "DETAIL_0002": (2, False, False, "演示：非连拍照片仅使用星级"),
 }
 
+DEMO_SELECTION_REASONS: dict[str, list[str]] = {
+    "BEACH_0003": ["表情差异", "关键瞬间"],
+    "PARK_0004": ["动作差异"],
+    "PARK_0007": ["构图差异", "叙事补充"],
+}
+
 DEMO_TAGS: dict[str, list[dict[str, str]]] = {
     "BEACH_0003": [
         {"dimension": "subject", "name": "风景"},
@@ -509,15 +515,20 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
             connection.execute(
                 """INSERT INTO capture_reviews(
                        capture_id, user_rating, user_pick, user_reject,
-                       user_note, updated_at
-                   ) VALUES (?, ?, ?, ?, ?, ?)
+                       user_note, selection_reason_json, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(capture_id) DO UPDATE SET
                        user_rating=excluded.user_rating,
                        user_pick=excluded.user_pick,
                        user_reject=excluded.user_reject,
                        user_note=excluded.user_note,
+                       selection_reason_json=excluded.selection_reason_json,
                        updated_at=excluded.updated_at""",
-                (row["id"], rating, int(picked), int(rejected), note, now),
+                (
+                    row["id"], rating, int(picked), int(rejected), note,
+                    json.dumps(DEMO_SELECTION_REASONS.get(stem, []), ensure_ascii=False),
+                    now,
+                ),
             )
             updated += 1
         connection.commit()

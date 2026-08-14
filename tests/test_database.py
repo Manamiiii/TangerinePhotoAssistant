@@ -15,6 +15,7 @@ class DatabaseUpgradeTests(unittest.TestCase):
             connection.execute("INSERT INTO upgrade_marker VALUES ('before-upgrade')")
             connection.execute("DROP TABLE similarity_group_revision_captures")
             connection.execute("DROP TABLE similarity_group_revisions")
+            connection.execute("ALTER TABLE capture_reviews DROP COLUMN selection_reason_json")
             connection.executemany(
                 """INSERT INTO tag_definitions(
                        dimension, name, built_in, active, sort_order, created_at
@@ -48,6 +49,10 @@ class DatabaseUpgradeTests(unittest.TestCase):
                 upgraded.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='capture_tags'"
                 ).fetchone()
+            )
+            self.assertIn(
+                "selection_reason_json",
+                {row[1] for row in upgraded.execute("PRAGMA table_info(capture_reviews)")},
             )
             self.assertGreater(
                 upgraded.execute("SELECT COUNT(*) FROM tag_definitions WHERE built_in=1").fetchone()[0],

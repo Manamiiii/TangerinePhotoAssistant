@@ -148,6 +148,7 @@ class ReviewUpdateRequest(BaseModel):
     user_pick: bool | None = None
     user_reject: bool = False
     user_note: str | None = None
+    selection_reasons: list[str] | None = Field(default=None, max_length=5)
 
 
 class CaptureTagInput(BaseModel):
@@ -2358,6 +2359,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 user_pick=request.user_pick,
                 user_reject=request.user_reject,
                 user_note=request.user_note,
+                selection_reasons=request.selection_reasons,
             )
             return {"capture_id": capture_id, "status": "saved"}
         except CaptureReviewNotFoundError as exc:

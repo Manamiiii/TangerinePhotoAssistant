@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -652,6 +652,7 @@ def connect(path: Path) -> sqlite3.Connection:
         connection, "files", "metadata_profile_version", "INTEGER NOT NULL DEFAULT 0"
     )
     _ensure_column(connection, "files", "metadata_refreshed_at", "TEXT")
+    _ensure_column(connection, "capture_reviews", "selection_reason_json", "TEXT")
     _ensure_column(
         connection, "tag_definitions", "active", "INTEGER NOT NULL DEFAULT 1"
     )

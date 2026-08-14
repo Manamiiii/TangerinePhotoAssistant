@@ -150,6 +150,7 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
                    qm.exposure_score, qm.sharpness_score, qm.exif_score,
                    qm.issue_json, cr.auto_rating, cr.auto_pick, cr.similarity_rank,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
+                   cr.selection_reason_json,
                    sgo.action AS grouping_override, sgo.manual_batch_key,
                    f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
                    f.focal_length_35mm, f.camera_model, f.lens_model
@@ -172,6 +173,10 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
             item = dict(row)
             raw_issues = item.pop("issue_json")
             item["issues"] = json.loads(raw_issues) if raw_issues else []
+            raw_selection_reasons = item.pop("selection_reason_json")
+            item["selection_reasons"] = (
+                json.loads(raw_selection_reasons) if raw_selection_reasons else []
+            )
             item["thumbnail_url"] = f"/api/thumbnails/{item['capture_id']}?size=640"
             items.append(item)
         ranked = sorted(

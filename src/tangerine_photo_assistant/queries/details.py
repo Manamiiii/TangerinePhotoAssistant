@@ -109,7 +109,8 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
                    qm.exif_score, qm.technical_score, qm.issue_json,
                    qm.histogram_json, qm.error,
                    cr.auto_rating, cr.auto_pick, cr.similarity_rank,
-                   cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note
+                   cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
+                   cr.selection_reason_json
             FROM captures c
             LEFT JOIN event_captures ec ON ec.capture_id = c.id
             LEFT JOIN events e ON e.id = ec.event_id
@@ -122,6 +123,10 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
         if row is None:
             raise ValueError("拍摄单元不存在")
         item = dict(row)
+        raw_selection_reasons = item.pop("selection_reason_json")
+        item["selection_reasons"] = (
+            json.loads(raw_selection_reasons) if raw_selection_reasons else []
+        )
         raw_issues = item.pop("issue_json")
         item["issues"] = json.loads(raw_issues) if raw_issues else []
         raw_histogram = item.pop("histogram_json")

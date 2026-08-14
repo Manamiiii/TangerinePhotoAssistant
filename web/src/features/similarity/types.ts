@@ -40,6 +40,7 @@ export type GroupCapture = {
   user_pick: number | null;
   user_reject: number;
   user_note: string | null;
+  selection_reasons: string[];
   grouping_override: "exclude" | "split_before" | null;
   manual_batch_key: string | null;
   exposure_time: number | null;

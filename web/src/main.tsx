@@ -380,6 +380,7 @@ function App() {
       user_pick: Number(review.user_pick),
       user_reject: Number(review.user_reject),
       user_note: review.user_note,
+      selection_reasons: review.selection_reasons ?? item.selection_reasons,
     } : item;
     const patchGroup = (item: GroupCapture) => item.capture_id === captureId ? {
       ...item,
@@ -387,6 +388,7 @@ function App() {
       user_pick: Number(review.user_pick),
       user_reject: Number(review.user_reject),
       user_note: review.user_note,
+      selection_reasons: review.selection_reasons ?? item.selection_reasons,
     } : item;
     setQuality((current) => current ? { ...current, items: current.items.map(patchQuality) } : current);
     setSelectedGroup((current) => current ? { ...current, items: current.items.map(patchGroup) } : current);
@@ -406,6 +408,7 @@ function App() {
       user_pick: Number(review.user_pick),
       user_reject: Number(review.user_reject),
       user_note: review.user_note,
+      selection_reasons: review.selection_reasons ?? current.selection_reasons,
     } : current);
   }, []);
 
