@@ -19,6 +19,8 @@ export type CaptureDetail = {
   user_reject: number | null;
   user_note: string | null;
   issues: Array<{ code: string; severity: string; message: string; evidence?: Record<string, unknown> }>;
+  tags: CaptureTag[];
+  tag_catalog: CaptureTagDefinition[];
   files: Array<{
     file_name: string;
     role: string;
@@ -90,4 +92,16 @@ export type CaptureDetail = {
     reviewed_at: string | null;
   }>;
   thumbnail_url: string;
+};
+
+export type CaptureTagDimension = "subject" | "status" | "problem" | "location";
+export type CaptureTagDefinition = {
+  id: number;
+  dimension: CaptureTagDimension;
+  name: string;
+  built_in: number;
+};
+export type CaptureTag = CaptureTagDefinition & {
+  source: "manual" | "analysis" | "import";
+  confidence: number | null;
 };

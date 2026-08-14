@@ -159,6 +159,26 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
         ]
         for analysis in item["ai_analyses"]:
             analysis.pop("result_json", None)
+        item["tags"] = [dict(tag) for tag in connection.execute(
+            """SELECT td.id, td.dimension, td.name, td.built_in,
+                      ct.source, ct.confidence
+               FROM capture_tags ct
+               JOIN tag_definitions td ON td.id = ct.tag_id
+               WHERE ct.capture_id=?
+               ORDER BY CASE td.dimension
+                            WHEN 'subject' THEN 1 WHEN 'status' THEN 2
+                            WHEN 'problem' THEN 3 ELSE 4 END,
+                        td.sort_order, td.name""",
+            (capture_id,),
+        )]
+        item["tag_catalog"] = [dict(tag) for tag in connection.execute(
+            """SELECT id, dimension, name, built_in
+               FROM tag_definitions
+               ORDER BY CASE dimension
+                            WHEN 'subject' THEN 1 WHEN 'status' THEN 2
+                            WHEN 'problem' THEN 3 ELSE 4 END,
+                        sort_order, name"""
+        )]
         item["thumbnail_url"] = f"/api/thumbnails/{capture_id}?size=1280"
     finally:
         connection.close()

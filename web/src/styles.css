@@ -922,6 +922,28 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .detail-section h3 { margin: 0 0 8px; font-size: 12px; }
 .detail-section p, .detail-section li { color: #928b81; font-size: 10px; line-height: 1.7; }
 .detail-section ul { margin: 0 0 16px; padding-left: 18px; }
+.detail-tags { padding: 14px 0; }
+.detail-tags > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; cursor: pointer; }
+.detail-tags > summary::-webkit-details-marker { display: none; }
+.detail-tags > summary span { display: grid; gap: 4px; min-width: 0; }
+.detail-tags > summary strong { font-size: 12px; }
+.detail-tags > summary small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.detail-tags > summary em { color: var(--orange-soft); font-size: 9px; font-style: normal; }
+.detail-tags[open] > summary em { font-size: 0; }
+.detail-tags[open] > summary em::after { content: "收起"; font-size: 9px; }
+.tag-editor-body { padding-top: 12px; }
+.tag-editor-body .detail-section-heading > p { margin: 0; }
+.detail-tags .detail-section-heading > button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: transparent; font-size: 9px; cursor: pointer; }
+.detail-tags .detail-section-heading > button:disabled { opacity: .45; cursor: default; }
+.tag-dimension { display: grid; grid-template-columns: 68px 1fr; gap: 10px; align-items: start; margin: 9px 0; }
+.tag-dimension > strong { padding-top: 5px; color: var(--muted); font-size: 9px; }
+.tag-dimension > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag-dimension button { padding: 5px 8px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); background: transparent; font-size: 9px; cursor: pointer; }
+.tag-dimension button.selected { border-color: var(--orange); color: var(--orange-soft); background: rgba(255, 122, 26, .1); }
+.tag-custom { display: grid; grid-template-columns: 90px 1fr auto; gap: 7px; margin-top: 12px; }
+.tag-custom select, .tag-custom input, .tag-custom button { min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: transparent; font-size: 9px; }
+.tag-custom button { cursor: pointer; }
+.tag-custom button:disabled { opacity: .45; cursor: default; }
 .ai-review-controls { display: grid; gap: 10px; margin: 14px 0; padding-top: 14px; border-top: 1px solid #292621; }
 .ai-result-version { display: block; margin: 8px 0 14px; color: #726b63; font-size: 8px; }
 .ai-advice-block { margin: 12px 0; padding: 12px; border: 1px solid #302c27; border-radius: 8px; background: #151310; }

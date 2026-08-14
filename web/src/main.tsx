@@ -15,6 +15,7 @@ import type { GroupCapture, SimilarityGroupDetail, SimilarityGroupsResponse, Sim
 import { BurstsView } from "./features/similarity/BurstsView";
 import type { CaptureDetail } from "./features/details/types";
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
+import type { CaptureTagDimension } from "./features/details/types";
 import type { Overview } from "./features/overview/types";
 import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport } from "./features/library/types";
 import { LibraryView } from "./features/library/LibraryView";
@@ -494,6 +495,24 @@ function App() {
     }
   };
 
+  const saveCaptureTags = async (
+    captureId: number,
+    tags: Array<{ dimension: CaptureTagDimension; name: string }>,
+  ) => {
+    setError(null);
+    try {
+      const saved = await getJson<Pick<CaptureDetail, "tags">>(`/api/captures/${captureId}/tags`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      setCaptureDetail((current) => current && current.id === captureId ? { ...current, tags: saved.tags } : current);
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const restoreGroupingRevision = async (revisionId: number, useBefore = false) => {
     setError(null);
     try {
@@ -887,7 +906,7 @@ function App() {
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
-        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>

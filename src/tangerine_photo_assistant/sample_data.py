@@ -15,6 +15,7 @@ from .database import connect
 from .inventory import utc_now
 from .metadata import METADATA_PROFILE_VERSION
 from .quality import rebuild_group_recommendations
+from .tags import replace_manual_capture_tags
 from .visual import rebuild_similarity_groups
 
 GENERATOR_VERSION = 5
@@ -76,6 +77,22 @@ DEMO_REVIEWS: dict[str, tuple[int | None, bool, bool, str]] = {
     "PARK_0007": (4, True, False, "演示：第二段连拍入选"),
     "NIGHT_0002": (5, False, False, "演示：非连拍照片仅使用星级"),
     "DETAIL_0002": (2, False, False, "演示：非连拍照片仅使用星级"),
+}
+
+DEMO_TAGS: dict[str, list[dict[str, str]]] = {
+    "BEACH_0003": [
+        {"dimension": "subject", "name": "风景"},
+        {"dimension": "status", "name": "待修"},
+        {"dimension": "location", "name": "演示海岸"},
+    ],
+    "PARK_0004": [
+        {"dimension": "subject", "name": "纪实"},
+        {"dimension": "problem", "name": "背景干扰"},
+    ],
+    "NIGHT_0002": [
+        {"dimension": "subject", "name": "星空"},
+        {"dimension": "status", "name": "精选"},
+    ],
 }
 
 DEMO_AI_RESULTS: dict[str, dict[str, Any]] = {
@@ -503,6 +520,16 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
                 (row["id"], rating, int(picked), int(rejected), note, now),
             )
             updated += 1
+        connection.commit()
+        tagged = 0
+        for stem, tags in DEMO_TAGS.items():
+            row = connection.execute(
+                "SELECT id FROM captures WHERE stem=? ORDER BY id LIMIT 1", (stem,)
+            ).fetchone()
+            if row is None:
+                continue
+            replace_manual_capture_tags(connection, int(row["id"]), tags)
+            tagged += 1
         split = connection.execute(
             "SELECT id FROM captures WHERE stem='PARK_0006' ORDER BY id LIMIT 1"
         ).fetchone()
@@ -522,6 +549,7 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
         connection.commit()
         return {
             "reviews": updated,
+            "tagged_captures": tagged,
             "manual_splits": int(split is not None),
             "similarity_groups": groups["similarity_groups"],
             "metadata_profiles": metadata_updated,
@@ -550,6 +578,7 @@ def main() -> int:
             f"{seeded['manual_splits']} manual split, "
             f"{seeded['similarity_groups']} similarity groups, "
             f"{seeded['metadata_profiles']} rich metadata profiles, "
+            f"{seeded['tagged_captures']} tagged captures, "
             f"{seeded['ai_results']} simulated model results, "
             f"equipment inventory at {equipment_path}"
         )

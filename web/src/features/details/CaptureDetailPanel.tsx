@@ -1,7 +1,56 @@
 import { useEffect, useRef, useState } from "react";
 import { formatDate, formatExposure, formatFileSize } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
-import type { CaptureDetail } from "./types";
+import type { CaptureDetail, CaptureTagDimension } from "./types";
+
+const tagDimensionLabels: Record<CaptureTagDimension, string> = {
+  subject: "题材",
+  status: "工作状态",
+  problem: "人工问题",
+  location: "地点",
+};
+
+function TagEditor({ detail, saveTags }: {
+  detail: CaptureDetail;
+  saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
+}) {
+  const manualTags = detail.tags.filter((tag) => tag.source === "manual");
+  const [selected, setSelected] = useState<Array<{ dimension: CaptureTagDimension; name: string }>>(
+    manualTags.map(({ dimension, name }) => ({ dimension, name })),
+  );
+  const [customDimension, setCustomDimension] = useState<CaptureTagDimension>("subject");
+  const [customName, setCustomName] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setSelected(
+    detail.tags.filter((tag) => tag.source === "manual").map(({ dimension, name }) => ({ dimension, name })),
+  ), [detail.id, detail.tags]);
+  const selectedKey = (dimension: CaptureTagDimension, name: string) => `${dimension}:${name.toLocaleLowerCase()}`;
+  const selectedKeys = new Set(selected.map((tag) => selectedKey(tag.dimension, tag.name)));
+  const toggle = (dimension: CaptureTagDimension, name: string) => setSelected((current) => {
+    const key = selectedKey(dimension, name);
+    if (current.some((tag) => selectedKey(tag.dimension, tag.name) === key)) {
+      return current.filter((tag) => selectedKey(tag.dimension, tag.name) !== key);
+    }
+    const withoutOldStatus = dimension === "status" ? current.filter((tag) => tag.dimension !== "status") : current;
+    return [...withoutOldStatus, { dimension, name }];
+  });
+  const addCustom = () => {
+    const name = customName.trim().replace(/\s+/g, " ");
+    if (!name) return;
+    if (!selectedKeys.has(selectedKey(customDimension, name))) toggle(customDimension, name);
+    setCustomName("");
+  };
+  const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
+    JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
+  return <details className="detail-section detail-tags"><summary><span><strong>标签与流程</strong><small>{manualTags.length ? manualTags.map((tag) => tag.name).join(" · ") : "尚未设置人工标签"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
+    {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
+      const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
+      const selectedCustom = selected.filter((tag) => tag.dimension === dimension && !catalog.some((item) => item.name === tag.name));
+      return <div className="tag-dimension" key={dimension}><strong>{tagDimensionLabels[dimension]}</strong><div>{[...catalog, ...selectedCustom.map((tag, index) => ({ ...tag, id: -index - 1, built_in: 0 }))].map((tag) => <button key={`${dimension}:${tag.name}`} className={selectedKeys.has(selectedKey(dimension, tag.name)) ? "selected" : ""} onClick={() => toggle(dimension, tag.name)}>{tag.name}</button>)}{!catalog.length && !selectedCustom.length && <small>尚无标签，可在下方添加</small>}</div></div>;
+    })}
+    <div className="tag-custom"><select value={customDimension} onChange={(event) => setCustomDimension(event.target.value as CaptureTagDimension)}>{(Object.entries(tagDimensionLabels) as Array<[CaptureTagDimension, string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input value={customName} maxLength={40} placeholder="添加自定义标签" onChange={(event) => setCustomName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustom(); } }} /><button disabled={!customName.trim()} onClick={addCustom}>添加</button></div>
+  </div></details>;
+}
 
 function LuminanceHistogram({ histogram, shadowClip, highlightClip }: {
   histogram: number[];
@@ -128,11 +177,12 @@ function formatMetadataText(value: unknown): string {
   return translated && translated !== value ? `${translated}（${value}）` : value;
 }
 
-export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, navigate, hasPrev, hasNext }: {
+export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, saveTags, navigate, hasPrev, hasNext }: {
   detail: CaptureDetail;
   close: () => void;
   saveAiReview: (analysisId: number, verdict: "accurate" | "partial" | "inaccurate" | null, note: string | null) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
+  saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
   navigate: (direction: 1 | -1) => void;
   hasPrev: boolean;
   hasNext: boolean;
@@ -222,6 +272,7 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, na
             <button className={`detail-reject ${detail.user_reject ? "rejected" : ""}`} onClick={() => review({ user_pick: false, user_reject: !detail.user_reject })}>排除</button>
             <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
           </div>
+          <TagEditor detail={detail} saveTags={saveTags} />
           <div className="exif-strip">
             <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门 <ParameterHelp kind="shutter" /></span></div>
             <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈 <ParameterHelp kind="aperture" /></span></div>

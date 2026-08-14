@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -394,6 +394,33 @@ def connect(path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_capture_reviews_auto_pick
             ON capture_reviews(auto_pick, auto_rating);
 
+        CREATE TABLE IF NOT EXISTS tag_definitions (
+            id INTEGER PRIMARY KEY,
+            dimension TEXT NOT NULL CHECK(dimension IN ('subject', 'status', 'problem', 'location')),
+            name TEXT NOT NULL COLLATE NOCASE,
+            built_in INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 100,
+            created_at TEXT NOT NULL,
+            UNIQUE(dimension, name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tag_definitions_dimension_order
+            ON tag_definitions(dimension, sort_order, name);
+
+        CREATE TABLE IF NOT EXISTS capture_tags (
+            capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tag_definitions(id) ON DELETE CASCADE,
+            source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual', 'analysis', 'import')),
+            confidence REAL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (capture_id, tag_id, source)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_capture_tags_tag_capture
+            ON capture_tags(tag_id, capture_id);
+        CREATE INDEX IF NOT EXISTS idx_capture_tags_capture_source
+            ON capture_tags(capture_id, source);
+
         CREATE TABLE IF NOT EXISTS ai_runs (
             id INTEGER PRIMARY KEY,
             mode TEXT NOT NULL,
@@ -621,6 +648,28 @@ def connect(path: Path) -> sqlite3.Connection:
         (
             ("旅行", 10), ("纪念", 20), ("家人", 30), ("宠物", 40),
             ("回家", 50), ("专题", 60), ("日常", 70),
+        ),
+    )
+    tag_presets = {
+        "subject": (
+            "人像", "风景", "宠物", "星空", "建筑", "美食", "旅行", "纪实", "其他",
+        ),
+        "status": (
+            "未评估", "待复核", "精选", "待修", "已修", "已导出", "待淘汰",
+        ),
+        "problem": (
+            "闭眼", "失焦", "抖动", "表情", "姿势", "遮挡", "曝光", "构图",
+            "背景干扰", "近似次优", "噪点", "高光溢出", "阴影死黑", "白平衡",
+        ),
+    }
+    connection.executemany(
+        """INSERT OR IGNORE INTO tag_definitions(
+               dimension, name, built_in, sort_order, created_at
+           ) VALUES (?, ?, 1, ?, CURRENT_TIMESTAMP)""",
+        (
+            (dimension, name, index * 10)
+            for dimension, names in tag_presets.items()
+            for index, name in enumerate(names, start=1)
         ),
     )
     row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()

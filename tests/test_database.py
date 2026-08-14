@@ -38,6 +38,15 @@ class DatabaseUpgradeTests(unittest.TestCase):
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='similarity_group_revisions'"
                 ).fetchone()
             )
+            self.assertIsNotNone(
+                upgraded.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='capture_tags'"
+                ).fetchone()
+            )
+            self.assertGreater(
+                upgraded.execute("SELECT COUNT(*) FROM tag_definitions WHERE built_in=1").fetchone()[0],
+                20,
+            )
             upgraded.close()
 
             backups = list((database.parent / "SchemaBackups").glob("*.sqlite3"))

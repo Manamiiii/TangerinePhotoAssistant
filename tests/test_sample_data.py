@@ -116,6 +116,22 @@ class DemoLibraryTests(unittest.TestCase):
             )
             self.assertEqual(
                 connection.execute(
+                    """SELECT COUNT(DISTINCT ct.capture_id)
+                       FROM capture_tags ct WHERE ct.source='manual'"""
+                ).fetchone()[0],
+                3,
+            )
+            self.assertEqual(
+                connection.execute(
+                    """SELECT td.name FROM capture_tags ct
+                       JOIN tag_definitions td ON td.id=ct.tag_id
+                       JOIN captures c ON c.id=ct.capture_id
+                       WHERE c.stem='BEACH_0003' AND td.dimension='location'"""
+                ).fetchone()[0],
+                "演示海岸",
+            )
+            self.assertEqual(
+                connection.execute(
                     """SELECT COUNT(*) FROM ai_analyses
                        WHERE model_id=? AND status='complete'""",
                     (DEMO_AI_MODEL_ID,),

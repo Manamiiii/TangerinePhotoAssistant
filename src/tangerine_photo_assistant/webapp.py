@@ -97,6 +97,7 @@ from .quality import (
     rebuild_group_recommendations,
 )
 from .reviews import CaptureReviewError, CaptureReviewNotFoundError, save_capture_review
+from .tags import CaptureTagError, CaptureTagNotFoundError, replace_manual_capture_tags
 from .queries.albums import query_albums
 from .queries.analysis import query_analysis_overview
 from .queries.details import query_capture_detail
@@ -141,6 +142,15 @@ class ReviewUpdateRequest(BaseModel):
     user_pick: bool | None = None
     user_reject: bool = False
     user_note: str | None = None
+
+
+class CaptureTagInput(BaseModel):
+    dimension: Literal["subject", "status", "problem", "location"]
+    name: str = Field(min_length=1, max_length=40)
+
+
+class CaptureTagsRequest(BaseModel):
+    tags: list[CaptureTagInput] = Field(default_factory=list, max_length=64)
 
 
 class EquipmentOwnershipRequest(BaseModel):
@@ -1749,6 +1759,25 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             return _query_capture_detail(settings, capture_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.put("/api/captures/{capture_id}/tags")
+    def update_capture_tags(
+        capture_id: int, request: CaptureTagsRequest
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            tags = replace_manual_capture_tags(
+                connection,
+                capture_id,
+                (tag.model_dump() for tag in request.tags),
+            )
+            return {"capture_id": capture_id, "tags": tags}
+        except CaptureTagNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CaptureTagError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
 
     @app.get("/api/thumbnails/{capture_id}")
     def thumbnail(
