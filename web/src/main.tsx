@@ -926,7 +926,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
   return (
     <>
       <section className="structure-hero burst-hero">
-        <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><p>比较连拍和相似画面。</p><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
+        <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
         <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%</small></div>
       </section>
       <TaskCard task={taskBelongsTo(task, "visual") ? task : null} cancel={cancelTask} />
@@ -961,14 +961,13 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
         </section>
       ) : !albumId && browseMode === "albums" ? (
         <section className="panel album-selection-panel">
-          <div className="panel-heading"><div><span className="section-kicker">第一步</span><h3>选择要处理的相册</h3><p>连拍和相似画面始终在相册内部处理，不会跨相册混合。</p></div><span className="batch-count">{groups?.albums.length ?? 0} 个相册包含相似组</span></div>
+          <div className="panel-heading compact-list-heading"><div><h3>选择相册</h3></div><span className="batch-count">{groups?.albums.length ?? 0} 个相册包含相似组</span></div>
           <div className="similarity-album-grid">{(groups?.albums ?? []).map((album) => { const done = album.total_count - album.pending_count; const percent = album.total_count ? Math.round(done / album.total_count * 100) : 0; return <button key={album.id} onClick={() => setAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><b><strong>{album.pending_count}</strong><small>待选</small></b><i><span style={{ width: `${percent}%` }} /></i><em>共 {album.total_count} 组 · 已完成 {percent}%</em></button>; })}</div>
           {!groups?.albums.length && <div className="empty-state">还没有可处理的相似组，请先更新相似分组。</div>}
         </section>
       ) : (<>
         {albumId && <AlbumWorkspaceHeader name={selectedAlbum?.name ?? "相册选片"} category={selectedAlbum?.category ?? "相册"} summary={`${groups?.pending_count ?? 0} 组待选 · 共 ${groups?.total_count ?? 0} 组`} current="bursts" back={() => { setBrowseMode("albums"); setAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(albumId))} openBursts={() => undefined} openQuality={() => openAlbumQuality(Number(albumId))} />}
         <section className="panel similarity-panel">
-          {!albumId && <div className="panel-heading"><div><span className="section-kicker">跨相册工作队列</span><h3>全部相似组</h3><p>可以直接处理全部待选组，也可以切换到“相册”按拍摄内容进入。</p></div><span className="batch-count">共 {numberFormat.format(groups?.total_count ?? 0)} 组</span></div>}
           {albumUndo && <div className="similarity-recovery-bar"><span>本相册最近一次人工分组仍可撤销</span><button className="toolbar-button" onClick={() => { if (window.confirm("撤销本相册最近一次人工分组调整？")) void restoreGroupingRevision(albumUndo.id, true); }}>撤销最近调整</button></div>}
           <div className="similarity-list-controls"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选">{([['pending', '待选'], ['completed', '已完成'], ['adjusted', '人工调整'], ['all', '全部']] as const).map(([value, label]) => <button key={value} className={reviewFilter === value ? "active" : ""} onClick={() => setReviewFilter(value)}>{label}</button>)}</div><span className="batch-count">当前显示 {numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div>
           <div className="similarity-grid">
@@ -1669,7 +1668,7 @@ function HomeView({ overview, statistics, archive, activeBaseline, library, filt
       <div className="welcome-capabilities"><span><b>图库</b>{capabilities?.library_root ?? "正在读取配置"}</span><span><b>元数据</b>{capabilities?.metadata.message ?? "正在检测"}</span><button className="toolbar-button primary" onClick={openPhotos}>打开照片图库</button></div>
     </section>}
     {overview && overview.capture_total > 0 && <section className="home-workspace-grid">
-      <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><p>回到最近使用的功能，当前图库和筛选状态不会被重新分析。</p><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button><div><button onClick={openPhotos}>照片图库</button><button onClick={openBursts}>相似组选片</button><button onClick={openStatistics}>摄影统计</button></div></section>
+      <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button><div><button onClick={openPhotos}>照片图库</button><button onClick={openBursts}>相似组选片</button><button onClick={openStatistics}>摄影统计</button></div></section>
       <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>
     </section>}
     <section className="home-management-grid">
@@ -1855,7 +1854,7 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
       )}
       {analysisTab === "quality" && qualityAlbumId && <AlbumWorkspaceHeader name={selectedQualityAlbum?.name ?? "相册质量"} category={selectedQualityAlbum?.category ?? "相册"} summary={`${numberFormat.format(selectedQualityAlbum?.analyzed_count ?? quality?.count ?? 0)} 张已分析 · ${numberFormat.format(selectedQualityAlbum?.problem_count ?? 0)} 张有问题`} current="analysis" back={() => { setQualityBrowseMode("albums"); setQualityAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(qualityAlbumId))} openBursts={() => openAlbumBursts(Number(qualityAlbumId))} openQuality={() => undefined} />}
       {analysisTab === "quality" && !qualityAlbumId && qualityBrowseMode === "albums" && <section className="panel album-selection-panel quality-album-panel">
-        <div className="panel-heading"><div><span className="section-kicker">按相册复核</span><h3>选择相册</h3><p>问题数量和模型完成量来自当前已有分析，不会在这里触发重新分析。</p></div><span className="batch-count">{quality?.albums.length ?? 0} 个相册已有质量数据</span></div>
+        <div className="panel-heading compact-list-heading"><div><h3>选择相册</h3></div><span className="batch-count">{quality?.albums.length ?? 0} 个相册已有质量数据</span></div>
         <div className="quality-album-grid">{(quality?.albums ?? []).map((album) => <button key={album.id} onClick={() => setQualityAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><div><b>{numberFormat.format(album.analyzed_count)}</b><small>已分析</small></div><dl><div><dt>{numberFormat.format(album.problem_count)}</dt><dd>有问题</dd></div><div><dt>{numberFormat.format(album.model_count)}</dt><dd>模型完成</dd></div></dl></button>)}</div>
         {!quality?.albums.length && <div className="empty-state">还没有可按相册查看的质量结果，请先运行技术检测。</div>}
       </section>}
@@ -1975,7 +1974,7 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
   return (
     <>
       <section className="compact-summary">
-        <div><span className="section-kicker">器材档案</span><h2>设备管理</h2><p>统一查看已拥有器材、滤镜兼容关系和图库中的实际使用量。</p></div>
+        <div><span className="section-kicker">器材档案</span><h2>设备管理</h2></div>
         <div className="compact-actions"><span>库存保存在当前工作目录</span><strong>{equipment?.profile_file ?? "读取中"}</strong></div>
       </section>
       <section className="metric-grid">
@@ -2029,7 +2028,7 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
           </div>
         </section>
       </section>
-      <section className="panel equipment-note">
+      <section className="equipment-note">
         <strong>目录与个人库存彼此分开。</strong>
         <span>可以新增、编辑和删除自定义设备；官方目录条目始终保留，可编辑个人名称、备注和拥有状态。所有修改只保存在当前工作目录。</span>
       </section>
@@ -2107,7 +2106,7 @@ function StatisticsView({ statistics, openLibraryWith }: {
   return (
     <>
       <section className="structure-hero statistics-hero">
-        <div><span className="section-kicker">摄影数据</span><h2>拍摄统计</h2><p>查看题材、器材和拍摄参数分布。</p></div>
+        <div><span className="section-kicker">摄影数据</span><h2>拍摄统计</h2></div>
         <div className="structure-stat"><strong>{summary ? numberFormat.format(summary.capture_count) : "—"}</strong><span>个个人拍摄单元</span></div>
       </section>
       <section className="metric-grid">
