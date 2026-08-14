@@ -451,6 +451,18 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .home-safety-list span { padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: #9fd5ae; background: rgba(55, 108, 70, .08); }
 .library-navigation { margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .library-navigation .section-tabs { margin: 0; }
+.collection-scope-tabs { width: max-content; max-width: 100%; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: inline-flex; flex-flow: row nowrap; gap: 4px; overflow-x: auto; }
+.collection-scope-tabs button { flex: 0 0 auto; min-height: 36px; padding: 0 18px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font: inherit; font-size: 10px; white-space: nowrap; cursor: pointer; }
+.collection-scope-tabs button.active { color: var(--text); background: var(--surface-raised); box-shadow: inset 0 0 0 1px var(--line); }
+.album-workspace-header { min-height: 124px; padding: 18px 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; }
+.album-workspace-title { min-width: 0; }
+.album-workspace-title > span { color: var(--orange-soft); font-size: 8px; letter-spacing: .08em; }
+.album-workspace-title h2 { margin: 5px 0 7px; overflow: hidden; font-size: 25px; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
+.album-workspace-title small { color: var(--muted); font-size: 9px; }
+.album-workspace-header nav { padding: 4px; border: 1px solid var(--line); border-radius: 10px; display: inline-flex; flex-flow: row nowrap; gap: 3px; }
+.album-workspace-header nav button { min-height: 32px; padding: 0 11px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font: inherit; font-size: 9px; white-space: nowrap; cursor: pointer; }
+.album-workspace-header nav button.active { color: var(--text); background: var(--surface-raised); box-shadow: inset 0 0 0 1px var(--line); }
+.album-context-actions { margin-top: -8px; display: flex; justify-content: flex-end; }
 .library-maintenance { display: flex; align-items: center; gap: 10px; }
 .library-maintenance span { color: var(--muted); font-size: 8px; }
 .toolbar-button { min-height: 36px; padding: 0 13px; border: 1px solid var(--line); border-radius: 9px; color: inherit; background: var(--surface-raised); font-size: 9px; font-weight: 600; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
@@ -544,6 +556,19 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .similarity-album-grid > button > i { height: 3px; border-radius: 3px; background: var(--line); grid-column: 1 / -1; overflow: hidden; }
 .similarity-album-grid > button > i span { height: 100%; border-radius: inherit; background: var(--orange); display: block; }
 .similarity-album-grid > button > em { grid-column: 1 / -1; white-space: nowrap; }
+.quality-album-grid { padding: 4px 14px 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; }
+.quality-album-grid > button { padding: 15px; border: 1px solid var(--line); border-radius: 12px; color: inherit; background: var(--surface-soft); text-align: left; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; cursor: pointer; }
+.quality-album-grid > button:hover { border-color: var(--orange); background: var(--surface-raised); }
+.quality-album-grid > button > span { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.quality-album-grid > button > span small { color: var(--muted); font-size: 8px; }
+.quality-album-grid > button > span strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.quality-album-grid > button > div { min-width: 62px; padding: 7px 9px; border-radius: 9px; color: var(--orange-soft); background: rgba(211,146,73,.1); display: flex; flex-direction: column; align-items: center; }
+.quality-album-grid > button > div b { font-size: 16px; }
+.quality-album-grid > button > div small { font-size: 7px; }
+.quality-album-grid dl { margin: 0; padding-top: 10px; border-top: 1px solid var(--line); grid-column: 1 / -1; display: flex; gap: 18px; }
+.quality-album-grid dl div { display: flex; align-items: baseline; gap: 5px; }
+.quality-album-grid dt { font-size: 10px; font-weight: 700; }
+.quality-album-grid dd { margin: 0; color: var(--muted); font-size: 8px; }
 .similarity-album-context { margin: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; }
 .similarity-album-context h3 { margin: 3px 0 0; font-size: 15px; }
 .similarity-album-context > div:last-child { text-align: right; display: flex; flex-direction: column; gap: 2px; }
@@ -710,6 +735,10 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .pagination-controls { align-items: stretch; flex-direction: column; }
   .pagination-buttons { justify-content: center; flex-wrap: wrap; }
   .album-management-header, .library-navigation, .photo-view-toolbar { align-items: stretch; flex-direction: column; gap: 12px; }
+  .collection-scope-tabs { width: 100%; }
+  .album-workspace-header { grid-template-columns: 1fr; align-items: stretch; gap: 12px; }
+  .album-workspace-header .album-back { justify-self: start; }
+  .album-workspace-header nav { max-width: 100%; overflow-x: auto; }
   .library-maintenance, .photo-view-actions { justify-content: space-between; }
   .album-types-panel .type-manager-list { grid-template-columns: 1fr; }
   .recent-photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

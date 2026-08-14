@@ -322,6 +322,15 @@ class WebAppQueryTests(unittest.TestCase):
             album_id = groups["items"][0]["event_id"]
             self.assertEqual(groups["albums"][0]["id"], album_id)
             self.assertEqual(groups["albums"][0]["pending_count"], 1)
+            album_quality = _query_quality(settings, 20, 0, album_id=album_id)
+            self.assertEqual(album_quality["count"], 2)
+            self.assertEqual(album_quality["albums"][0]["id"], album_id)
+            self.assertEqual(album_quality["albums"][0]["analyzed_count"], 2)
+            self.assertEqual(album_quality["albums"][0]["problem_count"], 1)
+            self.assertEqual(
+                _query_quality(settings, 20, 0, album_id=album_id + 1000)["items"],
+                [],
+            )
             album_groups = _query_similarity_groups(
                 settings, 20, 0, album_id=album_id
             )
