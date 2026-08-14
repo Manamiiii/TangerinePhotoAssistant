@@ -361,8 +361,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .structure-stat { min-width: 190px; text-align: right; display: flex; flex-direction: column; }
 .structure-stat strong { color: var(--orange-soft); font-size: clamp(38px, 4vw, 58px); font-weight: 500; line-height: .9; letter-spacing: -.07em; }
 .structure-stat span { margin-top: 12px; color: #867f76; font-size: 11px; }
-.section-tabs { display: inline-flex; gap: 4px; margin: 0 0 18px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #171512; }
-.section-tabs button { padding: 8px 14px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }
+.section-tabs { flex-shrink: 0; display: inline-flex; gap: 4px; margin: 0 0 18px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #171512; }
+.section-tabs button { padding: 8px 14px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
 .section-tabs button.active { color: #fff5eb; background: #30251c; box-shadow: inset 0 0 0 1px #493526; }
 .compact-summary { min-height: 118px; padding: 24px 28px; border: 1px solid #3b3027; border-radius: 18px; background: linear-gradient(125deg, #251f19, #171512 72%); display: flex; align-items: center; justify-content: space-between; gap: 28px; }
 .compact-summary h2 { margin: 6px 0; font-size: 28px; letter-spacing: -.04em; }
@@ -373,6 +373,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .equipment-camera-panel { margin-top: 20px; }
 .equipment-camera-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
 .panel-heading-actions { display: flex; align-items: center; gap: 12px; }
+.equipment-camera-panel .panel-heading-actions .section-tabs { margin: 0; }
+.equipment-camera-panel .panel-heading-actions > .toolbar-button { min-height: 38px; }
 .equipment-panel { overflow: hidden; }
 .equipment-list { padding: 0 14px 14px; }
 .equipment-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 62px; padding: 11px 10px; border-top: 1px solid #2b2823; }
