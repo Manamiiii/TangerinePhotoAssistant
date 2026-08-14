@@ -59,11 +59,13 @@ from .equipment import (
 )
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
+    SimilarityCaptureNotFoundError,
     SimilarityGroupingError,
     list_similarity_group_revisions,
     restore_similarity_grouping,
     restore_similarity_group_revision,
     save_manual_similarity_grouping,
+    set_similarity_override,
 )
 from .inventory import enrich_metadata, refresh_metadata_profile, scan_library, utc_now
 from .lightroom import lightroom_status, write_lightroom_manifest
@@ -85,6 +87,7 @@ from .quality import (
     measure_luminance_histogram,
     rebuild_group_recommendations,
 )
+from .reviews import CaptureReviewError, CaptureReviewNotFoundError, save_capture_review
 from .queries.albums import query_albums
 from .queries.quality import query_quality
 from .queries.library import query_library_captures, query_library_filters
@@ -1907,37 +1910,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=409, detail="后台任务运行时不能调整相似分组")
         connection = connect(settings.database_path)
         try:
-            if connection.execute(
-                "SELECT 1 FROM captures WHERE id=?", (capture_id,)
-            ).fetchone() is None:
-                raise HTTPException(status_code=404, detail="照片不存在")
             if request.action == "auto":
                 regrouped = restore_similarity_grouping(connection, capture_id)
                 return {"capture_id": capture_id, "action": request.action, **regrouped}
-            else:
-                if connection.execute(
-                    "SELECT 1 FROM burst_captures WHERE capture_id=? LIMIT 1",
-                    (capture_id,),
-                ).fetchone() is None:
-                    raise HTTPException(status_code=422, detail="这张照片不属于连拍候选")
-                now = utc_now()
-                connection.execute(
-                    """INSERT INTO similarity_group_overrides(
-                           capture_id, action, created_at, updated_at
-                       ) VALUES (?, ?, ?, ?)
-                       ON CONFLICT(capture_id) DO UPDATE SET
-                           action=excluded.action, updated_at=excluded.updated_at""",
-                    (capture_id, request.action, now, now),
-                )
-            connection.commit()
-            regrouped = rebuild_similarity_groups(connection)
-            recommendations = rebuild_group_recommendations(connection)
-            return {
-                "capture_id": capture_id,
-                "action": request.action,
-                **regrouped,
-                **recommendations,
-            }
+            regrouped = set_similarity_override(connection, capture_id, request.action)
+            return {"capture_id": capture_id, "action": request.action, **regrouped}
+        except SimilarityCaptureNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SimilarityGroupingError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 
@@ -2563,38 +2544,21 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
 
     @app.put("/api/reviews/{capture_id}")
     def update_review(capture_id: int, request: ReviewUpdateRequest) -> dict[str, Any]:
-        if request.user_rating is not None and not 1 <= request.user_rating <= 5:
-            raise HTTPException(status_code=422, detail="人工星级必须在 1 到 5 之间")
-        if request.user_pick and request.user_reject:
-            raise HTTPException(status_code=422, detail="同一照片不能同时标为保留和待淘汰")
         connection = connect(settings.database_path)
         try:
-            exists = connection.execute(
-                "SELECT 1 FROM captures WHERE id=?", (capture_id,)
-            ).fetchone()
-            if not exists:
-                raise HTTPException(status_code=404, detail="拍摄单元不存在")
-            connection.execute(
-                """
-                INSERT INTO capture_reviews(
-                    capture_id, user_rating, user_pick, user_reject, user_note, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(capture_id) DO UPDATE SET
-                    user_rating=excluded.user_rating,
-                    user_pick=excluded.user_pick,
-                    user_reject=excluded.user_reject,
-                    user_note=excluded.user_note,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    capture_id, request.user_rating,
-                    int(request.user_pick) if request.user_pick is not None else None,
-                    int(request.user_reject), request.user_note,
-                    utc_now(),
-                ),
+            save_capture_review(
+                connection,
+                capture_id,
+                user_rating=request.user_rating,
+                user_pick=request.user_pick,
+                user_reject=request.user_reject,
+                user_note=request.user_note,
             )
-            connection.commit()
             return {"capture_id": capture_id, "status": "saved"}
+        except CaptureReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CaptureReviewError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 

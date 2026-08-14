@@ -15,6 +15,37 @@ class SimilarityGroupingError(ValueError):
     pass
 
 
+class SimilarityCaptureNotFoundError(SimilarityGroupingError):
+    pass
+
+
+def set_similarity_override(
+    connection: sqlite3.Connection, capture_id: int, action: str
+) -> dict[str, int]:
+    """Persist one legacy per-photo override and rebuild affected groups."""
+    if action not in {"exclude", "split_before"}:
+        raise SimilarityGroupingError("相似分组操作不受支持")
+    if connection.execute(
+        "SELECT 1 FROM captures WHERE id=?", (capture_id,)
+    ).fetchone() is None:
+        raise SimilarityCaptureNotFoundError("照片不存在")
+    if connection.execute(
+        "SELECT 1 FROM burst_captures WHERE capture_id=? LIMIT 1", (capture_id,)
+    ).fetchone() is None:
+        raise SimilarityGroupingError("这张照片不属于连拍候选")
+    now = utc_now()
+    with transaction(connection):
+        connection.execute(
+            """INSERT INTO similarity_group_overrides(
+                   capture_id, action, created_at, updated_at
+               ) VALUES (?, ?, ?, ?)
+               ON CONFLICT(capture_id) DO UPDATE SET
+                   action=excluded.action, updated_at=excluded.updated_at""",
+            (capture_id, action, now, now),
+        )
+    return _rebuild(connection)
+
+
 def _snapshot_overrides(
     connection: sqlite3.Connection, capture_ids: Sequence[int]
 ) -> list[dict[str, int | str | None]]:
@@ -220,6 +251,10 @@ def restore_similarity_grouping(
     connection: sqlite3.Connection, capture_id: int
 ) -> dict[str, int]:
     """Remove one legacy override or the complete manual editing batch."""
+    if connection.execute(
+        "SELECT 1 FROM captures WHERE id=?", (capture_id,)
+    ).fetchone() is None:
+        raise SimilarityCaptureNotFoundError("照片不存在")
     override = connection.execute(
         "SELECT manual_batch_key FROM similarity_group_overrides WHERE capture_id=?",
         (capture_id,),

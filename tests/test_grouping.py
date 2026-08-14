@@ -6,11 +6,13 @@ from PIL import Image
 
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.grouping import (
+    SimilarityCaptureNotFoundError,
     SimilarityGroupingError,
     list_similarity_group_revisions,
     restore_similarity_grouping,
     restore_similarity_group_revision,
     save_manual_similarity_grouping,
+    set_similarity_override,
 )
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.pairing import rebuild_captures
@@ -174,6 +176,30 @@ class ManualGroupingTests(unittest.TestCase):
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0],
                 0,
+            )
+            connection.close()
+
+    def test_legacy_override_is_validated_and_persisted_by_grouping_service(self) -> None:
+        with TemporaryDirectory() as directory:
+            connection, _group_id, capture_ids = self._catalog(Path(directory))
+            result = set_similarity_override(connection, capture_ids[0], "exclude")
+            self.assertIn("similarity_groups", result)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT action FROM similarity_group_overrides WHERE capture_id=?",
+                    (capture_ids[0],),
+                ).fetchone()[0],
+                "exclude",
+            )
+            with self.assertRaises(SimilarityCaptureNotFoundError):
+                set_similarity_override(connection, max(capture_ids) + 1000, "exclude")
+            with self.assertRaisesRegex(SimilarityGroupingError, "不受支持"):
+                set_similarity_override(connection, capture_ids[1], "invalid")
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT action FROM similarity_group_overrides WHERE capture_id=?",
+                    (capture_ids[1],),
+                ).fetchone()
             )
             connection.close()
 
