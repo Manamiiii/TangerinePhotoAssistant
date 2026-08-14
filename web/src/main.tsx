@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { getJson, similarityGroupsUrl } from "./api";
+import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "./components/Navigation";
 import {
   formatBytes,
   formatDate,
@@ -654,32 +655,6 @@ function modelAdvice(result: QualityItem["ai_result"]) {
   return result?.quality_summary ?? "打开详情查看完整模型建议。";
 }
 
-function Pagination({ count, limit, offset, onChange, onLimitChange }: {
-  count: number;
-  limit: number;
-  offset: number;
-  onChange: (offset: number) => void;
-  onLimitChange: (limit: number) => void;
-}) {
-  const pageCount = Math.max(1, Math.ceil(count / limit));
-  const currentPage = Math.min(pageCount, Math.floor(offset / limit) + 1);
-  const goToPage = (page: number) => onChange((Math.max(1, Math.min(pageCount, page)) - 1) * limit);
-  return <div className="pagination-controls" aria-label="分页">
-    <label>每页<select value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}>
-      {[20, 40, 80, 120, 200].map((size) => <option key={size} value={size}>{size}</option>)}
-    </select></label>
-    <div className="pagination-buttons">
-      <button disabled={currentPage === 1} onClick={() => goToPage(1)} aria-label="第一页">«</button>
-      <button disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)} aria-label="上一页">‹</button>
-      <label>第<input type="number" min="1" max={pageCount} value={currentPage} onChange={(event) => goToPage(Number(event.target.value) || 1)} />页</label>
-      <span>/ {numberFormat.format(pageCount)} 页</span>
-      <button disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)} aria-label="下一页">›</button>
-      <button disabled={currentPage === pageCount} onClick={() => goToPage(pageCount)} aria-label="最后一页">»</button>
-    </div>
-    <span>共 {numberFormat.format(count)} 条</span>
-  </div>;
-}
-
 function TaskCard({ task, cancel, pause }: { task: Task | null; cancel?: () => void; pause?: () => void }) {
   const taskSignature = `${task?.id ?? "idle"}:${task?.status ?? "idle"}:${task?.message ?? ""}`;
   const [dismissed, setDismissed] = useState(false);
@@ -1279,39 +1254,6 @@ function SimilarityGroupingEditor({ group, cancel, save, restore, restoreRevisio
     </div>
     <footer className="grouping-editor-footer"><button className="toolbar-button" onClick={() => setBuckets((current) => [...current, []])}>＋ 新增分组</button><span className={hasSingletonGroup ? "grouping-warning" : ""}>{hasSingletonGroup ? "相似组至少需要 2 张；单张请放入“移出分组”" : "所有调整只在点击确认后生效"}</span><button className="toolbar-button" onClick={cancel}>取消</button><button className="toolbar-button primary" disabled={saving || hasSingletonGroup} onClick={() => void submit()}>{saving ? "正在保存" : "确认调整"}</button></footer>
   </div>;
-}
-
-function CollectionScopeTabs({ scope, setScope, allLabel = "全部" }: {
-  scope: CollectionScope;
-  setScope: (scope: CollectionScope) => void;
-  allLabel?: string;
-}) {
-  return <div className="collection-scope-tabs" role="tablist" aria-label="浏览范围">
-    <button className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>{allLabel}</button>
-    <button className={scope === "albums" ? "active" : ""} onClick={() => setScope("albums")}>相册</button>
-  </div>;
-}
-
-function AlbumWorkspaceHeader({ name, category, summary, current, back, openPhotos, openBursts, openQuality }: {
-  name: string;
-  category: string;
-  summary: string;
-  current: "library" | "bursts" | "analysis";
-  back: () => void;
-  openPhotos: () => void;
-  openBursts: () => void;
-  openQuality: () => void;
-}) {
-  const destinations = [
-    ["library", "照片", openPhotos],
-    ["bursts", "连拍选片", openBursts],
-    ["analysis", "质量分析", openQuality],
-  ] as const;
-  return <section className="album-workspace-header">
-    <button className="album-back" onClick={back}>← 返回相册</button>
-    <div className="album-workspace-title"><span>{category}</span><h2>{name}</h2><small>{summary}</small></div>
-    <nav aria-label="相册工作区">{destinations.map(([value, label, open]) => <button key={value} className={current === value ? "active" : ""} onClick={open}>{label}</button>)}</nav>
-  </section>;
 }
 
 function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision }: {

@@ -86,6 +86,8 @@ from .quality import (
     rebuild_group_recommendations,
 )
 from .queries.quality import query_quality
+from .queries.library import query_library_captures, query_library_filters
+from .queries.similarity import query_similarity_group, query_similarity_groups
 from .reporting import build_report, write_report
 from .settings import Settings, editable_config, save_editable_config
 from .statistics import build_statistics
@@ -1195,198 +1197,28 @@ def _query_library_captures(
     sort: str = "newest",
     collapse_groups: bool = False,
 ) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        conditions = [
-            "f.present = 1",
-            "cf.file_id = (SELECT MIN(cf2.file_id) FROM capture_files cf2 JOIN files f2 ON f2.id = cf2.file_id WHERE cf2.capture_id = c.id AND cf2.role = 'jpeg' AND f2.present = 1)",
-        ]
-        parameters: list[Any] = []
-        if album_id is not None:
-            conditions.append("e.id = ?")
-            parameters.append(album_id)
-        elif unassigned_only:
-            conditions.append("e.id IS NULL")
-        if category:
-            conditions.append("e.category = ?")
-            parameters.append(category)
-        if camera_model:
-            conditions.append("f.camera_model = ?")
-            parameters.append(camera_model)
-        if lens_model:
-            conditions.append("f.lens_model = ?")
-            parameters.append(lens_model)
-        if rating is not None:
-            conditions.append("cr.user_rating = ?")
-            parameters.append(rating)
-        if selection == "picked":
-            conditions.append("COALESCE(cr.user_pick, 0) = 1")
-        elif selection == "rejected":
-            conditions.append("COALESCE(cr.user_reject, 0) = 1")
-        elif selection == "unreviewed":
-            conditions.append("cr.user_rating IS NULL AND COALESCE(cr.user_pick, 0) = 0 AND COALESCE(cr.user_reject, 0) = 0")
-        if quality == "problems":
-            conditions.append(
-                "qm.issue_json IS NOT NULL AND qm.issue_json NOT IN ('', '[]')"
-            )
-        elif quality == "low":
-            conditions.append("qm.technical_score < 70")
-        elif quality == "high":
-            conditions.append("qm.technical_score >= 85")
-        elif quality == "unanalyzed":
-            conditions.append("qm.technical_score IS NULL")
-        if date_from:
-            conditions.append("substr(c.captured_at, 1, 10) >= ?")
-            parameters.append(date_from)
-        if date_to:
-            conditions.append("substr(c.captured_at, 1, 10) <= ?")
-            parameters.append(date_to)
-        if search:
-            conditions.append("(c.stem LIKE ? OR e.proposed_name LIKE ? OR c.parent_relative LIKE ?)")
-            term = f"%{search.strip()}%"
-            parameters.extend((term, term, term))
-        where_sql = " AND ".join(conditions)
-        from_sql = """
-            FROM captures c
-            JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
-            JOIN files f ON f.id = cf.file_id
-            LEFT JOIN event_captures ec ON ec.capture_id = c.id
-            LEFT JOIN events e ON e.id = ec.event_id
-            LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
-            LEFT JOIN similarity_group_captures sgc ON sgc.capture_id = c.id
-            LEFT JOIN similarity_groups sg ON sg.id = sgc.group_id
-            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
-            LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id = c.id
-            LEFT JOIN (
-                SELECT members.group_id,
-                       SUM(CASE WHEN COALESCE(reviews.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
-                       SUM(CASE WHEN COALESCE(reviews.user_reject, 0)=1 THEN 1 ELSE 0 END) AS reject_count,
-                       SUM(CASE WHEN reviews.user_rating IS NULL
-                                     AND COALESCE(reviews.user_pick, 0)=0
-                                     AND COALESCE(reviews.user_reject, 0)=0 THEN 1 ELSE 0 END) AS unreviewed_count
-                FROM similarity_group_captures members
-                LEFT JOIN capture_reviews reviews ON reviews.capture_id=members.capture_id
-                GROUP BY members.group_id
-            ) group_stats ON group_stats.group_id=sg.id
-        """
-        ordering = {
-            "oldest": "c.captured_at IS NULL, c.captured_at ASC, c.id ASC",
-            "name": "c.stem COLLATE NOCASE ASC, c.id ASC",
-            "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC",
-        }.get(sort, "c.captured_at IS NULL, c.captured_at DESC, c.id DESC")
-        row_sql = f"""
-            SELECT c.id, c.stem, c.captured_at, c.pairing_status,
-                   f.camera_model, f.lens_model, e.id AS album_id,
-                   e.proposed_name AS album_name, e.category,
-                   cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
-                   cr.auto_pick, qm.technical_score,
-                   sgo.action AS grouping_override, sgo.manual_batch_key,
-                   COALESCE((
-                       SELECT SUM(member_file.size_bytes)
-                       FROM capture_files member_cf
-                       JOIN files member_file ON member_file.id=member_cf.file_id
-                       WHERE member_cf.capture_id=c.id AND member_file.present=1
-                   ), 0) AS size_bytes,
-                   MAX(sg.id) AS similarity_group_id,
-                   MAX(sg.capture_count) AS similarity_group_size,
-                   MAX(group_stats.pick_count) AS group_pick_count,
-                   MAX(group_stats.reject_count) AS group_reject_count,
-                   MAX(group_stats.unreviewed_count) AS group_unreviewed_count
-            {from_sql}
-            WHERE {where_sql}
-            GROUP BY c.id
-            ORDER BY {ordering}
-            """
-        if collapse_groups:
-            rows = connection.execute(row_sql, parameters).fetchall()
-        else:
-            rows = connection.execute(
-                f"{row_sql} LIMIT ? OFFSET ?", (*parameters, limit, offset)
-            ).fetchall()
-        items = []
-        for row in rows:
-            item = dict(row)
-            item["thumbnail_url"] = f"/api/thumbnails/{item['id']}?size=640"
-            item["item_type"] = "photo"
-            item["selection_capture_ids"] = [item["id"]]
-            items.append(item)
-        if collapse_groups:
-            folded: list[dict[str, Any]] = []
-            positions: dict[int, int] = {}
-            members: dict[int, list[dict[str, Any]]] = {}
-            for item in items:
-                group_id = item["similarity_group_id"]
-                if group_id is None:
-                    folded.append(item)
-                    continue
-                members.setdefault(group_id, []).append(item)
-                if group_id not in positions:
-                    positions[group_id] = len(folded)
-                    group_item = dict(item)
-                    group_item["item_type"] = "group"
-                    folded.append(group_item)
-                    continue
-                current = folded[positions[group_id]]
-                candidate_rank = (
-                    int(bool(item["user_pick"])), item["user_rating"] or 0,
-                    int(bool(item["auto_pick"])), item["technical_score"] or -1,
-                )
-                current_rank = (
-                    int(bool(current["user_pick"])), current["user_rating"] or 0,
-                    int(bool(current["auto_pick"])), current["technical_score"] or -1,
-                )
-                if candidate_rank > current_rank:
-                    replacement = dict(item)
-                    replacement["item_type"] = "group"
-                    folded[positions[group_id]] = replacement
-            for group_id, group_members in members.items():
-                group_item = folded[positions[group_id]]
-                group_item["selection_capture_ids"] = [item["id"] for item in group_members]
-                group_item["size_bytes"] = sum(item["size_bytes"] for item in group_members)
-            total = len(folded)
-            return {
-                "count": total, "limit": limit, "offset": offset,
-                "items": folded[offset:offset + limit], "collapsed": True,
-            }
-        total = connection.execute(
-            f"SELECT COUNT(DISTINCT c.id) {from_sql} WHERE {where_sql}",
-            parameters,
-        ).fetchone()[0]
-        return {"count": total, "limit": limit, "offset": offset, "items": items,
-                "collapsed": False}
-    finally:
-        connection.close()
+    return query_library_captures(
+        settings.database_path,
+        limit,
+        offset,
+        album_id=album_id,
+        unassigned_only=unassigned_only,
+        category=category,
+        camera_model=camera_model,
+        lens_model=lens_model,
+        rating=rating,
+        selection=selection,
+        quality=quality,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        sort=sort,
+        collapse_groups=collapse_groups,
+    )
 
 
 def _query_library_filters(settings: Settings) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        albums = connection.execute(
-            """SELECT id, proposed_name AS name, category, capture_count, status
-               FROM events WHERE status != 'archived'
-               ORDER BY start_at IS NULL, start_at DESC, proposed_name"""
-        ).fetchall()
-        types = connection.execute(
-            "SELECT name, built_in FROM album_types ORDER BY sort_order, name"
-        ).fetchall()
-        cameras = connection.execute(
-            """SELECT DISTINCT camera_model FROM files
-               WHERE present=1 AND camera_model IS NOT NULL AND camera_model!=''
-               ORDER BY camera_model"""
-        ).fetchall()
-        lenses = connection.execute(
-            """SELECT DISTINCT lens_model FROM files
-               WHERE present=1 AND lens_model IS NOT NULL AND lens_model!=''
-               ORDER BY lens_model"""
-        ).fetchall()
-        return {
-            "albums": [dict(row) for row in albums],
-            "album_types": [dict(row) for row in types],
-            "cameras": [row[0] for row in cameras],
-            "lenses": [row[0] for row in lenses],
-        }
-    finally:
-        connection.close()
+    return query_library_filters(settings.database_path)
 
 
 def _assign_captures_to_album(
@@ -1645,165 +1477,13 @@ def _query_similarity_groups(
     settings: Settings, limit: int, offset: int, review_filter: str = "all",
     album_id: int | None = None,
 ) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        album_filter = " AND b.event_id=?" if album_id is not None else ""
-        count_parameters = (album_id,) if album_id is not None else ()
-        pending_condition = """
-            NOT EXISTS (
-                SELECT 1 FROM similarity_group_captures psgc
-                JOIN capture_reviews pcr ON pcr.capture_id = psgc.capture_id
-                WHERE psgc.group_id = sg.id AND COALESCE(pcr.user_pick, 0) = 1
-            ) AND EXISTS (
-                SELECT 1 FROM similarity_group_captures rsgc
-                LEFT JOIN capture_reviews rcr ON rcr.capture_id = rsgc.capture_id
-                WHERE rsgc.group_id = sg.id AND COALESCE(rcr.user_reject, 0) = 0
-            )
-        """
-        completed_condition = f"NOT ({pending_condition})"
-        adjusted_condition = """
-            EXISTS (
-                SELECT 1 FROM similarity_group_captures asgc
-                JOIN similarity_group_overrides aso ON aso.capture_id = asgc.capture_id
-                WHERE asgc.group_id = sg.id
-            )
-        """
-        review_condition = {
-            "pending": pending_condition,
-            "completed": completed_condition,
-            "adjusted": adjusted_condition,
-        }.get(review_filter, "1=1")
-        total = connection.execute(
-            f"""SELECT COUNT(*) FROM similarity_groups sg
-                JOIN bursts b ON b.id=sg.burst_id WHERE 1=1{album_filter}""",
-            count_parameters,
-        ).fetchone()[0]
-        pending_count = connection.execute(
-            f"""
-            SELECT COUNT(*) FROM similarity_groups sg
-            JOIN bursts b ON b.id=sg.burst_id
-            WHERE {pending_condition}
-            {album_filter}
-            """,
-            count_parameters,
-        ).fetchone()[0]
-        album_rows = connection.execute(
-            """
-            SELECT e.id, e.proposed_name AS name, e.category,
-                   COUNT(*) AS total_count,
-                   SUM(CASE WHEN NOT EXISTS (
-                       SELECT 1 FROM similarity_group_captures psgc
-                       JOIN capture_reviews pcr ON pcr.capture_id=psgc.capture_id
-                       WHERE psgc.group_id=sg.id AND COALESCE(pcr.user_pick, 0)=1
-                   ) AND EXISTS (
-                       SELECT 1 FROM similarity_group_captures rsgc
-                       LEFT JOIN capture_reviews rcr ON rcr.capture_id=rsgc.capture_id
-                       WHERE rsgc.group_id=sg.id AND COALESCE(rcr.user_reject, 0)=0
-                   ) THEN 1 ELSE 0 END) AS pending_count
-              FROM similarity_groups sg
-              JOIN bursts b ON b.id=sg.burst_id
-              JOIN events e ON e.id=b.event_id
-             GROUP BY e.id
-             ORDER BY pending_count DESC, total_count DESC, e.start_at DESC
-            """
-        ).fetchall()
-        filtered_count = connection.execute(
-            f"""SELECT COUNT(*) FROM similarity_groups sg
-                JOIN bursts b ON b.id=sg.burst_id
-                WHERE {review_condition}{album_filter}""",
-            count_parameters,
-        ).fetchone()[0]
-        rows = connection.execute(
-            f"""
-            SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
-                   b.start_at, b.end_at, e.id AS event_id,
-                   e.proposed_name AS event_name, e.category,
-                   ROUND(AVG(qm.technical_score), 1) AS average_score,
-                   MAX(CASE WHEN cr.auto_pick = 1 THEN c.id END) AS recommended_capture_id,
-                   MAX(CASE WHEN cr.auto_pick = 1 THEN c.stem END) AS recommended_stem,
-                   MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END) AS cover_capture_id,
-                   SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
-                   SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) AS reject_count
-            FROM similarity_groups sg
-            JOIN bursts b ON b.id = sg.burst_id
-            JOIN events e ON e.id = b.event_id
-            JOIN similarity_group_captures sgc ON sgc.group_id = sg.id
-            JOIN captures c ON c.id = sgc.capture_id
-            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
-            LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
-            WHERE {review_condition} {album_filter}
-            GROUP BY sg.id
-            ORDER BY sg.capture_count DESC, b.start_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (*count_parameters, limit, offset),
-        ).fetchall()
-        items = [dict(row) for row in rows]
-        for item in items:
-            item["thumbnail_url"] = f"/api/thumbnails/{item['cover_capture_id']}?size=320"
-            item["review_status"] = (
-                "picked" if item["pick_count"] else
-                "skipped" if item["reject_count"] >= item["capture_count"] else "pending"
-            )
-        return {
-            "count": filtered_count, "limit": limit, "offset": offset, "items": items,
-            "total_count": total, "pending_count": pending_count,
-            "albums": [dict(row) for row in album_rows],
-        }
-    finally:
-        connection.close()
+    return query_similarity_groups(
+        settings.database_path, limit, offset, review_filter, album_id
+    )
 
 
 def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        group = connection.execute(
-            """
-            SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
-                   b.start_at, b.end_at, e.proposed_name AS event_name, e.category
-            FROM similarity_groups sg
-            JOIN bursts b ON b.id = sg.burst_id
-            JOIN events e ON e.id = b.event_id
-            WHERE sg.id = ?
-            """,
-            (group_id,),
-        ).fetchone()
-        if group is None:
-            raise ValueError("相似组不存在")
-        rows = connection.execute(
-            """
-            SELECT c.id AS capture_id, c.stem, c.captured_at, sgc.sequence_index,
-                   sgc.distance_from_previous, qm.technical_score,
-                   qm.exposure_score, qm.sharpness_score, qm.exif_score,
-                   qm.issue_json, cr.auto_rating, cr.auto_pick, cr.similarity_rank,
-                   cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
-                   sgo.action AS grouping_override, sgo.manual_batch_key,
-                   f.exposure_time, f.f_number, f.iso, f.focal_length_mm,
-                   f.focal_length_35mm, f.camera_model, f.lens_model
-            FROM similarity_group_captures sgc
-            JOIN captures c ON c.id = sgc.capture_id
-            JOIN capture_files cf ON cf.capture_id = c.id AND cf.role = 'jpeg'
-              AND cf.file_id = (SELECT MIN(cf2.file_id) FROM capture_files cf2
-                                JOIN files f2 ON f2.id = cf2.file_id
-                                WHERE cf2.capture_id=c.id AND cf2.role='jpeg' AND f2.present=1)
-            JOIN files f ON f.id = cf.file_id
-            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
-            LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
-            LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id = c.id
-            WHERE sgc.group_id = ? ORDER BY sgc.sequence_index
-            """,
-            (group_id,),
-        ).fetchall()
-        items = []
-        for row in rows:
-            item = dict(row)
-            raw_issues = item.pop("issue_json")
-            item["issues"] = json.loads(raw_issues) if raw_issues else []
-            item["thumbnail_url"] = f"/api/thumbnails/{item['capture_id']}?size=640"
-            items.append(item)
-        return {**dict(group), "items": items}
-    finally:
-        connection.close()
+    return query_similarity_group(settings.database_path, group_id)
 
 
 METERING_MODE_LABELS = {

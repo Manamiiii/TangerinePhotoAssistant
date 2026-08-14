@@ -33,6 +33,7 @@ from tangerine_photo_assistant.webapp import (
     _runtime_capabilities,
     create_app,
     _query_quality,
+    _query_similarity_group,
     _query_similarity_groups,
 )
 
@@ -282,6 +283,21 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertGreater(group["size_bytes"], single["size_bytes"])
             self.assertEqual(single["id"], single_id)
 
+            page = _query_library_captures(settings, 2, 1, sort="name")
+            self.assertEqual(page["count"], 4)
+            self.assertEqual(page["limit"], 2)
+            self.assertEqual(page["offset"], 1)
+            self.assertEqual(
+                [item["stem"] for item in page["items"]],
+                ["DSCF0002", "DSCF0003"],
+            )
+            self.assertEqual(
+                _query_library_captures(
+                    settings, 20, 0, album_id=album_id + 1000
+                )["items"],
+                [],
+            )
+
             picked = _query_library_captures(
                 settings, 20, 0, album_id=album_id,
                 selection="picked", collapse_groups=True,
@@ -339,6 +355,15 @@ class WebAppQueryTests(unittest.TestCase):
             groups = _query_similarity_groups(settings, 20, 0)
             self.assertEqual(groups["pending_count"], 1)
             self.assertEqual(groups["items"][0]["review_status"], "pending")
+            group_detail = _query_similarity_group(settings, groups["items"][0]["id"])
+            self.assertEqual(group_detail["capture_count"], 3)
+            self.assertEqual(len(group_detail["items"]), 3)
+            self.assertTrue(all(
+                item["thumbnail_url"].endswith("?size=640")
+                for item in group_detail["items"]
+            ))
+            with self.assertRaisesRegex(ValueError, "相似组不存在"):
+                _query_similarity_group(settings, groups["items"][0]["id"] + 1000)
             album_id = groups["items"][0]["event_id"]
             self.assertEqual(groups["albums"][0]["id"], album_id)
             self.assertEqual(groups["albums"][0]["pending_count"], 1)
