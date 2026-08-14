@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { getJson, similarityGroupsUrl } from "./api";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "./components/Navigation";
 import { TaskCard, taskForDisplay, taskReceipt, type Task } from "./components/TaskCard";
+import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
+import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
 import {
   formatBytes,
   formatDate,
@@ -583,44 +585,6 @@ type EquipmentCatalog = {
   };
   filter_system: { compatibility?: string; infer_usage_from_thread_size?: boolean };
 };
-
-type ArchiveStatus = {
-  baseline: {
-    id: number;
-    name: string;
-    created_at: string;
-    file_count: number;
-    total_bytes: number;
-  } | null;
-  comparison: {
-    missing: number;
-    changed: number;
-    new: number;
-    healthy: boolean;
-    samples: Array<{ relative_path: string; status: string }>;
-    checked_at?: string;
-  } | null;
-};
-
-type LightroomStatus = {
-  capture_count: number;
-  confirmed_events: number;
-  event_count: number;
-  rated_captures: number;
-  user_picks: number;
-  user_rejects: number;
-};
-
-type LightroomManifest = {
-  capture_count: number;
-  rated_count: number;
-  user_pick_count: number;
-  user_reject_count: number;
-  source_bytes: number;
-  csv_url: string;
-  json_url: string;
-};
-type LightroomManifestScope = "picked" | "rated" | "album" | "all";
 
 function modelAdvice(result: QualityItem["ai_result"]) {
   const shooting = result?.shooting_advice?.[0];
@@ -1857,41 +1821,6 @@ function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, chang
   );
 }
 
-function ArchiveView({ archive, activeLibrary, createBaseline, createActiveBaseline, checkIntegrity }: {
-  archive: ArchiveStatus | null;
-  activeLibrary: ArchiveStatus | null;
-  createBaseline: () => void;
-  createActiveBaseline: () => void;
-  checkIntegrity: (scope: "archive" | "active") => Promise<void>;
-}) {
-  const [checking, setChecking] = useState<"archive" | "active" | null>(null);
-  const runCheck = async (scope: "archive" | "active") => {
-    setChecking(scope);
-    try { await checkIntegrity(scope); } finally { setChecking(null); }
-  };
-  const baselineCard = (title: string, status: ArchiveStatus | null, create: () => void, scope: "archive" | "active") => (
-    <section className="panel archive-panel">
-      <div className="panel-heading"><div><span className="section-kicker">{scope === "archive" ? "历史存档" : "当前使用"}</span><h3>{title}</h3></div><button className="toolbar-button" disabled={checking !== null} onClick={() => void runCheck(scope)}>{checking === scope ? "正在检查" : "立即检查"}</button></div>
-      {status?.baseline ? <div className="archive-status">
-        <span className={`archive-health ${status.comparison?.healthy ? "healthy" : "warning"}`}>{status.comparison?.healthy ? "上次检查正常" : status.comparison ? "上次检查发现差异" : "尚未检查"}</span>
-        <strong>{status.baseline.name}</strong>
-        <small>基线 {formatDate(status.baseline.created_at)} · {numberFormat.format(status.baseline.file_count)} 个文件 · {formatBytes(status.baseline.total_bytes)}</small>
-        <small>上次检查 {status.comparison?.checked_at ? formatDate(status.comparison.checked_at) : "尚未执行"}</small>
-        <div className="archive-counts"><div><b>{status.comparison?.missing ?? "—"}</b><span>缺失</span></div><div><b>{status.comparison?.changed ?? "—"}</b><span>变化</span></div><div><b>{status.comparison?.new ?? "—"}</b><span>新增</span></div></div>
-        {!!status.comparison?.samples.length && <div className="integrity-samples">{status.comparison.samples.slice(0, 8).map((sample) => <div key={`${sample.status}-${sample.relative_path}`}><span>{sample.status}</span><strong>{sample.relative_path}</strong></div>)}</div>}
-      </div> : <div className="archive-status"><p>尚未建立完整性基线。基线只记录路径、大小和修改时间，不复制或修改照片。</p><button className="primary-action" onClick={create}><span>建立基线</span><b>→</b></button></div>}
-    </section>
-  );
-  return <>
-    <section className="compact-summary"><div><span className="section-kicker">系统维护</span><h2>图库完整性</h2><p>需要时手动核对磁盘文件；日常浏览只读取上次结果，不扫描照片目录。</p></div></section>
-    <section className="statistics-grid">
-      {baselineCard("历史存档", archive, createBaseline, "archive")}
-      {baselineCard("活动图库", activeLibrary, createActiveBaseline, "active")}
-    </section>
-    <section className="integrity-guidance"><strong>适合什么时候检查</strong><span>更换硬盘、恢复备份、手动整理目录、异常断电或每隔一至三个月例行检查时使用。检查只报告差异，不会修改或修复照片。</span></section>
-  </>;
-}
-
 function StatisticsView({ statistics, openLibraryWith }: {
   statistics: Statistics | null;
   openLibraryWith: (changes: Partial<LibraryQuery>) => void;
@@ -1964,35 +1893,6 @@ function StatisticsView({ statistics, openLibraryWith }: {
         <div className="month-strip">{(statistics?.months ?? []).slice(-24).map((month) => <button type="button" key={month.month} onClick={() => openMonth(month.month)}><span>{month.month}</span><i style={{ height: `${Math.max(8, Math.min(100, month.count / Math.max(1, ...(statistics?.months ?? []).map((item) => item.count)) * 100))}%` }} /><strong>{month.count}</strong><small>{month.average_score ?? "—"}</small></button>)}</div>
       </section>
       }
-    </>
-  );
-}
-
-function LightroomView({ status, manifest, capabilities, albums, generateManifest }: {
-  status: LightroomStatus | null;
-  manifest: LightroomManifest | null;
-  capabilities: SystemCapabilities | null;
-  albums: LibraryFilters["albums"];
-  generateManifest: (scope: LightroomManifestScope, albumId?: number) => void;
-}) {
-  const [scope, setScope] = useState<LightroomManifestScope>("picked");
-  const [albumId, setAlbumId] = useState("");
-  return (
-    <>
-      <section className="structure-hero lightroom-hero">
-        <div><span className="section-kicker">Lightroom Classic</span><h2>后期准备清单</h2><p>按明确范围汇总路径、评级、选片和相册信息；只生成报告，不导入或写入照片。</p><div className="manifest-scope-controls"><label>清单范围<select value={scope} onChange={(event) => setScope(event.target.value as LightroomManifestScope)}><option value="picked">仅人工入选</option><option value="rated">已有评级</option><option value="album">指定相册</option><option value="all">全部照片及状态</option></select></label>{scope === "album" && <label>相册<select value={albumId} onChange={(event) => setAlbumId(event.target.value)}><option value="">选择相册</option>{albums.map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label>}<button className="primary-action" disabled={scope === "album" && !albumId} onClick={() => generateManifest(scope, albumId ? Number(albumId) : undefined)}><span>生成准备清单</span><b>→</b></button></div></div>
-        <div className="structure-stat"><strong>{status ? numberFormat.format(status.capture_count) : "—"}</strong><span>个待准备拍摄单元</span></div>
-      </section>
-      <section className="metric-grid">
-        <article><span>相册已确认</span><strong>{status ? `${status.confirmed_events}/${status.event_count}` : "—"}</strong><small>未确认名称仍会标注为建议</small></article>
-        <article><span>已有评级</span><strong>{status ? numberFormat.format(status.rated_captures) : "—"}</strong><small>人工星级与技术评级分别保存</small></article>
-        <article><span>连拍入选</span><strong>{status ? numberFormat.format(status.user_picks) : "—"}</strong><small>准备清单中的pick字段</small></article>
-        <article><span>连拍排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>只标记，不删除</small></article>
-      </section>
-      <section className="lightroom-grid">
-        <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本轮只生成报告</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>照片目录保持只读</strong><small>{capabilities?.library_root ?? "当前配置的照片目录"} 不会被移动、改名或改写</small></span></div><div><b>✓</b><span><strong>原片元数据写入关闭</strong><small>不会在照片旁创建或修改 XMP 等附属文件</small></span></div><div><b>✓</b><span><strong>输出到独立工作目录</strong><small>{capabilities?.workspace_root ?? "应用工作目录"}</small></span></div><div><b>✓</b><span><strong>JPG 与 RAW 同步</strong><small>同一拍摄单元共享评级和标签</small></span></div></div></section>
-        <section className="panel manifest-panel"><div className="panel-heading"><div><span className="section-kicker">最近生成</span><h3>Lightroom准备文件</h3></div></div>{manifest ? <div className="manifest-result"><strong>{numberFormat.format(manifest.capture_count)} 个拍摄单元</strong><span>{numberFormat.format(manifest.rated_count)} 个已有评级 · {formatBytes(manifest.source_bytes)} 原始文件索引</span><a href={manifest.csv_url}>下载CSV清单</a><a href={manifest.json_url}>下载完整JSON</a><small>下载的是清单，不是照片副本。</small></div> : <div className="empty-state">尚未在本次启动中生成清单。</div>}</section>
-      </section>
     </>
   );
 }

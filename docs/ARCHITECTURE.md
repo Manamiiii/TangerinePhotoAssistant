@@ -85,6 +85,8 @@ schema 20 的 `similarity_group_revisions` 保存一次分组写入的前后 JSO
 `webapp.py` 保留兼容包装和原 API 返回。前端已抽离无状态的
 `api.ts`、`formatters.ts`，以及分页、范围切换和相册工作区头部等共享导航组件。
 后台任务的数据类型、完成回执和跨页面复用的任务卡也已集中到 `components/TaskCard.tsx`。
+系统维护与 Lightroom 后期清单已开始按 feature 拆分到 `features/system/`，相关响应类型随
+视图模块维护，`main.tsx` 仅保留请求和跨页面状态编排。
 页面业务状态和接口契约均未改变，后续模块继续使用同样的“小范围迁移 + 现有回归测试”
 方式推进。
 
