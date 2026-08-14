@@ -8,6 +8,20 @@ export type LightroomStatus = {
   rated_captures: number;
   user_picks: number;
   user_rejects: number;
+  preflight: {
+    status: "not_configured" | "missing" | "no_catalog" | "catalog_open" | "ready_for_review";
+    message: string;
+    catalog_root: string;
+    catalog_root_exists: boolean;
+    catalogs: Array<{ name: string; path: string; size_bytes: number; locked: boolean; data_companion: boolean }>;
+    catalog_count: number;
+    locked_count: number;
+    backup_root: string;
+    backup_root_exists: boolean;
+    xmp_write_enabled: false;
+    catalog_direct_write_supported: false;
+    notes: string[];
+  };
 };
 
 export type LightroomManifest = {
@@ -16,6 +30,9 @@ export type LightroomManifest = {
   user_pick_count: number;
   user_reject_count: number;
   source_bytes: number;
+  raw_sidecar_candidates: number;
+  existing_xmp_count: number;
+  conflict_review_count: number;
   csv_url: string;
   json_url: string;
 };
@@ -43,8 +60,8 @@ export function LightroomView({ status, manifest, capabilities, albums, generate
       <article><span>选片排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>人工结论，只标记，不删除</small></article>
     </section>
     <section className="lightroom-grid">
-      <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本轮只生成报告</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>照片目录保持只读</strong><small>{capabilities?.library_root ?? "当前配置的照片目录"} 不会被移动、改名或改写</small></span></div><div><b>✓</b><span><strong>原片元数据写入关闭</strong><small>不会在照片旁创建或修改 XMP 等附属文件</small></span></div><div><b>✓</b><span><strong>输出到独立工作目录</strong><small>{capabilities?.workspace_root ?? "应用工作目录"}</small></span></div><div><b>✓</b><span><strong>JPG 与 RAW 同步</strong><small>同一拍摄单元共享评级和标签</small></span></div></div></section>
-      <section className="panel manifest-panel"><div className="panel-heading"><div><span className="section-kicker">最近生成</span><h3>Lightroom准备文件</h3></div></div>{manifest ? <div className="manifest-result"><strong>{numberFormat.format(manifest.capture_count)} 个拍摄单元</strong><span>{numberFormat.format(manifest.rated_count)} 个已有评级 · {formatBytes(manifest.source_bytes)} 原始文件索引</span><a href={manifest.csv_url}>下载CSV清单</a><a href={manifest.json_url}>下载完整JSON</a><small>下载的是清单，不是照片副本。</small></div> : <div className="empty-state">尚未在本次启动中生成清单。</div>}</section>
+      <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">只读预检</span><h3>{status?.preflight.message ?? "正在检查 Lightroom 配置"}</h3></div><span className={`lightroom-preflight-badge ${status?.preflight.status ?? "not_configured"}`}>{status?.preflight.status === "ready_for_review" ? "可生成计划" : status?.preflight.status === "catalog_open" ? "目录使用中" : "待配置"}</span></div><div className="safety-list"><div><b>{status?.preflight.catalog_count ? "✓" : "·"}</b><span><strong>目录文件</strong><small>{status?.preflight.catalog_count ? `${status.preflight.catalog_count} 个 .lrcat · ${status.preflight.catalogs.map((item) => item.name).join("、")}` : status?.preflight.catalog_root || "在应用设置中填写目录文件夹"}</small></span></div><div><b>{status?.preflight.backup_root_exists ? "✓" : "·"}</b><span><strong>目录备份位置</strong><small>{status?.preflight.backup_root || "尚未配置；当前也不会自动创建备份"}</small></span></div><div><b>✓</b><span><strong>目录数据库保持只读</strong><small>不会打开或改写 .lrcat；检测到 .lock 时只提示，不删除锁文件</small></span></div><div><b>✓</b><span><strong>照片与 XMP 写入关闭</strong><small>{capabilities?.library_root ?? "当前配置的照片目录"} 不会被移动、改名或改写</small></span></div></div></section>
+      <section className="panel manifest-panel"><div className="panel-heading"><div><span className="section-kicker">最近生成</span><h3>Lightroom准备文件</h3></div></div>{manifest ? <div className="manifest-result"><strong>{numberFormat.format(manifest.capture_count)} 个拍摄单元</strong><span>{numberFormat.format(manifest.rated_count)} 个已有评级 · {formatBytes(manifest.source_bytes)} 原始文件索引</span><span>{manifest.raw_sidecar_candidates} 个 RAW sidecar 候选 · {manifest.existing_xmp_count} 个已有 XMP · {manifest.conflict_review_count} 个需冲突复核</span><a href={manifest.csv_url}>下载CSV清单</a><a href={manifest.json_url}>下载完整JSON</a><small>清单按字段标注评级、旗标和关键词计划；下载的仍是报告，不是照片或 XMP。</small></div> : <div className="empty-state">尚未在本次启动中生成清单。</div>}</section>
     </section>
   </>;
 }

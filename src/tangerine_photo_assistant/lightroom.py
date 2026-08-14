@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
+from .settings import Settings
+
 INVALID_COMPONENT = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -38,6 +40,52 @@ def lightroom_status(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def lightroom_preflight(settings: Settings) -> dict[str, Any]:
+    root = settings.lightroom_catalog_root
+    backup_root = settings.lightroom_catalog_backup_root
+    catalogs: list[dict[str, Any]] = []
+    if root is not None and root.is_dir():
+        for catalog in sorted(root.glob("*.lrcat"), key=lambda item: item.name.casefold()):
+            lock = catalog.with_suffix(".lrcat.lock")
+            data = catalog.with_suffix(".lrcat-data")
+            catalogs.append({
+                "name": catalog.name,
+                "path": str(catalog),
+                "size_bytes": catalog.stat().st_size,
+                "locked": lock.is_file(),
+                "data_companion": data.is_file(),
+            })
+    locked_count = sum(int(item["locked"]) for item in catalogs)
+    if root is None:
+        status, message = "not_configured", "尚未配置 Lightroom 目录"
+    elif not root.is_dir():
+        status, message = "missing", "配置的 Lightroom 目录不存在"
+    elif not catalogs:
+        status, message = "no_catalog", "目录中未发现 .lrcat 目录文件"
+    elif locked_count:
+        status, message = "catalog_open", "检测到目录锁；Lightroom 可能正在使用目录"
+    else:
+        status, message = "ready_for_review", "目录已发现，可生成只读兼容性计划"
+    return {
+        "status": status,
+        "message": message,
+        "catalog_root": str(root) if root is not None else "",
+        "catalog_root_exists": bool(root and root.is_dir()),
+        "catalogs": catalogs,
+        "catalog_count": len(catalogs),
+        "locked_count": locked_count,
+        "backup_root": str(backup_root) if backup_root is not None else "",
+        "backup_root_exists": bool(backup_root and backup_root.is_dir()),
+        "xmp_write_enabled": False,
+        "catalog_direct_write_supported": False,
+        "notes": [
+            "不会打开或修改 .lrcat 数据库",
+            "RAW 可规划同名 XMP sidecar；JPG 元数据写入会改动文件，因此保持目录内处理",
+            "Lightroom Classic 15 可能同时维护 ACR sidecar，当前计划不会生成该文件",
+        ],
+    }
+
+
 def build_lightroom_rows(
     connection: sqlite3.Connection,
     scope: str = "all",
@@ -54,7 +102,17 @@ def build_lightroom_rows(
                cr.user_reject, cr.user_note,
                (SELECT json_extract(aa.result_json, '$.subject_type')
                 FROM ai_analyses aa WHERE aa.capture_id=c.id AND aa.status='complete'
-                ORDER BY aa.id DESC LIMIT 1) AS ai_subject
+                  AND COALESCE(aa.user_verdict, '')!='inaccurate'
+                  AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                             WHERE newest.capture_id=c.id AND newest.status='complete'))
+                   AS ai_subject,
+               (SELECT GROUP_CONCAT(portable.name, ';') FROM (
+                    SELECT td.name FROM capture_tags ct
+                    JOIN tag_definitions td ON td.id=ct.tag_id
+                    WHERE ct.capture_id=c.id AND td.active=1
+                      AND td.dimension IN ('subject', 'location')
+                    ORDER BY td.dimension, td.sort_order, td.name
+                ) portable) AS portable_tags
         FROM captures c
         JOIN event_captures ec ON ec.capture_id=c.id
         JOIN events e ON e.id=ec.event_id
@@ -73,8 +131,19 @@ def build_lightroom_rows(
         )
         rating = row["user_rating"] if row["user_rating"] is not None else row["auto_rating"]
         keywords = [row["category"], row["event_name"]]
+        if row["portable_tags"]:
+            keywords.extend(str(row["portable_tags"]).split(";"))
         if row["ai_subject"]:
             keywords.append(row["ai_subject"])
+        raw_path = Path(row["raw_path"]) if row["raw_path"] else None
+        xmp_candidate = raw_path.with_suffix(".xmp") if raw_path else None
+        xmp_exists = bool(
+            xmp_candidate
+            and (xmp_candidate.is_file() or xmp_candidate.with_suffix(".XMP").is_file())
+        )
+        planned_flag = (
+            "picked" if row["user_pick"] else "rejected" if row["user_reject"] else "preserve"
+        )
         result.append({
             "capture_id": row["capture_id"],
             "event_id": row["event_id"],
@@ -94,6 +163,13 @@ def build_lightroom_rows(
             "reject_label": int(bool(row["user_reject"])),
             "note": row["user_note"] or "",
             "keywords": ";".join(dict.fromkeys(keywords)),
+            "rating_action": "propose" if rating else "preserve",
+            "flag_action": planned_flag,
+            "keyword_action": "merge_review",
+            "metadata_target": "raw_xmp_sidecar" if raw_path else "catalog_only",
+            "xmp_candidate_path": str(xmp_candidate) if xmp_candidate else "",
+            "xmp_exists": int(xmp_exists),
+            "requires_conflict_review": int(xmp_exists),
             "proposed_copy_folder": str(target),
             "write_xmp": 0,
             "copy_or_move_executed": 0,
@@ -139,6 +215,11 @@ def write_lightroom_manifest(
             "user_pick_count": sum(row["pick"] for row in rows),
             "user_reject_count": sum(row["reject_label"] for row in rows),
             "source_bytes": sum(row["source_bytes"] for row in rows),
+            "raw_sidecar_candidates": sum(
+                row["metadata_target"] == "raw_xmp_sidecar" for row in rows
+            ),
+            "existing_xmp_count": sum(row["xmp_exists"] for row in rows),
+            "conflict_review_count": sum(row["requires_conflict_review"] for row in rows),
         },
         "rows": rows,
     }

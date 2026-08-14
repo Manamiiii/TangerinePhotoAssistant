@@ -1169,6 +1169,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .manifest-result { min-height: 270px; padding: 20px 28px 30px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; }
 .manifest-result > strong { font-size: 24px; }.manifest-result > span, .manifest-result > small { color: var(--muted); font-size: 10px; }
 .manifest-result a { min-width: 160px; padding: 9px 13px; border: 1px solid #6d4931; border-radius: 8px; color: #ffc99f; background: #2b2119; font-size: 10px; text-decoration: none; }
+.lightroom-preflight-badge { align-self: center; border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; color: var(--muted); font-size: 9px; }
+.lightroom-preflight-badge.ready_for_review { border-color: #497257; color: #92d3a5; }
+.lightroom-preflight-badge.catalog_open { border-color: #8c6835; color: #e7ba6c; }
 
 @media (max-width: 850px) {
   .lightroom-grid, .migration-grid { grid-template-columns: 1fr; }

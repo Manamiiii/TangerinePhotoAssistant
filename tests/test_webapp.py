@@ -512,6 +512,8 @@ class WebAppQueryTests(unittest.TestCase):
             source.mkdir(parents=True)
             for stem in ("DSCF0201", "DSCF0202"):
                 Image.new("RGB", (48, 32), "orange").save(source / f"{stem}.JPG")
+            (source / "DSCF0201.RAF").write_bytes(b"raw-fixture")
+            (source / "DSCF0201.xmp").write_text("<x:xmpmeta xmlns:x='adobe:ns:meta/'>", encoding="utf-8")
             connection = connect(settings.database_path)
             scan_library(connection, settings)
             connection.execute("UPDATE files SET captured_at='2026-08-13T10:00:00'")
@@ -529,7 +531,17 @@ class WebAppQueryTests(unittest.TestCase):
             )
             connection.commit()
             album_id = connection.execute("SELECT id FROM events LIMIT 1").fetchone()[0]
-            self.assertEqual(len(build_lightroom_rows(connection, "all")), 2)
+            update_manual_tag_for_captures(
+                connection, [capture_ids[0]], dimension="subject", name="风景", action="add"
+            )
+            all_rows = build_lightroom_rows(connection, "all")
+            self.assertEqual(len(all_rows), 2)
+            raw_row = next(row for row in all_rows if row["raw_path"])
+            self.assertEqual(raw_row["metadata_target"], "raw_xmp_sidecar")
+            self.assertEqual(raw_row["xmp_exists"], 1)
+            self.assertEqual(raw_row["requires_conflict_review"], 1)
+            self.assertEqual(raw_row["write_xmp"], 0)
+            self.assertIn("风景", raw_row["keywords"])
             self.assertEqual(len(build_lightroom_rows(connection, "picked")), 1)
             self.assertEqual(len(build_lightroom_rows(connection, "rated")), 1)
             self.assertEqual(len(build_lightroom_rows(connection, "album", album_id)), 2)

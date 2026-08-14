@@ -84,7 +84,7 @@ from .grouping import (
     set_similarity_override,
 )
 from .inventory import enrich_metadata, refresh_metadata_profile, scan_library, utc_now
-from .lightroom import lightroom_status, write_lightroom_manifest
+from .lightroom import lightroom_preflight, lightroom_status, write_lightroom_manifest
 from .metadata import ExifToolMetadataReader, PillowMetadataReader
 from .migration import (
     active_library_root,
@@ -297,6 +297,11 @@ class CacheSettingsRequest(BaseModel):
     thumbnail_max_size_gb: int = Field(ge=1, le=4096)
 
 
+class LightroomSettingsRequest(BaseModel):
+    catalog_root: str = Field(default="", max_length=1000)
+    catalog_backup_root: str = Field(default="", max_length=1000)
+
+
 class AnalysisSettingsRequest(BaseModel):
     raw_extensions: list[str] = Field(min_length=1, max_length=40)
     burst_time_gap_seconds: float = Field(gt=0, le=60)
@@ -319,6 +324,7 @@ class ModelSettingsRequest(BaseModel):
 class AppSettingsRequest(BaseModel):
     library: LibrarySettingsRequest
     cache: CacheSettingsRequest
+    lightroom: LightroomSettingsRequest
     analysis: AnalysisSettingsRequest
     tools: ToolSettingsRequest
     models: ModelSettingsRequest
@@ -2068,10 +2074,13 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         return equipment()
 
     @app.get("/api/lightroom/status")
-    def get_lightroom_status() -> dict[str, int]:
+    def get_lightroom_status() -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
-            return lightroom_status(connection)
+            return {
+                **lightroom_status(connection),
+                "preflight": lightroom_preflight(settings),
+            }
         finally:
             connection.close()
 

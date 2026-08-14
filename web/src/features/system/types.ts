@@ -22,6 +22,7 @@ export type SystemCapabilities = {
 export type EditableSettings = {
   library: { originals: string; workspace: string };
   cache: { root: string; max_size_gb: number; thumbnail_max_size_gb: number };
+  lightroom: { catalog_root: string; catalog_backup_root: string };
   analysis: { raw_extensions: string[]; burst_time_gap_seconds: number; metadata_batch_size: number };
   tools: { exiftool: string };
   models: {

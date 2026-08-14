@@ -32,6 +32,9 @@ class Settings:
     ai_image_max_edge: int = 960
     ai_json_retry_count: int = 1
     thumbnail_max_size_gb: int = 8
+    lightroom_catalog_root: Path | None = None
+    lightroom_catalog_backup_root: Path | None = None
+    lightroom_write_xmp: bool = False
 
     @classmethod
     def load(cls, path: Path) -> Settings:
@@ -40,6 +43,7 @@ class Settings:
 
         tools = data.get("tools", {})
         models = data.get("models", {})
+        lightroom = data.get("lightroom", {})
         exiftool_value = str(tools.get("exiftool", "")).strip()
         return cls(
             originals=Path(data["library"]["originals"]),
@@ -74,6 +78,15 @@ class Settings:
             ai_image_max_edge=int(models.get("image_max_edge", 960)),
             ai_json_retry_count=int(models.get("json_retry_count", 1)),
             thumbnail_max_size_gb=int(data["cache"].get("thumbnail_max_size_gb", 8)),
+            lightroom_catalog_root=(
+                Path(str(lightroom["catalog_root"]))
+                if str(lightroom.get("catalog_root", "")).strip() else None
+            ),
+            lightroom_catalog_backup_root=(
+                Path(str(lightroom["catalog_backup_root"]))
+                if str(lightroom.get("catalog_backup_root", "")).strip() else None
+            ),
+            lightroom_write_xmp=bool(lightroom.get("write_xmp", False)),
         )
 
     def validate(self) -> list[str]:
@@ -103,6 +116,8 @@ class Settings:
             errors.append("The photo library must remain read-only during inventory")
         if self.allow_move or self.allow_delete or self.allow_original_metadata_write:
             errors.append("All photo mutation switches must remain disabled during inventory")
+        if self.lightroom_write_xmp:
+            errors.append("Automatic Lightroom XMP writing must remain disabled")
         if self.metadata_batch_size <= 0:
             errors.append("Metadata batch size must be positive")
         if self.burst_time_gap_seconds <= 0:
@@ -166,6 +181,11 @@ root = {quote(cache_root)}
 max_size_gb = 20
 thumbnail_max_size_gb = 4
 
+[lightroom]
+catalog_root = ""
+catalog_backup_root = ""
+write_xmp = false
+
 [analysis]
 offline_only = true
 pair_jpeg_raw = true
@@ -209,6 +229,12 @@ def editable_config(path: Path) -> dict[str, object]:
             "max_size_gb": int(data["cache"]["max_size_gb"]),
             "thumbnail_max_size_gb": int(data["cache"].get("thumbnail_max_size_gb", 8)),
         },
+        "lightroom": {
+            "catalog_root": str(data.get("lightroom", {}).get("catalog_root", "")),
+            "catalog_backup_root": str(
+                data.get("lightroom", {}).get("catalog_backup_root", "")
+            ),
+        },
         "analysis": {
             "raw_extensions": [str(value) for value in data["analysis"]["raw_extensions"]],
             "burst_time_gap_seconds": float(data["analysis"].get("burst_time_gap_seconds", 3.0)),
@@ -240,11 +266,13 @@ def save_editable_config(path: Path, changes: dict[str, object]) -> Path:
         existing = tomllib.load(file)
     library = changes["library"]
     cache = changes["cache"]
+    lightroom = changes["lightroom"]
     analysis = changes["analysis"]
     tools = changes["tools"]
     models = changes["models"]
     assert isinstance(library, dict)
     assert isinstance(cache, dict)
+    assert isinstance(lightroom, dict)
     assert isinstance(analysis, dict)
     assert isinstance(tools, dict)
     assert isinstance(models, dict)
@@ -255,11 +283,16 @@ def save_editable_config(path: Path, changes: dict[str, object]) -> Path:
     ):
         if not Path(str(value)).is_absolute():
             raise ValueError(f"{label} path must be absolute")
+    for label, value in (
+        ("Lightroom catalog", lightroom.get("catalog_root", "")),
+        ("Lightroom catalog backup", lightroom.get("catalog_backup_root", "")),
+    ):
+        if str(value).strip() and not Path(str(value)).is_absolute():
+            raise ValueError(f"{label} path must be absolute when configured")
     raw_extensions = [str(item).strip().lower() for item in analysis["raw_extensions"]]
     if not raw_extensions or any(not item.startswith(".") for item in raw_extensions):
         raise ValueError("RAW extensions must be a non-empty list such as .raf and .dng")
 
-    lightroom = existing.get("lightroom", {})
     text = f"""[library]
 originals = {_toml_string(library["originals"])}
 workspace = {_toml_string(library["workspace"])}

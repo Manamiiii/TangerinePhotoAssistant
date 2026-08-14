@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -8,6 +9,7 @@ from tangerine_photo_assistant.settings import (
     save_editable_config,
     write_safe_config,
 )
+from tangerine_photo_assistant.lightroom import lightroom_preflight
 
 
 class SettingsTests(unittest.TestCase):
@@ -73,12 +75,17 @@ class SettingsTests(unittest.TestCase):
             changes["cache"]["thumbnail_max_size_gb"] = 6
             changes["analysis"]["raw_extensions"] = [".RAF", ".CR3"]
             changes["analysis"]["metadata_batch_size"] = 64
+            changes["lightroom"]["catalog_root"] = str(root / "Lightroom")
+            changes["lightroom"]["catalog_backup_root"] = str(root / "LightroomBackups")
             backup = save_editable_config(config, changes)
 
             self.assertTrue(backup.is_file())
             self.assertEqual(Settings.load(config).cache_max_size_gb, 30)
             self.assertEqual(Settings.load(config).raw_extensions, (".raf", ".cr3"))
             self.assertEqual(editable_config(config)["analysis"]["metadata_batch_size"], 64)
+            self.assertEqual(
+                Settings.load(config).lightroom_catalog_root, root / "Lightroom"
+            )
             self.assertIn("max_size_gb = 20", backup.read_text(encoding="utf-8"))
             self.assertEqual((photo.read_bytes(), photo.stat().st_mtime_ns), before)
 
@@ -100,6 +107,40 @@ class SettingsTests(unittest.TestCase):
                 save_editable_config(config, missing_library)
             self.assertEqual(config.read_bytes(), config_before_invalid_save)
             self.assertFalse((root / "missing-photos").exists())
+
+            relative_lightroom = editable_config(config)
+            relative_lightroom["lightroom"]["catalog_root"] = "relative/catalog"
+            with self.assertRaises(ValueError):
+                save_editable_config(config, relative_lightroom)
+
+    def test_lightroom_preflight_only_observes_catalog_and_lock(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = self.make_settings(root)
+            catalog_root = root / "Lightroom"
+            backup_root = root / "LightroomBackups"
+            catalog_root.mkdir()
+            backup_root.mkdir()
+            catalog = catalog_root / "Photos.lrcat"
+            catalog.write_bytes(b"catalog-fixture")
+            data = catalog_root / "Photos.lrcat-data"
+            data.write_bytes(b"data-fixture")
+            configured = replace(
+                settings,
+                lightroom_catalog_root=catalog_root,
+                lightroom_catalog_backup_root=backup_root,
+            )
+            ready = lightroom_preflight(configured)
+            self.assertEqual(ready["status"], "ready_for_review")
+            self.assertTrue(ready["catalogs"][0]["data_companion"])
+            self.assertFalse(ready["catalog_direct_write_supported"])
+            before = (catalog.read_bytes(), data.read_bytes())
+            lock = catalog_root / "Photos.lrcat.lock"
+            lock.write_text("open", encoding="utf-8")
+            opened = lightroom_preflight(configured)
+            self.assertEqual(opened["status"], "catalog_open")
+            self.assertEqual(opened["locked_count"], 1)
+            self.assertEqual((catalog.read_bytes(), data.read_bytes()), before)
 
 
 if __name__ == "__main__":
