@@ -1,10 +1,12 @@
-import { StrictMode, useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { StrictMode, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { getJson, similarityGroupsUrl } from "./api";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "./components/Navigation";
 import { TaskCard, taskForDisplay, taskReceipt, type Task } from "./components/TaskCard";
+import { ModalShell } from "./components/ModalShell";
 import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
 import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
+import type { EditableSettings, SettingsStatus, SystemCapabilities } from "./features/system/types";
 import {
   formatBytes,
   formatDate,
@@ -456,47 +458,6 @@ type QualityAlbumSummary = { id: number; name: string; category: string; analyze
 type QualityResponse = { count: number; limit: number; offset: number; items: QualityItem[]; albums: QualityAlbumSummary[] };
 type QualityReviewFilter = "all" | "problems" | "low_score" | "with_model" | "without_model" | "unrated";
 type PhotoInboxStatus = { path: string; exists: boolean; can_open: boolean };
-type SystemCapabilities = {
-  platform: string;
-  library_root: string;
-  workspace_root: string;
-  metadata: { level: "basic" | "full"; exiftool: boolean; message: string };
-  ai: { ready: boolean; message: string };
-  features: {
-    open_folder: boolean;
-    raw_pairing: boolean;
-    lightroom_manifest: boolean;
-    phone_share_export: boolean;
-  };
-  safety: {
-    offline_only: boolean;
-    library_read_only: boolean;
-    allow_move: boolean;
-    allow_delete: boolean;
-    allow_original_metadata_write: boolean;
-  };
-};
-type EditableSettings = {
-  library: { originals: string; workspace: string };
-  cache: { root: string; max_size_gb: number; thumbnail_max_size_gb: number };
-  analysis: { raw_extensions: string[]; burst_time_gap_seconds: number; metadata_batch_size: number };
-  tools: { exiftool: string };
-  models: {
-    python: string;
-    vision_language_model: string;
-    quantization: "none" | "int8";
-    gpu_memory_limit_gb: number;
-    max_new_tokens: number;
-    image_max_edge: number;
-  };
-};
-type SettingsStatus = {
-  configured: EditableSettings;
-  effective: SystemCapabilities;
-  restart_required: boolean;
-  backup_path: string | null;
-  message?: string;
-};
 type ReviewPayload = {
   user_rating: number | null;
   user_pick: boolean;
@@ -601,15 +562,6 @@ function taskBelongsTo(task: Task | null, area: "library" | "visual" | "analysis
   if (area === "visual") return ["duplicates", "fingerprints"].includes(stage) || /视觉预筛|相似分组|画面指纹|精确重复/.test(message);
   if (area === "analysis") return stage === "quality" || stage.startsWith("detail-") || stage.startsWith("ai-") || /技术质量|详情数据|扩展拍摄信息|直方图|模型任务|本地模型|Qwen/.test(message);
   return ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(message);
-}
-
-function ModalShell({ title, close, children, wide = false }: { title: string; close: () => void; children: ReactNode; wide?: boolean }) {
-  return <div className="editor-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={close}>
-    <section className={`editor-modal ${wide ? "wide" : ""}`} onClick={(event) => event.stopPropagation()}>
-      <header><h3>{title}</h3><button onClick={close} aria-label="关闭">×</button></header>
-      {children}
-    </section>
-  </div>;
 }
 
 function AlbumsView({ albums, filters, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
