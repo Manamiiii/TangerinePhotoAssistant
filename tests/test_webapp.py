@@ -58,6 +58,26 @@ def settings_for(root: Path) -> Settings:
 
 
 class WebAppQueryTests(unittest.TestCase):
+    def test_empty_catalog_keeps_shared_collection_shapes(self) -> None:
+        with TemporaryDirectory() as directory:
+            settings = settings_for(Path(directory))
+            connection = connect(settings.database_path)
+            connection.close()
+
+            library = _query_library_captures(settings, 20, 0)
+            quality = _query_quality(settings, 20, 0)
+            similarity = _query_similarity_groups(settings, 20, 0)
+
+            self.assertEqual(library["count"], 0)
+            self.assertEqual(library["items"], [])
+            self.assertEqual(quality["count"], 0)
+            self.assertEqual(quality["items"], [])
+            self.assertEqual(quality["albums"], [])
+            self.assertEqual(similarity["count"], 0)
+            self.assertEqual(similarity["items"], [])
+            self.assertEqual(similarity["albums"], [])
+            self.assertEqual(similarity["pending_count"], 0)
+
     def test_ai_batch_request_has_safe_bounds(self) -> None:
         request = AiStartRequest(mode="benchmark", limit=10)
         self.assertEqual(request.limit, 10)

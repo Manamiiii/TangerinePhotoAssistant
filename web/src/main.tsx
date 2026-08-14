@@ -1,5 +1,16 @@
 import { StrictMode, useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { getJson, similarityGroupsUrl } from "./api";
+import {
+  formatBytes,
+  formatDate,
+  formatDuration,
+  formatExposure,
+  formatFileSize,
+  numberFormat,
+  technicalAdvice,
+  technicalGrade,
+} from "./formatters";
 import "./styles.css";
 
 type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
@@ -502,12 +513,6 @@ type SimilarityRevision = {
   can_undo: boolean;
 };
 
-function similarityGroupsUrl(limit: number, offset: number, reviewFilter: SimilarityReviewFilter, albumId: string) {
-  const parameters = new URLSearchParams({ limit: String(limit), offset: String(offset), review_filter: reviewFilter });
-  if (albumId) parameters.set("album_id", albumId);
-  return `/api/similarity-groups?${parameters}`;
-}
-
 type StatisticRow = { count: number; average_score: number | null } & Record<string, string | number | null>;
 type Statistics = {
   summary: {
@@ -641,77 +646,12 @@ function taskForDisplay(task: Task) {
     : task;
 }
 
-const numberFormat = new Intl.NumberFormat("zh-CN");
-const dateFormat = new Intl.DateTimeFormat("zh-CN", {
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-function formatBytes(bytes: number) {
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
-
-function formatFileSize(bytes: number) {
-  return bytes >= 1024 ** 3
-    ? `${(bytes / 1024 ** 3).toFixed(2)} GB`
-    : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-}
-
-function formatDuration(seconds: number | null | undefined) {
-  if (seconds == null || !Number.isFinite(seconds)) return "计算中";
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.ceil((seconds % 3600) / 60);
-  return hours ? `${hours} 小时 ${minutes} 分` : `${minutes} 分钟`;
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return "尚未完成";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.valueOf()) ? value.replace("T", " ") : dateFormat.format(parsed);
-}
-
-function formatExposure(value: number | null | undefined) {
-  if (!value) return "—";
-  return value < 1 ? `1/${Math.round(1 / value)}s` : `${value.toFixed(1)}s`;
-}
-
-function technicalGrade(score: number | null | undefined) {
-  if (score == null) return "—";
-  if (score >= 85) return "A+";
-  if (score >= 75) return "A";
-  if (score >= 60) return "B";
-  if (score >= 45) return "C";
-  return "D";
-}
-
-function technicalAdvice(code: string) {
-  return ({
-    slow_shutter_risk: "下次可提高快门速度、开启防抖或使用三脚架；先确认主体是否有运动。",
-    high_iso: "优先增加环境光或使用更大光圈；降噪时注意保留纹理。",
-    highlight_clipping: "Lightroom 可先降低高光和白色色阶；下次拍摄可适当负曝光补偿。",
-    deep_shadows: "确认是否为有意剪影；需要恢复时先小幅提亮阴影并控制噪点。",
-    low_global_detail: "放大检查主体焦点；下次提高快门或缩小一点光圈，避免只靠锐化补救。",
-    jpeg_stream_recovered: "检查画面边缘是否完整，并从存储卡重新复制原文件进行比对。",
-  } as Record<string, string>)[code] ?? "打开照片查看证据，再结合拍摄意图决定是否调整。";
-}
-
 function modelAdvice(result: QualityItem["ai_result"]) {
   const shooting = result?.shooting_advice?.[0];
   if (shooting) return [shooting.suggestion, shooting.reason].filter(Boolean).join("：");
   const lightroom = result?.lightroom_suggestions?.[0];
   if (lightroom) return [lightroom.adjustment, lightroom.direction, lightroom.reason].filter(Boolean).join(" · ");
   return result?.quality_summary ?? "打开详情查看完整模型建议。";
-}
-
-async function getJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `请求失败：${response.status}`);
-  }
-  return response.json() as Promise<T>;
 }
 
 function Pagination({ count, limit, offset, onChange, onLimitChange }: {

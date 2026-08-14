@@ -28,7 +28,7 @@ bash start-mac-test.sh
 
 The first start creates `.venv-mac`, installs dependencies, builds the React
 frontend, expands the four privacy-cleaned source samples into a deterministic
-28-file demo library, creates an isolated SQLite catalog under
+30-file demo library, creates an isolated SQLite catalog under
 `runtime/mac-test`, scans the demo library, and opens:
 
 ```text
@@ -40,9 +40,15 @@ To verify burst folding, open `照片图库 → 相册`, then enter `海边散�
 expanded. The demo seeds persistent burst picks, standalone star ratings, multi-pick, and manual
 split examples so all selection states are visible without editing production data.
 The isolated catalog also seeds fictional rich EXIF examples for shutter, exposure,
-focus, stabilization, drive mode, precise time, and Fujifilm recipe sections. They
-remain visible without ExifTool; installing ExifTool is only needed to test reading
-metadata from other files.
+focus, stabilization, drive mode, precise time, and Fujifilm recipe sections. Two
+captures have simulated `.RAF` companions so the JPG+RAW interface can be verified;
+their payload remains the privacy-cleaned JPEG derivative and must not be used to
+test RAW decoding or image quality. Three results labeled `DEMO-ONLY-no-inference`
+exercise model-result, evidence, advice, and review layouts without loading a model.
+Fictional owned/unowned camera, lens, and accessory states are written only below
+`runtime/mac-test/workspace` on first preparation; later starts preserve equipment
+changes made in the UI. Rich details remain visible without ExifTool; installing
+ExifTool is only needed to test reading metadata from other files.
 
 Later starts reuse the environment and catalog. Stop the server with
 `Control-C` in Terminal.
@@ -80,7 +86,8 @@ ignored Mac test runtime inside the cloned project.
 
 - The demo library contains four fictional albums and short similar bursts.
   All timestamps and album names are fictional; integrity fixtures stay in the background.
-- The bundled source samples are JPEG-only reduced derivatives, not originals.
+- The bundled source samples are JPEG-only reduced derivatives, not originals. The
+  generated `.RAF` companions only simulate pairing and contain JPEG fixture bytes.
 - The Windows Qwen3-VL model is not included or downloaded.
 - AI inference therefore remains unavailable on the Mac test clone.
 - Lightroom and XMP writes remain disabled.

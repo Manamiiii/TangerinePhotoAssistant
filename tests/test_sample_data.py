@@ -6,11 +6,17 @@ from tempfile import TemporaryDirectory
 from PIL import Image
 
 from tangerine_photo_assistant.database import connect
+from tangerine_photo_assistant.equipment import build_equipment_catalog
 from tangerine_photo_assistant.inventory import enrich_metadata, scan_library
 from tangerine_photo_assistant.metadata import PillowMetadataReader
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.quality import analyze_quality
-from tangerine_photo_assistant.sample_data import generate_demo_library, seed_demo_catalog
+from tangerine_photo_assistant.sample_data import (
+    DEMO_AI_MODEL_ID,
+    generate_demo_library,
+    seed_demo_catalog,
+    seed_demo_equipment,
+)
 from tangerine_photo_assistant.settings import Settings
 from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.visual import build_visual_fingerprints, rebuild_similarity_groups
@@ -25,10 +31,12 @@ class DemoLibraryTests(unittest.TestCase):
             second = generate_demo_library(source, target)
 
             self.assertEqual(first, second)
-            self.assertEqual(first["sample_count"], 28)
+            self.assertEqual(first["sample_count"], 30)
             self.assertEqual(first["event_count"], 4)
             self.assertEqual(first["exact_duplicate_count"], 2)
+            self.assertEqual(first["simulated_raw_count"], 2)
             self.assertEqual(len(list(target.rglob("*.JPG"))), 28)
+            self.assertEqual(len(list(target.rglob("*.RAF"))), 2)
             self.assertEqual(
                 (target / first["files"][-1]["relative_path"]).read_bytes(),
                 (target / first["files"][-1]["duplicate_of"]).read_bytes(),
@@ -68,6 +76,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(seeded["manual_splits"], 1)
             self.assertEqual(seeded["similarity_groups"], 3)
             self.assertEqual(seeded["metadata_profiles"], 28)
+            self.assertEqual(seeded["ai_results"], 3)
             connection = connect(settings.database_path)
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM capture_reviews WHERE user_pick=1").fetchone()[0],
@@ -99,6 +108,51 @@ class DemoLibraryTests(unittest.TestCase):
                 ).fetchone()[0],
                 0,
             )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM capture_files WHERE role='raw'"
+                ).fetchone()[0],
+                2,
+            )
+            self.assertEqual(
+                connection.execute(
+                    """SELECT COUNT(*) FROM ai_analyses
+                       WHERE model_id=? AND status='complete'""",
+                    (DEMO_AI_MODEL_ID,),
+                ).fetchone()[0],
+                3,
+            )
+            ai_result = json.loads(connection.execute(
+                """SELECT result_json FROM ai_analyses aa
+                   JOIN captures c ON c.id=aa.capture_id
+                   WHERE aa.model_id=? AND c.stem='BEACH_0003'""",
+                (DEMO_AI_MODEL_ID,),
+            ).fetchone()[0])
+            self.assertTrue(ai_result["quality_summary"].startswith("模拟结果："))
+
+            inventory_path = seed_demo_equipment(settings.workspace)
+            inventory_path.write_text(
+                inventory_path.read_text(encoding="utf-8").replace(
+                    "演示旅行三脚架", "我修改过的三脚架"
+                ),
+                encoding="utf-8",
+            )
+            seed_demo_equipment(settings.workspace)
+            self.assertIn("我修改过的三脚架", inventory_path.read_text(encoding="utf-8"))
+            project_root = Path(__file__).resolve().parents[1]
+            equipment = build_equipment_catalog(
+                connection,
+                project_root / "equipment" / "profile.toml",
+                project_root / "equipment" / "catalogs" / "fujifilm-x.toml",
+                inventory_path,
+            )
+            self.assertEqual(equipment["summary"]["camera_count"], 1)
+            self.assertGreaterEqual(equipment["summary"]["lens_count"], 3)
+            self.assertEqual(equipment["summary"]["accessory_count"], 1)
+            self.assertTrue(any(
+                item["display_name"] == "我修改过的三脚架"
+                for item in equipment["accessories"]
+            ))
             connection.close()
 
 
