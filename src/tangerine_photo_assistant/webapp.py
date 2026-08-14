@@ -85,13 +85,15 @@ from .quality import (
     measure_luminance_histogram,
     rebuild_group_recommendations,
 )
+from .queries.albums import query_albums
 from .queries.quality import query_quality
 from .queries.library import query_library_captures, query_library_filters
+from .queries.overview import query_inbox, query_overview
 from .queries.similarity import query_similarity_group, query_similarity_groups
 from .reporting import build_report, write_report
 from .settings import Settings, editable_config, save_editable_config
 from .statistics import build_statistics
-from .structure import rebuild_structure, structure_summary
+from .structure import rebuild_structure
 from .thumbnails import ThumbnailCache
 from .visual import analyze_visuals, rebuild_similarity_groups
 
@@ -1106,76 +1108,11 @@ class ScanTaskManager:
 
 
 def _query_overview(settings: Settings) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        report = build_report(connection)
-        latest = connection.execute(
-            """
-            SELECT id, started_at, finished_at, status, files_seen
-            FROM scan_runs ORDER BY id DESC LIMIT 1
-            """
-        ).fetchone()
-        capture_total = connection.execute("SELECT COUNT(*) FROM captures").fetchone()[0]
-        dated_captures = connection.execute(
-            "SELECT COUNT(*) FROM captures WHERE captured_at IS NOT NULL"
-        ).fetchone()[0]
-        return {
-            **report,
-            "capture_total": capture_total,
-            "dated_captures": dated_captures,
-            "latest_scan": dict(latest) if latest else None,
-            "cameras": report["cameras"][:6],
-            "lenses": report["lenses"][:8],
-            "structure": structure_summary(connection),
-            "visual": _visual_summary(connection),
-        }
-    finally:
-        connection.close()
+    return query_overview(settings.database_path)
 
 
 def _query_inbox(settings: Settings, limit: int) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        # Keep showing the most recent batch that actually introduced files.
-        # A no-op incremental scan should not make the inbox appear empty.
-        latest_run = connection.execute(
-            "SELECT MAX(first_seen_run_id) FROM files WHERE present = 1"
-        ).fetchone()[0]
-        if latest_run is None:
-            return {"scan_run_id": None, "count": 0, "items": []}
-        count = connection.execute(
-            """
-            SELECT COUNT(DISTINCT cf.capture_id)
-            FROM capture_files cf
-            JOIN files f ON f.id = cf.file_id
-            WHERE f.present = 1 AND f.first_seen_run_id = ?
-            """,
-            (latest_run,),
-        ).fetchone()[0]
-        rows = connection.execute(
-            """
-            SELECT
-                c.id, c.parent_relative, c.stem, c.captured_at, c.pairing_status,
-                MAX(f.camera_model) AS camera_model,
-                MAX(f.lens_model) AS lens_model,
-                COUNT(cf.file_id) AS file_count
-            FROM captures c
-            JOIN capture_files cf ON cf.capture_id = c.id
-            JOIN files f ON f.id = cf.file_id
-            WHERE f.present = 1 AND f.first_seen_run_id = ?
-            GROUP BY c.id
-            ORDER BY COALESCE(c.captured_at, '') DESC, c.id DESC
-            LIMIT ?
-            """,
-            (latest_run, limit),
-        ).fetchall()
-        return {
-            "scan_run_id": latest_run,
-            "count": count,
-            "items": [dict(row) for row in rows],
-        }
-    finally:
-        connection.close()
+    return query_inbox(settings.database_path, limit)
 
 
 def _query_library_captures(
@@ -1286,47 +1223,7 @@ def _assign_captures_to_album(
 
 
 def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        total = connection.execute(
-            "SELECT COUNT(*) FROM events WHERE status != 'archived'"
-        ).fetchone()[0]
-        rows = connection.execute(
-            """
-            SELECT
-                e.id, e.proposed_name, e.category, e.date_label, e.start_at, e.end_at,
-                e.capture_count, e.status, e.confidence, e.reason_json,
-                COUNT(DISTINCT es.parent_relative) AS source_count,
-                COUNT(DISTINCT b.id) AS burst_count,
-                COALESCE(MAX(b.capture_count), 0) AS largest_burst
-            FROM events e
-            LEFT JOIN event_sources es ON es.event_id = e.id
-            LEFT JOIN bursts b ON b.event_id = e.id
-            WHERE e.status != 'archived'
-            GROUP BY e.id
-            ORDER BY e.start_at IS NULL, e.start_at DESC, e.id DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ).fetchall()
-        items: list[dict[str, Any]] = []
-        for row in rows:
-            item = dict(row)
-            item["reason"] = json.loads(item.pop("reason_json"))
-            item["sources"] = [
-                source[0]
-                for source in connection.execute(
-                    """
-                    SELECT parent_relative FROM event_sources
-                    WHERE event_id = ? ORDER BY parent_relative
-                    """,
-                    (row["id"],),
-                )
-            ]
-            items.append(item)
-        return {"count": total, "limit": limit, "offset": offset, "items": items}
-    finally:
-        connection.close()
+    return query_albums(settings.database_path, limit, offset)
 
 
 def _query_bursts(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
@@ -1361,31 +1258,6 @@ def _query_bursts(settings: Settings, limit: int, offset: int) -> dict[str, Any]
         }
     finally:
         connection.close()
-
-
-def _visual_summary(connection: Any) -> dict[str, int]:
-    duplicate = connection.execute(
-        "SELECT COUNT(*), COALESCE(SUM(file_count), 0), COALESCE(SUM(total_bytes), 0) "
-        "FROM duplicate_groups"
-    ).fetchone()
-    similarity = connection.execute(
-        "SELECT COUNT(*), COALESCE(SUM(capture_count), 0), "
-        "COALESCE(MAX(capture_count), 0) FROM similarity_groups"
-    ).fetchone()
-    fingerprints = connection.execute(
-        "SELECT COUNT(*), SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) "
-        "FROM visual_fingerprints"
-    ).fetchone()
-    return {
-        "duplicate_group_count": duplicate[0],
-        "duplicate_file_count": duplicate[1],
-        "duplicate_total_bytes": duplicate[2],
-        "similarity_group_count": similarity[0],
-        "captures_in_similarity_groups": similarity[1],
-        "largest_similarity_group": similarity[2],
-        "fingerprint_count": fingerprints[0],
-        "fingerprint_error_count": fingerprints[1] or 0,
-    }
 
 
 def _query_duplicates(settings: Settings, limit: int, offset: int) -> dict[str, Any]:

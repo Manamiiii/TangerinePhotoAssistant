@@ -68,6 +68,7 @@ class WebAppQueryTests(unittest.TestCase):
             library = _query_library_captures(settings, 20, 0)
             quality = _query_quality(settings, 20, 0)
             similarity = _query_similarity_groups(settings, 20, 0)
+            albums = _query_events(settings, 20, 0)
 
             self.assertEqual(library["count"], 0)
             self.assertEqual(library["items"], [])
@@ -78,6 +79,8 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(similarity["items"], [])
             self.assertEqual(similarity["albums"], [])
             self.assertEqual(similarity["pending_count"], 0)
+            self.assertEqual(albums["count"], 0)
+            self.assertEqual(albums["items"], [])
 
     def test_ai_batch_request_has_safe_bounds(self) -> None:
         request = AiStartRequest(mode="benchmark", limit=10)
