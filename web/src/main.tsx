@@ -47,7 +47,7 @@ function App() {
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
     pageSize: 40, albumId: "", category: "", camera: "", lens: "",
-    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "",
+    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "",
     dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
   });
   const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
@@ -129,6 +129,7 @@ function App() {
     if (libraryQuery.tagStatus) libraryParameters.set("tag_status", libraryQuery.tagStatus);
     if (libraryQuery.tagProblem) libraryParameters.set("tag_problem", libraryQuery.tagProblem);
     if (libraryQuery.tagLocation) libraryParameters.set("tag_location", libraryQuery.tagLocation);
+    if (libraryQuery.selectionReason) libraryParameters.set("selection_reason", libraryQuery.selectionReason);
     if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
@@ -197,6 +198,7 @@ function App() {
       if (libraryQuery.tagStatus) parameters.set("tag_status", libraryQuery.tagStatus);
       if (libraryQuery.tagProblem) parameters.set("tag_problem", libraryQuery.tagProblem);
       if (libraryQuery.tagLocation) parameters.set("tag_location", libraryQuery.tagLocation);
+      if (libraryQuery.selectionReason) parameters.set("selection_reason", libraryQuery.selectionReason);
       if (libraryQuery.dateFrom) parameters.set("date_from", libraryQuery.dateFrom);
       if (libraryQuery.dateTo) parameters.set("date_to", libraryQuery.dateTo);
       if (libraryQuery.search.trim()) parameters.set("search", libraryQuery.search.trim());
@@ -608,7 +610,7 @@ function App() {
     setLibraryLandingSection("photos");
     setLibraryOffset(0);
     setLibraryCaptures(null);
-    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", dateFrom: "", dateTo: "", search: "", ...changes }));
+    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", dateFrom: "", dateTo: "", search: "", ...changes }));
     setView("library");
   };
 

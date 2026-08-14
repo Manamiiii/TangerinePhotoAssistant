@@ -52,6 +52,7 @@ export type LibraryQuery = {
   tagStatus: string;
   tagProblem: string;
   tagLocation: string;
+  selectionReason: string;
   dateFrom: string;
   dateTo: string;
   search: string;

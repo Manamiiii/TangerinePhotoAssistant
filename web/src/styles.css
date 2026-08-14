@@ -1529,14 +1529,16 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   font-size: 12px;
 }
 
-.selection-reason-summary b {
+.selection-reason-summary button {
   display: inline-flex;
   gap: 6px;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 5px 9px;
+  background: transparent;
   color: #e7e0d6;
   font-weight: 500;
+  cursor: pointer;
 }
 
 .selection-reason-summary small {

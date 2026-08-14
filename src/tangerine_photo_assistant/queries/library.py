@@ -23,6 +23,7 @@ def query_library_captures(
     tag_status: str | None = None,
     tag_problem: str | None = None,
     tag_location: str | None = None,
+    selection_reason: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -88,6 +89,15 @@ def query_library_captures(
                     )"""
                 )
                 parameters.extend((dimension, name))
+        if selection_reason:
+            conditions.append(
+                """COALESCE(cr.user_pick, 0)=1 AND EXISTS (
+                       SELECT 1
+                       FROM json_each(COALESCE(cr.selection_reason_json, '[]')) reason
+                       WHERE reason.value=?
+                   )"""
+            )
+            parameters.append(selection_reason)
         if date_from:
             conditions.append("substr(c.captured_at, 1, 10) >= ?")
             parameters.append(date_from)

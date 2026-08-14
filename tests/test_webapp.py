@@ -366,6 +366,24 @@ class WebAppQueryTests(unittest.TestCase):
                 settings, 20, 0, tag_subject="人像"
             )
             self.assertEqual([item["id"] for item in portraits["items"]], [low_id])
+            connection.execute(
+                """INSERT INTO capture_reviews(
+                       capture_id, user_pick, user_reject, selection_reason_json, updated_at
+                   ) VALUES (?, 1, 0, '["构图差异"]', CURRENT_TIMESTAMP)
+                   ON CONFLICT(capture_id) DO UPDATE SET
+                       user_pick=1, user_reject=0,
+                       selection_reason_json=excluded.selection_reason_json""",
+                (high_id,),
+            )
+            connection.commit()
+            composition_pick = _query_library_captures(
+                settings, 20, 0, selection_reason="构图差异"
+            )
+            self.assertEqual(
+                [item["id"] for item in composition_pick["items"]], [high_id]
+            )
+            connection.execute("DELETE FROM capture_reviews WHERE capture_id=?", (high_id,))
+            connection.commit()
             tag_filters = _query_library_filters(settings)["tags"]
             self.assertEqual(
                 {(tag["dimension"], tag["name"], tag["capture_count"]) for tag in tag_filters},

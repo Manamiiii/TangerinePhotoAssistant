@@ -42,6 +42,7 @@ type StatisticsLibraryQuery = {
   quality?: string;
   dateFrom?: string;
   dateTo?: string;
+  selectionReason?: string;
 };
 
 function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode = "count" }: {
@@ -106,7 +107,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
       {statisticsView === "overview" && <>
       <section className="panel selection-benchmark-panel">
         <div className="panel-heading"><div><span className="section-kicker">选片基准</span><h3>技术推荐与人工入选</h3></div><span className="batch-count">只统计已有人工入选的相似组</span></div>
-        {(statistics?.selection_benchmark.reviewed_groups ?? 0) > 0 ? <><div className="selection-benchmark-grid"><article><span>已形成基准</span><strong>{numberFormat.format(statistics?.selection_benchmark.reviewed_groups ?? 0)}</strong><small>个人已完成选片的相似组</small></article><article><span>Top‑1 命中</span><strong>{statistics?.selection_benchmark.top1_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top1_hits ?? 0} 组人工入选包含技术最佳</small></article><article><span>Top‑2 覆盖</span><strong>{statistics?.selection_benchmark.top2_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top2_hits ?? 0} 组人工入选进入前两名</small></article></div>{(statistics?.selection_reasons.length ?? 0) > 0 && <div className="selection-reason-summary"><span>人工保留理由</span>{statistics?.selection_reasons.map((item) => <b key={item.reason}>{item.reason}<small>{numberFormat.format(item.count)}</small></b>)}</div>}</> : <div className="empty-state">完成一些相似组选片后，这里会评估推荐命中率；未选组不会被算作失败。</div>}
+        {(statistics?.selection_benchmark.reviewed_groups ?? 0) > 0 ? <><div className="selection-benchmark-grid"><article><span>已形成基准</span><strong>{numberFormat.format(statistics?.selection_benchmark.reviewed_groups ?? 0)}</strong><small>个人已完成选片的相似组</small></article><article><span>Top‑1 命中</span><strong>{statistics?.selection_benchmark.top1_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top1_hits ?? 0} 组人工入选包含技术最佳</small></article><article><span>Top‑2 覆盖</span><strong>{statistics?.selection_benchmark.top2_rate ?? 0}%</strong><small>{statistics?.selection_benchmark.top2_hits ?? 0} 组人工入选进入前两名</small></article></div>{(statistics?.selection_reasons.length ?? 0) > 0 && <div className="selection-reason-summary"><span>人工保留理由</span>{statistics?.selection_reasons.map((item) => <button key={item.reason} onClick={() => openLibraryWith({ selectionReason: item.reason })}>{item.reason}<small>{numberFormat.format(item.count)}</small></button>)}</div>}</> : <div className="empty-state">完成一些相似组选片后，这里会评估推荐命中率；未选组不会被算作失败。</div>}
       </section>
       <section className="statistics-grid">
         <Distribution title="题材占比" rows={statistics?.categories ?? []} labelKey="category" valueMode={distributionMode} onSelect={(category) => openLibraryWith({ category })} />
