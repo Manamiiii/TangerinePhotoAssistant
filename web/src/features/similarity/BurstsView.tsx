@@ -103,6 +103,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   const nextPending = groupItems.find((item, index) => index > currentIndex && item.review_status === "pending")
     ?? groupItems.find((item, index) => index !== currentIndex && item.review_status === "pending");
   const statusLabels = { pending: "待选", picked: "已选定", skipped: "已排除" } as const;
+  const tierLabels = { best: "技术最佳", alternative: "接近备选", candidate: "候选", weak: "明显技术弱项", unrated: "未评分" } as const;
   const completedCount = Math.max(0, (groups?.total_count ?? 0) - (groups?.pending_count ?? 0));
   const completionPercent = groups?.total_count ? Math.round(completedCount / groups.total_count * 100) : 0;
   const selectedAlbum = groups?.albums.find((album) => String(album.id) === albumId) ?? null;
@@ -150,7 +151,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
                   {item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}
                   {item.user_pick ? <span className="photo-flag user">组内入选</span> : null}
                 </div>
-                <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span><small className="comparison-reason">{item.recommendation_reason}</small></div>
+                <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span><small className={`recommendation-tier ${item.recommendation_tier}`}>{tierLabels[item.recommendation_tier]}</small><small className="comparison-reason">{item.recommendation_reason}</small></div>
                 <div className="photo-review" onClick={(event) => event.stopPropagation()}>
                   <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                     <option value="">星级</option><option value="1">1★</option><option value="2">2★</option><option value="3">3★</option><option value="4">4★</option><option value="5">5★</option>

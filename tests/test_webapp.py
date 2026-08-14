@@ -383,7 +383,10 @@ class WebAppQueryTests(unittest.TestCase):
             ]
             recommended = max(scored_items, key=lambda item: item["technical_score"])
             self.assertIn("组内技术分最高", recommended["recommendation_reason"])
+            self.assertEqual(recommended["recommendation_tier"], "best")
             self.assertTrue(all("recommendation_reason" in item for item in group_detail["items"]))
+            low_ranked = next(item for item in scored_items if item["capture_id"] == low_id)
+            self.assertEqual(low_ranked["recommendation_tier"], "weak")
             self.assertTrue(all(
                 item["thumbnail_url"].endswith("?size=640")
                 for item in group_detail["items"]

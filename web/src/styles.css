@@ -435,6 +435,10 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .comparison-context-actions .burst-view-toggle { margin: 0; }
 .photo-rank { position: absolute; top: 8px; left: 8px; padding: 3px 6px; border-radius: 999px; color: #fff; background: rgba(20,18,16,.76); font-size: 9px; font-weight: 800; }
 .comparison-reason { color: var(--orange-soft); font-size: 9px; line-height: 1.4; }
+.recommendation-tier { width: max-content; padding: 3px 7px; border-radius: 999px; color: var(--muted); background: var(--surface-soft); font-size: 8px; font-weight: 700; }
+.recommendation-tier.best { color: #ffd3aa; background: rgba(184,88,22,.24); }
+.recommendation-tier.alternative { color: #c6e3d0; background: rgba(50,116,75,.22); }
+.recommendation-tier.weak { color: #efaaa0; background: rgba(145,48,38,.2); }
 .equipment-layout, .equipment-note, .equipment-hidden-panel { margin-top: 18px; }
 .editor-footer { padding: 14px 20px 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .editor-footer button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }

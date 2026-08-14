@@ -193,9 +193,11 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
         for item in items:
             item["score_gap"] = None
             item["recommendation_reason"] = "等待技术评分"
+            item["recommendation_tier"] = "unrated"
             if best is None or item["technical_score"] is None:
                 continue
             if item["capture_id"] == best["capture_id"]:
+                item["recommendation_tier"] = "best"
                 comparison = runner_up
                 if comparison is None:
                     item["recommendation_reason"] = "组内唯一已评分照片"
@@ -213,6 +215,11 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
                 continue
             gap = max(0.0, float(best["technical_score"]) - float(item["technical_score"]))
             item["score_gap"] = round(gap, 1)
+            item["recommendation_tier"] = (
+                "alternative" if gap <= 5
+                else "weak" if gap >= 10 and float(item["technical_score"]) < 70
+                else "candidate"
+            )
             differences = [
                 (float(best[field]) - float(item[field]), label)
                 for field, label in component_labels

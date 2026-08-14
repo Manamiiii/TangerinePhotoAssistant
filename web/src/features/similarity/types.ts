@@ -35,6 +35,7 @@ export type GroupCapture = {
   similarity_rank: number | null;
   score_gap: number | null;
   recommendation_reason: string;
+  recommendation_tier: "best" | "alternative" | "candidate" | "weak" | "unrated";
   user_rating: number | null;
   user_pick: number | null;
   user_reject: number;
