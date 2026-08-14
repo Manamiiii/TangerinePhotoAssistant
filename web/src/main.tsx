@@ -7,6 +7,8 @@ import { ModalShell } from "./components/ModalShell";
 import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
 import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
 import type { EditableSettings, SettingsStatus, SystemCapabilities } from "./features/system/types";
+import { SettingsView } from "./features/system/SettingsView";
+import type { EquipmentCatalog, EquipmentDraft, EquipmentItem, EquipmentKind } from "./features/equipment/types";
 import {
   formatBytes,
   formatDate,
@@ -504,48 +506,6 @@ type Statistics = {
   issues: Array<{ code: string; message: string; count: number }>;
 };
 
-type EquipmentItem = {
-  brand?: string;
-  model?: string;
-  display_name?: string;
-  kind?: string;
-  section?: string;
-  filter_thread_mm?: number;
-  thread_mm?: number;
-  system_mm?: number;
-  lens_thread_mm?: number;
-  stops?: number;
-  capture_count?: number;
-  category?: string;
-  source?: string;
-  notes?: string;
-  inventory_key: string;
-  owned: boolean;
-  status: string;
-};
-type EquipmentCatalog = {
-  schema_version: number;
-  profile_file: string;
-  catalog: { name?: string; source_url?: string; checked_at?: string };
-  summary: {
-    camera_count: number;
-    lens_count: number;
-    catalog_lens_count: number;
-    unowned_lens_count: number;
-    accessory_count: number;
-    detected_camera_count: number;
-    detected_lens_count: number;
-  };
-  cameras: EquipmentItem[];
-  lenses: EquipmentItem[];
-  accessories: EquipmentItem[];
-  hidden: { camera: EquipmentItem[]; lens: EquipmentItem[]; accessory: EquipmentItem[] };
-  detected: {
-    cameras: Array<{ model: string; capture_count: number }>;
-    lenses: Array<{ model: string; capture_count: number }>;
-  };
-  filter_system: { compatibility?: string; infer_usage_from_thread_size?: boolean };
-};
 
 function modelAdvice(result: QualityItem["ai_result"]) {
   const shooting = result?.shooting_advice?.[0];
@@ -1635,12 +1595,6 @@ function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode =
   );
 }
 
-type EquipmentKind = "camera" | "lens" | "accessory";
-type EquipmentDraft = {
-  kind: EquipmentKind; key?: string; brand: string; model: string; display_name: string;
-  category: string; section: string; notes: string; filter_thread_mm: string; thread_mm: string; owned: boolean; source?: string;
-};
-
 function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem, changeVisibility }: {
   equipment: EquipmentCatalog | null;
   changeOwnership: (kind: EquipmentKind, key: string, owned: boolean) => Promise<void>;
@@ -1847,71 +1801,6 @@ function StatisticsView({ statistics, openLibraryWith }: {
       }
     </>
   );
-}
-
-function SettingsView({ status, task, save }: {
-  status: SettingsStatus | null;
-  task: Task | null;
-  save: (settings: EditableSettings) => Promise<SettingsStatus>;
-}) {
-  const [draft, setDraft] = useState<EditableSettings | null>(status?.configured ?? null);
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => setDraft(status?.configured ?? null), [status?.configured]);
-  if (!draft) return <div className="empty-state">正在读取配置…</div>;
-  const update = <S extends keyof EditableSettings, K extends keyof EditableSettings[S]>(section: S, key: K, value: EditableSettings[S][K]) => {
-    setDraft((current) => current ? { ...current, [section]: { ...current[section], [key]: value } } : current);
-  };
-  const submit = async () => {
-    setSaving(true);
-    setNotice(null);
-    try {
-      const result = await save(draft);
-      setNotice(result.message ?? "配置已保存，重启应用后生效。");
-    } finally {
-      setSaving(false);
-    }
-  };
-  const busy = task?.status === "running" || task?.status === "paused";
-  return <div className="settings-page">
-    {status?.restart_required && <section className="settings-restart-banner"><strong>配置已保存，等待重启生效</strong><span>当前服务仍使用原配置；不会自动搬运照片或数据库。{status.backup_path ? ` 旧配置：${status.backup_path}` : ""}</span></section>}
-    <section className="panel settings-section">
-      <div className="panel-heading"><div><span className="section-kicker">存储位置</span><h3>图库与应用数据</h3></div></div>
-      <div className="settings-form-grid">
-        <label className="wide"><span>照片目录</span><input value={draft.library.originals} onChange={(event) => update("library", "originals", event.target.value)} /><small>必须是已存在目录。应用只读取照片，不会自动复制或迁移。</small></label>
-        <label className="wide"><span>工作目录</span><input value={draft.library.workspace} onChange={(event) => update("library", "workspace", event.target.value)} /><small>数据库、报告和用户选择保存在这里；修改路径不会移动旧数据。</small></label>
-        <label className="wide"><span>缓存目录</span><input value={draft.cache.root} onChange={(event) => update("cache", "root", event.target.value)} /><small>只保存可重建的缩略图和临时数据。</small></label>
-        <label><span>缓存上限 GB</span><input type="number" min="1" value={draft.cache.max_size_gb} onChange={(event) => update("cache", "max_size_gb", Number(event.target.value))} /></label>
-        <label><span>缩略图上限 GB</span><input type="number" min="1" value={draft.cache.thumbnail_max_size_gb} onChange={(event) => update("cache", "thumbnail_max_size_gb", Number(event.target.value))} /></label>
-      </div>
-      <div className="effective-settings"><span>当前实际图库 <b>{status?.effective.library_root}</b></span><span>当前实际工作目录 <b>{status?.effective.workspace_root}</b></span><small>已迁移的数据库会优先使用其活动图库记录。要连接一套全新图库，建议同时选择新的工作目录。</small></div>
-      <div className="settings-folder-actions"><span>在资源管理器中打开当前实际目录</span><div>{([['library', '照片目录'], ['workspace', '工作目录'], ['cache', '缓存目录'], ['reports', '报告目录']] as const).map(([kind, label]) => <button key={kind} className="toolbar-button" type="button" onClick={() => void getJson(`/api/system/folders/${kind}/open`, { method: "POST" })}>{label}</button>)}</div></div>
-    </section>
-    <section className="panel settings-section">
-      <div className="panel-heading"><div><span className="section-kicker">分析参数</span><h3>元数据、RAW 与连拍</h3></div></div>
-      <div className="settings-form-grid">
-        <label className="wide"><span>ExifTool 路径（可留空自动发现）</span><input value={draft.tools.exiftool} onChange={(event) => update("tools", "exiftool", event.target.value)} /></label>
-        <label className="wide"><span>RAW 扩展名</span><input value={draft.analysis.raw_extensions.join(", ")} onChange={(event) => update("analysis", "raw_extensions", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /><small>使用英文逗号分隔，例如 .raf, .dng, .cr3。</small></label>
-        <label><span>连拍间隔秒</span><input type="number" min="0.1" max="60" step="0.1" value={draft.analysis.burst_time_gap_seconds} onChange={(event) => update("analysis", "burst_time_gap_seconds", Number(event.target.value))} /></label>
-        <label><span>元数据批量大小</span><input type="number" min="1" max="1000" value={draft.analysis.metadata_batch_size} onChange={(event) => update("analysis", "metadata_batch_size", Number(event.target.value))} /></label>
-      </div>
-    </section>
-    <section className="panel settings-section">
-      <div className="panel-heading"><div><span className="section-kicker">可选能力</span><h3>本地模型</h3></div></div>
-      <div className="settings-form-grid">
-        <label className="wide"><span>模型 Python</span><input value={draft.models.python} onChange={(event) => update("models", "python", event.target.value)} placeholder="留空则关闭本地模型" /></label>
-        <label className="wide"><span>模型目录</span><input value={draft.models.vision_language_model} onChange={(event) => update("models", "vision_language_model", event.target.value)} placeholder="留空则关闭本地模型" /></label>
-        <label><span>量化方式</span><select value={draft.models.quantization} onChange={(event) => update("models", "quantization", event.target.value as "none" | "int8")}><option value="none">不量化</option><option value="int8">INT8</option></select></label>
-        <label><span>显存上限 GB</span><input type="number" min="1" value={draft.models.gpu_memory_limit_gb} onChange={(event) => update("models", "gpu_memory_limit_gb", Number(event.target.value))} /></label>
-        <label><span>最大输出 Tokens</span><input type="number" min="1" value={draft.models.max_new_tokens} onChange={(event) => update("models", "max_new_tokens", Number(event.target.value))} /></label>
-        <label><span>图像最长边</span><input type="number" min="512" max="2048" value={draft.models.image_max_edge} onChange={(event) => update("models", "image_max_edge", Number(event.target.value))} /></label>
-      </div>
-    </section>
-    <section className="panel settings-section safety-settings">
-      <div><span className="section-kicker">固定安全边界</span><h3>这些开关不会因设置编辑而放宽</h3><p>本地离线、图库只读、禁止移动删除、禁止写入原片元数据与 XMP。</p></div>
-      <div className="settings-actions"><span>{notice ?? (busy ? "后台任务运行或暂停期间不能保存配置。" : "保存时会备份旧配置，并在完整校验后原子替换。")}</span><button className="toolbar-button" onClick={() => setDraft(status?.configured ?? draft)} disabled={saving}>撤销修改</button><button className="toolbar-button primary" onClick={() => void submit()} disabled={saving || busy}>{saving ? "正在校验…" : "保存配置"}</button></div>
-    </section>
-  </div>;
 }
 
 function App() {
