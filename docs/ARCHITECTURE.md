@@ -63,7 +63,7 @@ D:\PhotoLibrary\Backups\AnalysisDatabase
 1. `webapp.py` 同时包含任务调度、查询和路由，文件偏大。
 2. `web/src/main.tsx` 集中了类型、状态与所有页面组件。
 3. 已完成的迁移仍保留后台 API、任务恢复和审计数据；不可达的旧迁移前端已经移除。
-4. 部分旧只读接口（例如 `/api/events`、`/api/bursts`、`/api/duplicates`）已没有当前页面调用，暂时保留给 CLI、测试和兼容用途。
+4. 部分旧只读接口（例如 `/api/events`、`/api/bursts`、`/api/duplicates`）已没有当前页面调用，暂时保留给测试和外部兼容用途。
 
 2026-08-13 的主分支已经加入照片详情键盘导航、直方图、版本化扩展 EXIF、乐观评分、统计钻取、沉浸查看、紧凑图库筛选和轻量首页。这些功能继续复用稳定 `capture_id` 和现有只读照片边界；schema 19 扩充分析衍生数据和元数据采集版本，schema 20 只增加人工分组历史快照，不改变原片身份。
 
@@ -106,9 +106,10 @@ schema 20 的 `similarity_group_revisions` 保存一次分组写入的前后 JSO
 相册、相册类型和照片归属写操作集中在 `albums.py`，跨相册移动会在同一事务中重建来源、
 数量和拍摄范围；无效照片列表会在写入前被拒绝。
 
-旧 `/api/bursts`、`/api/duplicates` 仍作为兼容查询保留在 `webapp.py`；照片详情还承担
-扩展 EXIF 解释，分析概览还组合任务和模型运行状态。这些边界应在对应领域接口确认后再
-拆，不为了减少文件行数进行机械迁移。
+照片详情和分析概览的纯只读查询已分别移入 `queries/details.py` 与
+`queries/analysis.py`。单张直方图惰性补全仍由 Web 编排层显式触发，因为它会读取源 JPG
+并写入可重建缓存字段。2026-08-14 审计确认当前前端和 CLI 均未调用旧 `/api/bursts`、
+`/api/duplicates`；只有兼容路由、测试和文档仍引用，因此继续保留，未擅自移除。
 
 ## 验证基线
 
