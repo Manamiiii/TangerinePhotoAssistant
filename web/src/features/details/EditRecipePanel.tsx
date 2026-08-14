@@ -44,21 +44,27 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
   const [showOriginal, setShowOriginal] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [note, setNote] = useState(latest?.note ?? "");
+  const [previewParameters, setPreviewParameters] = useState(parameters);
+  const [previewLoading, setPreviewLoading] = useState(false);
   useEffect(() => {
     setParameters(latest?.parameters ?? suggested ?? emptyParameters);
     setNote(latest?.note ?? "");
   }, [detail.id, latest?.id, suggested]);
-  const filter = showOriginal ? "none" : [
-    `brightness(${Math.pow(2, parameters.exposure_ev)})`,
-    `contrast(${Math.max(.2, 1 + parameters.contrast / 100)})`,
-    `saturate(${Math.max(0, 1 + parameters.saturation / 100)})`,
-  ].join(" ");
-  const overlay = showOriginal ? "transparent" : `linear-gradient(rgba(${parameters.temperature >= 0 ? "255,145,45" : "55,120,255"},${Math.abs(parameters.temperature) / 500}), rgba(${parameters.tint >= 0 ? "255,70,190" : "60,220,130"},${Math.abs(parameters.tint) / 600}))`;
+  useEffect(() => {
+    setPreviewLoading(true);
+    const timer = window.setTimeout(() => setPreviewParameters(parameters), 180);
+    return () => window.clearTimeout(timer);
+  }, [parameters]);
+  const previewUrl = useMemo(() => {
+    const query = new URLSearchParams();
+    Object.entries(previewParameters).forEach(([key, value]) => query.set(key, String(value)));
+    return `/api/captures/${detail.id}/edit-preview?${query}`;
+  }, [detail.id, previewParameters]);
   const sourceAnalysisId = suggested ? detail.ai_analyses[0]?.id ?? null : null;
   return <div className="edit-recipe-panel">
     <div className="edit-preview">
-      <img src={detail.thumbnail_url} alt={`${detail.stem} 参数预览`} style={{ filter }} />
-      <span style={{ background: overlay }} />
+      <img src={showOriginal ? detail.thumbnail_url : previewUrl} alt={`${detail.stem} 参数预览`} onLoad={() => setPreviewLoading(false)} />
+      {!showOriginal && previewLoading && <span className="edit-preview-loading">正在更新预览…</span>}
       <button onPointerDown={() => setShowOriginal(true)} onPointerUp={() => setShowOriginal(false)} onPointerLeave={() => setShowOriginal(false)}>{showOriginal ? "原图" : "按住看原图"}</button>
     </div>
     <div className="edit-parameter-grid">{controls.map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
@@ -70,7 +76,7 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
       <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "draft", sourceAnalysisId, note || null)}>保存草稿</button>
       <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "accepted", sourceAnalysisId, note || null)}>标记采用</button>
     </div>
-    <small>快速预览是通用近似效果；高光、阴影与锐化会保存，但此处不会冒充 Lightroom 的精确渲染。不会写入照片或 XMP。</small>
+    <small>低分辨率预览会渲染全部 8 个通用参数，但不等同于 Lightroom 的处理算法和数值。只读取缓存缩略图，不会写入照片或 XMP。</small>
     {detail.edit_recipes.length > 0 && <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}><summary>方案历史 · {detail.edit_recipes.length} 个最近版本</summary><div className="edit-recipe-history">{detail.edit_recipes.map((recipe) => <button key={recipe.id} disabled={recipe.id === latest?.id} onClick={() => void restoreRecipe(detail.id, recipe.id)}><span>版本 {recipe.id} · {{ draft: "草稿", accepted: "已采用", dismissed: "暂不采用" }[recipe.status]}</span><small>{recipe.created_at.replace("T", " ")}{recipe.note ? ` · ${recipe.note}` : ""}</small></button>)}</div></details>}
   </div>;
 }

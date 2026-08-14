@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from io import BytesIO
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
+
+from PIL import Image, ImageEnhance, ImageFilter
 
 from .database import transaction
 from .inventory import utc_now
@@ -123,3 +127,49 @@ def restore_edit_recipe(
         note=f"从版本 {revision_id} 恢复",
         source_analysis_id=recipe["source_analysis_id"],
     )
+
+
+def render_edit_preview(source: Path, parameters: Mapping[str, Any]) -> bytes:
+    """Render a disposable JPEG preview without modifying the cached source."""
+    values = normalize_edit_parameters(parameters)
+    with Image.open(source) as opened:
+        image = opened.convert("RGB")
+
+    image = ImageEnhance.Brightness(image).enhance(2 ** values["exposure_ev"])
+    shadows = values["shadows"] / 100.0
+    highlights = values["highlights"] / 100.0
+    if shadows or highlights:
+        def tone(value: int) -> int:
+            level = value / 255.0
+            adjusted = level + shadows * (1.0 - level) ** 2 * 0.35
+            adjusted += highlights * level**2 * 0.35
+            return round(max(0.0, min(1.0, adjusted)) * 255)
+
+        image = image.point([tone(value) for value in range(256)] * 3)
+
+    image = ImageEnhance.Contrast(image).enhance(
+        max(0.2, 1.0 + values["contrast"] / 100.0)
+    )
+    temperature = values["temperature"] / 100.0
+    tint = values["tint"] / 100.0
+    if temperature or tint:
+        red, green, blue = image.split()
+        red_factor = 1.0 + temperature * 0.14 + tint * 0.05
+        green_factor = 1.0 - tint * 0.09
+        blue_factor = 1.0 - temperature * 0.14 + tint * 0.05
+        red = red.point(lambda value: max(0, min(255, round(value * red_factor))))
+        green = green.point(lambda value: max(0, min(255, round(value * green_factor))))
+        blue = blue.point(lambda value: max(0, min(255, round(value * blue_factor))))
+        image = Image.merge("RGB", (red, green, blue))
+    image = ImageEnhance.Color(image).enhance(
+        max(0.0, 1.0 + values["saturation"] / 100.0)
+    )
+    if values["sharpness"]:
+        image = image.filter(ImageFilter.UnsharpMask(
+            radius=1.2,
+            percent=round(values["sharpness"] * 1.5),
+            threshold=3,
+        ))
+    output = BytesIO()
+    image.save(output, format="JPEG", quality=88, optimize=True)
+    return output.getvalue()

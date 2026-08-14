@@ -42,7 +42,7 @@ FastAPI (`webapp.py`)
 - `exports` 只在报告目录产生无 EXIF 的派生 JPEG/ZIP。
 - `lightroom` 当前只产生 CSV/JSON 清单。
 - 只有 `migration` 能复制原片；它要求计划、确认文字、临时文件、SHA-256 和全库审计。
-- `editing` 只保存通用参数方案及版本历史；预览只读取可丢弃缩略图，不写原片、XMP 或 Lightroom。
+- `editing` 保存通用参数方案及版本历史，并在内存中渲染可丢弃缩略图；不写原片、XMP 或 Lightroom。
 - 没有照片删除、原片元数据写入或 XMP 写入代码路径。
 
 ## 数据库升级

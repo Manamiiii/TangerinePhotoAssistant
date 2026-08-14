@@ -16,7 +16,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -67,7 +67,12 @@ from .equipment import (
     save_equipment_ownership,
     set_equipment_visibility,
 )
-from .editing import EditRecipeError, restore_edit_recipe, save_edit_recipe
+from .editing import (
+    EditRecipeError,
+    render_edit_preview,
+    restore_edit_recipe,
+    save_edit_recipe,
+)
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityCaptureNotFoundError,
@@ -1861,6 +1866,40 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:
             connection.close()
+
+    @app.get("/api/captures/{capture_id}/edit-preview")
+    def edit_preview(
+        capture_id: int,
+        exposure_ev: float = Query(default=0, ge=-2, le=2),
+        contrast: float = Query(default=0, ge=-100, le=100),
+        highlights: float = Query(default=0, ge=-100, le=100),
+        shadows: float = Query(default=0, ge=-100, le=100),
+        temperature: float = Query(default=0, ge=-100, le=100),
+        tint: float = Query(default=0, ge=-100, le=100),
+        saturation: float = Query(default=0, ge=-100, le=100),
+        sharpness: float = Query(default=0, ge=0, le=100),
+    ) -> Response:
+        try:
+            source = thumbnail_cache.get(capture_id, 1280)
+            content = render_edit_preview(source, {
+                "exposure_ev": exposure_ev,
+                "contrast": contrast,
+                "highlights": highlights,
+                "shadows": shadows,
+                "temperature": temperature,
+                "tint": tint,
+                "saturation": saturation,
+                "sharpness": sharpness,
+            })
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (FileNotFoundError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return Response(
+            content=content,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     @app.post("/api/captures/tags/batch")
     def batch_update_capture_tags(
