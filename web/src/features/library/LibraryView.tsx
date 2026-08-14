@@ -6,6 +6,7 @@ import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatBytes, formatDate, numberFormat } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
 import type { Overview } from "../overview/types";
+import type { CaptureTagDimension } from "../details/types";
 import { SimilarityGroupingEditor } from "../similarity/BurstsView";
 import type { SimilarityGroupDetail } from "../similarity/types";
 import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport, PhotoInboxStatus, PhotoLayout } from "./types";
@@ -108,7 +109,7 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   </ModalShell>;
 }
 
-function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, changePage, changePageSize, albumContext = false }: {
+function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, batchTag, changePage, changePageSize, albumContext = false }: {
   library: LibraryCapturesResponse | null;
   filters: LibraryFilters | null;
   query: LibraryQuery;
@@ -118,6 +119,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   editGrouping?: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   exportPhotos: (captureIds: number[], maxEdge: number) => Promise<PhoneShareExport>;
   assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
+  batchTag: (captureIds: number[], dimension: CaptureTagDimension, name: string, action: "add" | "remove") => Promise<void>;
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
   albumContext?: boolean;
@@ -135,6 +137,11 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
   const [selectionGroup, setSelectionGroup] = useState<SimilarityGroupDetail | null>(null);
   const [selectionGroupDraft, setSelectionGroupDraft] = useState<Set<number>>(new Set());
+  const [batchTagEditor, setBatchTagEditor] = useState(false);
+  const [batchTagDimension, setBatchTagDimension] = useState<CaptureTagDimension>("subject");
+  const [batchTagName, setBatchTagName] = useState("");
+  const [batchTagAction, setBatchTagAction] = useState<"add" | "remove">("add");
+  const [batchTagSaving, setBatchTagSaving] = useState(false);
   useEffect(() => window.localStorage.setItem("tangerine-photo-layout", layout), [layout]);
   const toggle = (captureIds: number[]) => setSelected((current) => {
     const next = new Set(current);
@@ -176,7 +183,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     setSelected((current) => new Set([...current].filter((id) => !memberIds.has(id)).concat([...selectionGroupDraft])));
     setSelectionGroup(null);
   };
-  const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
+  const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
   const activeFilters: Array<{ key: keyof LibraryQuery; label: string }> = [
     ...(!albumContext && query.albumId ? [{ key: "albumId" as const, label: query.albumId === "__unassigned__" ? "未归入相册" : filters?.albums.find((album) => String(album.id) === query.albumId)?.name ?? "相册" }] : []),
     ...(query.category ? [{ key: "category" as const, label: `类型：${query.category}` }] : []),
@@ -185,6 +192,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     ...(query.rating ? [{ key: "rating" as const, label: `${query.rating} 星` }] : []),
     ...(query.selection ? [{ key: "selection" as const, label: query.selection === "picked" ? "已入选" : query.selection === "rejected" ? "已排除" : "待选择" }] : []),
     ...(query.quality ? [{ key: "quality" as const, label: { problems: "发现问题", low: "技术分低于 70", high: "技术分 85 以上", unanalyzed: "尚未分析" }[query.quality] ?? query.quality }] : []),
+    ...(query.tagSubject ? [{ key: "tagSubject" as const, label: `题材：${query.tagSubject}` }] : []),
+    ...(query.tagStatus ? [{ key: "tagStatus" as const, label: `状态：${query.tagStatus}` }] : []),
+    ...(query.tagProblem ? [{ key: "tagProblem" as const, label: `问题：${query.tagProblem}` }] : []),
+    ...(query.tagLocation ? [{ key: "tagLocation" as const, label: `地点：${query.tagLocation}` }] : []),
     ...(query.dateFrom ? [{ key: "dateFrom" as const, label: `从 ${query.dateFrom}` }] : []),
     ...(query.dateTo ? [{ key: "dateTo" as const, label: `至 ${query.dateTo}` }] : []),
   ];
@@ -201,6 +212,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
         {!albumContext && <fieldset><legend>归属</legend><label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option><option value="__unassigned__">未归入相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label></fieldset>}
         <fieldset><legend>器材</legend><label><span>相机</span><select value={query.camera} onChange={(event) => updateQuery({ camera: event.target.value })}><option value="">全部相机</option>{(filters?.cameras ?? []).map((camera) => <option key={camera}>{camera}</option>)}</select></label><label><span>镜头</span><select value={query.lens} onChange={(event) => updateQuery({ lens: event.target.value })}><option value="">全部镜头</option>{(filters?.lenses ?? []).map((lens) => <option key={lens}>{lens}</option>)}</select></label></fieldset>
         <fieldset><legend>评价</legend><label><span>人工星级</span><select value={query.rating} onChange={(event) => updateQuery({ rating: event.target.value })}><option value="">全部星级</option>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} 星</option>)}</select></label><label><span>选片状态</span><select value={query.selection} onChange={(event) => updateQuery({ selection: event.target.value })}><option value="">全部状态</option><option value="picked">已入选</option><option value="rejected">已排除</option><option value="unreviewed">待选择</option></select></label><label><span>技术质量</span><select value={query.quality} onChange={(event) => updateQuery({ quality: event.target.value })}><option value="">全部质量</option><option value="problems">发现问题</option><option value="low">技术分低于 70</option><option value="high">技术分 85 以上</option><option value="unanalyzed">尚未分析</option></select></label></fieldset>
+        <fieldset><legend>标签</legend>{([['subject', 'tagSubject', '题材'], ['status', 'tagStatus', '工作状态'], ['problem', 'tagProblem', '人工问题'], ['location', 'tagLocation', '地点']] as Array<[CaptureTagDimension, keyof LibraryQuery, string]>).map(([dimension, key, label]) => <label key={dimension}><span>{label}</span><select value={String(query[key])} onChange={(event) => updateQuery({ [key]: event.target.value })}><option value="">全部</option>{(filters?.tags ?? []).filter((tag) => tag.dimension === dimension).map((tag) => <option key={tag.name} value={tag.name}>{tag.name}（{tag.capture_count}）</option>)}</select></label>)}</fieldset>
         <fieldset><legend>时间</legend><label><span>开始日期</span><input type="date" value={query.dateFrom} onChange={(event) => updateQuery({ dateFrom: event.target.value })} /></label><label><span>结束日期</span><input type="date" value={query.dateTo} onChange={(event) => updateQuery({ dateTo: event.target.value })} /></label></fieldset>
       </div>}
     </section>
@@ -212,7 +224,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     </section>
     <section className={`selection-toolbar ${selectionMode ? "visible" : ""}`}>
       <div><strong>本次选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds]))}>{allSelected ? "取消本页" : "选择本页"}</button><button onClick={() => setSelected(new Set())}>清空</button><button onClick={leaveSelectionMode}>完成</button></div>
-      <div className="selection-actions"><label>归入相册<select value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>应用</button><label>分享尺寸<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出分享包"}</span><b>↓</b></button></div>
+      <div className="selection-actions"><button disabled={!selected.size} onClick={() => setBatchTagEditor(true)}>批量标记</button><label>归入相册<select value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum || !selected.size} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>应用</button><label>分享尺寸<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出分享包"}</span><b>↓</b></button></div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张照片 · {formatBytes(latestExport.size_bytes)} · EXIF 已移除</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
     <section className={`photo-library-grid layout-${layout} ${selectionMode ? "selecting" : ""}`}>
@@ -232,10 +244,11 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       <div className="group-export-grid">{selectionGroup.items.map((item) => <button key={item.capture_id} className={selectionGroupDraft.has(item.capture_id) ? "selected" : ""} onClick={() => setSelectionGroupDraft((current) => { const next = new Set(current); next.has(item.capture_id) ? next.delete(item.capture_id) : next.add(item.capture_id); return next; })}><img src={item.thumbnail_url} alt={item.stem} /><span>{selectionGroupDraft.has(item.capture_id) ? "✓ " : ""}{item.stem}{item.user_pick ? " · 已入选" : item.auto_pick ? " · 技术推荐" : ""}</span></button>)}</div>
       <footer className="editor-footer"><span>已选择 {selectionGroupDraft.size} 张</span><button onClick={() => setSelectionGroup(null)}>取消</button><button className="primary" onClick={applyGroupSelection}>确认选择</button></footer>
     </ModalShell>}
+    {batchTagEditor && <ModalShell title={`批量标记 · ${selected.size} 张`} close={() => setBatchTagEditor(false)}><form className="editor-form" onSubmit={async (event) => { event.preventDefault(); if (!batchTagName.trim()) return; setBatchTagSaving(true); try { await batchTag(Array.from(selected), batchTagDimension, batchTagName.trim(), batchTagAction); setBatchTagEditor(false); setBatchTagName(""); } finally { setBatchTagSaving(false); } }}><label><span>操作</span><select value={batchTagAction} onChange={(event) => setBatchTagAction(event.target.value as "add" | "remove")}><option value="add">添加标签</option><option value="remove">移除人工标签</option></select></label><label><span>维度</span><select value={batchTagDimension} onChange={(event) => { setBatchTagDimension(event.target.value as CaptureTagDimension); setBatchTagName(""); }}><option value="subject">题材</option><option value="status">工作状态</option><option value="problem">人工问题</option><option value="location">地点</option></select></label><label><span>标签</span><input list="batch-tag-options" value={batchTagName} maxLength={40} placeholder={batchTagAction === "add" ? "选择或输入标签" : "选择要移除的标签"} onChange={(event) => setBatchTagName(event.target.value)} /><datalist id="batch-tag-options">{(filters?.tags ?? []).filter((tag) => tag.dimension === batchTagDimension).map((tag) => <option key={tag.name} value={tag.name} />)}</datalist></label>{batchTagDimension === "status" && batchTagAction === "add" && <p>设置新状态会替换所选照片原有的人工工作状态。</p>}<footer><button type="button" className="toolbar-button" onClick={() => setBatchTagEditor(false)}>取消</button><button className="toolbar-button primary" disabled={!batchTagName.trim() || batchTagSaving}>{batchTagSaving ? "保存中…" : "应用"}</button></footer></form></ModalShell>}
   </>;
 }
 
-export function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts, openAlbumQuality }: {
+export function LibraryView({ overview, library, albums, filters, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts, openAlbumQuality }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
@@ -252,6 +265,7 @@ export function LibraryView({ overview, library, albums, filters, query, updateQ
   renameAlbumType: (name: string, nextName: string) => void;
   deleteAlbumType: (name: string) => void;
   assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
+  batchTag: (captureIds: number[], dimension: CaptureTagDimension, name: string, action: "add" | "remove") => Promise<void>;
   openCapture: (captureId: number, context?: number[]) => void;
   selectedGroup: SimilarityGroupDetail | null;
   openGroup: (groupId: number) => void;
@@ -321,9 +335,9 @@ export function LibraryView({ overview, library, albums, filters, query, updateQ
       {activeAlbumId ? <>
         <AlbumWorkspaceHeader name={activeAlbum?.name ?? "相册照片"} category={activeAlbum?.category ?? "相册"} summary={`${numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片`} current="library" back={leaveAlbum} openPhotos={() => undefined} openBursts={() => openAlbumBursts(activeAlbumId)} openQuality={() => openAlbumQuality(activeAlbumId)} />
         <div className="album-context-actions"><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>更新图库</button></div>
-        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} albumContext />
+        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} albumContext />
       </> : <>
-        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} changePage={changePage} changePageSize={changePageSize} />}
+        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} />}
         {section === "albums" && <AlbumsView albums={albums} filters={filters} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
       </>}
       {updateOpen && <ModalShell title="更新图库" close={() => setUpdateOpen(false)}><form className="editor-form" onSubmit={(event) => { event.preventDefault(); void runUpdate(); }}>

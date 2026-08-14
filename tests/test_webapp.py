@@ -13,6 +13,7 @@ from tangerine_photo_assistant.lightroom import build_lightroom_rows
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.settings import Settings, write_safe_config
 from tangerine_photo_assistant.structure import rebuild_structure
+from tangerine_photo_assistant.tags import update_manual_tag_for_captures
 from tangerine_photo_assistant.visual import (
     build_visual_fingerprints,
     rebuild_similarity_groups,
@@ -346,6 +347,13 @@ class WebAppQueryTests(unittest.TestCase):
             )
             connection.commit()
 
+            update_manual_tag_for_captures(
+                connection, [low_id], dimension="subject", name="人像", action="add"
+            )
+            update_manual_tag_for_captures(
+                connection, [high_id], dimension="subject", name="风景", action="add"
+            )
+
             problems = _query_library_captures(settings, 20, 0, quality="problems")
             self.assertEqual([item["id"] for item in problems["items"]], [low_id])
             low = _query_library_captures(settings, 20, 0, quality="low")
@@ -354,6 +362,15 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual([item["id"] for item in high["items"]], [high_id])
             unanalyzed = _query_library_captures(settings, 20, 0, quality="unanalyzed")
             self.assertEqual(unanalyzed["count"], 1)
+            portraits = _query_library_captures(
+                settings, 20, 0, tag_subject="人像"
+            )
+            self.assertEqual([item["id"] for item in portraits["items"]], [low_id])
+            tag_filters = _query_library_filters(settings)["tags"]
+            self.assertEqual(
+                {(tag["dimension"], tag["name"], tag["capture_count"]) for tag in tag_filters},
+                {("subject", "人像", 1), ("subject", "风景", 1)},
+            )
 
             groups = _query_similarity_groups(settings, 20, 0)
             self.assertEqual(groups["pending_count"], 1)

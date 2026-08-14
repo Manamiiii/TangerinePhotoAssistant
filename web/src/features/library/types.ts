@@ -33,6 +33,11 @@ export type LibraryFilters = {
   album_types: Array<{ name: string; built_in: number }>;
   cameras: string[];
   lenses: string[];
+  tags: Array<{
+    dimension: "subject" | "status" | "problem" | "location";
+    name: string;
+    capture_count: number;
+  }>;
 };
 export type LibraryQuery = {
   pageSize: number;
@@ -43,6 +48,10 @@ export type LibraryQuery = {
   rating: string;
   selection: string;
   quality: string;
+  tagSubject: string;
+  tagStatus: string;
+  tagProblem: string;
+  tagLocation: string;
   dateFrom: string;
   dateTo: string;
   search: string;

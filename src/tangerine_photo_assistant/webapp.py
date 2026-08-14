@@ -97,7 +97,12 @@ from .quality import (
     rebuild_group_recommendations,
 )
 from .reviews import CaptureReviewError, CaptureReviewNotFoundError, save_capture_review
-from .tags import CaptureTagError, CaptureTagNotFoundError, replace_manual_capture_tags
+from .tags import (
+    CaptureTagError,
+    CaptureTagNotFoundError,
+    replace_manual_capture_tags,
+    update_manual_tag_for_captures,
+)
 from .queries.albums import query_albums
 from .queries.analysis import query_analysis_overview
 from .queries.details import query_capture_detail
@@ -151,6 +156,11 @@ class CaptureTagInput(BaseModel):
 
 class CaptureTagsRequest(BaseModel):
     tags: list[CaptureTagInput] = Field(default_factory=list, max_length=64)
+
+
+class BatchCaptureTagRequest(CaptureTagInput):
+    capture_ids: list[int] = Field(min_length=1, max_length=500)
+    action: Literal["add", "remove"] = "add"
 
 
 class EquipmentOwnershipRequest(BaseModel):
@@ -1152,6 +1162,10 @@ def _query_library_captures(
     rating: int | None = None,
     selection: str | None = None,
     quality: str | None = None,
+    tag_subject: str | None = None,
+    tag_status: str | None = None,
+    tag_problem: str | None = None,
+    tag_location: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -1170,6 +1184,10 @@ def _query_library_captures(
         rating=rating,
         selection=selection,
         quality=quality,
+        tag_subject=tag_subject,
+        tag_status=tag_status,
+        tag_problem=tag_problem,
+        tag_location=tag_location,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -1530,6 +1548,10 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         rating: int | None = Query(default=None, ge=1, le=5),
         selection: Literal["picked", "rejected", "unreviewed"] | None = None,
         quality: Literal["problems", "low", "high", "unanalyzed"] | None = None,
+        tag_subject: str | None = Query(default=None, max_length=40),
+        tag_status: str | None = Query(default=None, max_length=40),
+        tag_problem: str | None = Query(default=None, max_length=40),
+        tag_location: str | None = Query(default=None, max_length=40),
         date_from: str | None = Query(default=None, max_length=10),
         date_to: str | None = Query(default=None, max_length=10),
         search: str | None = Query(default=None, max_length=120),
@@ -1540,6 +1562,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             settings, limit, offset, album_id=album_id, category=category,
             camera_model=camera_model, lens_model=lens_model, rating=rating,
             selection=selection, quality=quality, date_from=date_from, date_to=date_to,
+            tag_subject=tag_subject, tag_status=tag_status,
+            tag_problem=tag_problem, tag_location=tag_location,
             search=search, sort=sort, collapse_groups=collapse_groups,
             unassigned_only=unassigned,
         )
@@ -1772,6 +1796,27 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 (tag.model_dump() for tag in request.tags),
             )
             return {"capture_id": capture_id, "tags": tags}
+        except CaptureTagNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CaptureTagError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.post("/api/captures/tags/batch")
+    def batch_update_capture_tags(
+        request: BatchCaptureTagRequest,
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            affected = update_manual_tag_for_captures(
+                connection,
+                request.capture_ids,
+                dimension=request.dimension,
+                name=request.name,
+                action=request.action,
+            )
+            return {"affected_count": affected, "status": "saved"}
         except CaptureTagNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except CaptureTagError as exc:

@@ -106,3 +106,72 @@ def replace_manual_capture_tags(
             ((capture_id, tag_id, now) for tag_id in tag_ids),
         )
     return list_capture_tags(connection, capture_id)
+
+
+def update_manual_tag_for_captures(
+    connection: sqlite3.Connection,
+    capture_ids: Iterable[int],
+    *,
+    dimension: str,
+    name: str,
+    action: str,
+) -> int:
+    ids = list(dict.fromkeys(int(capture_id) for capture_id in capture_ids))
+    if not ids:
+        raise CaptureTagError("至少选择一张照片")
+    if len(ids) > 500:
+        raise CaptureTagError("每次最多批量标记 500 张照片")
+    normalized = _normalize_tags(({"dimension": dimension, "name": name},))
+    normalized_dimension, normalized_name = normalized[0]
+    if action not in {"add", "remove"}:
+        raise CaptureTagError("批量标签操作无效")
+    placeholders = ",".join("?" for _ in ids)
+    existing_count = connection.execute(
+        f"SELECT COUNT(*) FROM captures WHERE id IN ({placeholders})", ids
+    ).fetchone()[0]
+    if existing_count != len(ids):
+        raise CaptureTagNotFoundError("选择中包含不存在的拍摄单元")
+
+    now = utc_now()
+    if action == "remove":
+        row = connection.execute(
+            "SELECT id FROM tag_definitions WHERE dimension=? AND name=?",
+            (normalized_dimension, normalized_name),
+        ).fetchone()
+        if row is None:
+            return 0
+        with transaction(connection):
+            cursor = connection.execute(
+                f"""DELETE FROM capture_tags
+                    WHERE source='manual' AND tag_id=?
+                      AND capture_id IN ({placeholders})""",
+                (row["id"], *ids),
+            )
+        return int(cursor.rowcount)
+    with transaction(connection):
+        connection.execute(
+            """INSERT OR IGNORE INTO tag_definitions(
+                   dimension, name, built_in, sort_order, created_at
+               ) VALUES (?, ?, 0, 1000, ?)""",
+            (normalized_dimension, normalized_name, now),
+        )
+        tag_id = connection.execute(
+            "SELECT id FROM tag_definitions WHERE dimension=? AND name=?",
+            (normalized_dimension, normalized_name),
+        ).fetchone()[0]
+        if normalized_dimension == "status":
+            connection.execute(
+                f"""DELETE FROM capture_tags
+                    WHERE source='manual' AND capture_id IN ({placeholders})
+                      AND tag_id IN (
+                          SELECT id FROM tag_definitions WHERE dimension='status'
+                      )""",
+                ids,
+            )
+        connection.executemany(
+            """INSERT OR IGNORE INTO capture_tags(
+                   capture_id, tag_id, source, confidence, created_at
+               ) VALUES (?, ?, 'manual', NULL, ?)""",
+            ((capture_id, tag_id, now) for capture_id in ids),
+        )
+    return len(ids)

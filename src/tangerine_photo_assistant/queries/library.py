@@ -19,6 +19,10 @@ def query_library_captures(
     rating: int | None = None,
     selection: str | None = None,
     quality: str | None = None,
+    tag_subject: str | None = None,
+    tag_status: str | None = None,
+    tag_problem: str | None = None,
+    tag_location: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -68,6 +72,22 @@ def query_library_captures(
             conditions.append("qm.technical_score >= 85")
         elif quality == "unanalyzed":
             conditions.append("qm.technical_score IS NULL")
+        for dimension, name in (
+            ("subject", tag_subject),
+            ("status", tag_status),
+            ("problem", tag_problem),
+            ("location", tag_location),
+        ):
+            if name:
+                conditions.append(
+                    """EXISTS (
+                        SELECT 1 FROM capture_tags filter_ct
+                        JOIN tag_definitions filter_td ON filter_td.id=filter_ct.tag_id
+                        WHERE filter_ct.capture_id=c.id
+                          AND filter_td.dimension=? AND filter_td.name=?
+                    )"""
+                )
+                parameters.extend((dimension, name))
         if date_from:
             conditions.append("substr(c.captured_at, 1, 10) >= ?")
             parameters.append(date_from)
@@ -226,11 +246,22 @@ def query_library_filters(database_path: Path) -> dict[str, Any]:
                WHERE present=1 AND lens_model IS NOT NULL AND lens_model!=''
                ORDER BY lens_model"""
         ).fetchall()
+        tags = connection.execute(
+            """SELECT td.dimension, td.name, COUNT(DISTINCT ct.capture_id) AS capture_count
+               FROM tag_definitions td
+               JOIN capture_tags ct ON ct.tag_id=td.id
+               GROUP BY td.id
+               ORDER BY CASE td.dimension
+                            WHEN 'subject' THEN 1 WHEN 'status' THEN 2
+                            WHEN 'problem' THEN 3 ELSE 4 END,
+                        td.sort_order, td.name"""
+        ).fetchall()
         return {
             "albums": [dict(row) for row in albums],
             "album_types": [dict(row) for row in types],
             "cameras": [row[0] for row in cameras],
             "lenses": [row[0] for row in lenses],
+            "tags": [dict(row) for row in tags],
         }
     finally:
         connection.close()

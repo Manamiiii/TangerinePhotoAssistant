@@ -47,7 +47,8 @@ function App() {
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
     pageSize: 40, albumId: "", category: "", camera: "", lens: "",
-    rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
+    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "",
+    dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
   });
   const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
   const [albumOffset, setAlbumOffset] = useState(0);
@@ -124,6 +125,10 @@ function App() {
     if (libraryQuery.rating) libraryParameters.set("rating", libraryQuery.rating);
     if (libraryQuery.selection) libraryParameters.set("selection", libraryQuery.selection);
     if (libraryQuery.quality) libraryParameters.set("quality", libraryQuery.quality);
+    if (libraryQuery.tagSubject) libraryParameters.set("tag_subject", libraryQuery.tagSubject);
+    if (libraryQuery.tagStatus) libraryParameters.set("tag_status", libraryQuery.tagStatus);
+    if (libraryQuery.tagProblem) libraryParameters.set("tag_problem", libraryQuery.tagProblem);
+    if (libraryQuery.tagLocation) libraryParameters.set("tag_location", libraryQuery.tagLocation);
     if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
@@ -188,6 +193,10 @@ function App() {
       if (libraryQuery.rating) parameters.set("rating", libraryQuery.rating);
       if (libraryQuery.selection) parameters.set("selection", libraryQuery.selection);
       if (libraryQuery.quality) parameters.set("quality", libraryQuery.quality);
+      if (libraryQuery.tagSubject) parameters.set("tag_subject", libraryQuery.tagSubject);
+      if (libraryQuery.tagStatus) parameters.set("tag_status", libraryQuery.tagStatus);
+      if (libraryQuery.tagProblem) parameters.set("tag_problem", libraryQuery.tagProblem);
+      if (libraryQuery.tagLocation) parameters.set("tag_location", libraryQuery.tagLocation);
       if (libraryQuery.dateFrom) parameters.set("date_from", libraryQuery.dateFrom);
       if (libraryQuery.dateTo) parameters.set("date_to", libraryQuery.dateTo);
       if (libraryQuery.search.trim()) parameters.set("search", libraryQuery.search.trim());
@@ -513,6 +522,27 @@ function App() {
     }
   };
 
+  const batchTagCaptures = async (
+    captureIds: number[],
+    dimension: CaptureTagDimension,
+    name: string,
+    action: "add" | "remove",
+  ) => {
+    setError(null);
+    try {
+      const saved = await getJson<{ affected_count: number }>("/api/captures/tags/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capture_ids: captureIds, dimension, name, action }),
+      });
+      await refreshLibrary();
+      pushToast("success", `${action === "add" ? "已标记" : "已移除"} ${saved.affected_count} 张照片`);
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const restoreGroupingRevision = async (revisionId: number, useBefore = false) => {
     setError(null);
     try {
@@ -575,7 +605,7 @@ function App() {
     setLibraryLandingSection("photos");
     setLibraryOffset(0);
     setLibraryCaptures(null);
-    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", dateFrom: "", dateTo: "", search: "", ...changes }));
+    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", dateFrom: "", dateTo: "", search: "", ...changes }));
     setView("library");
   };
 
@@ -892,7 +922,7 @@ function App() {
           requestedSection={libraryLandingSection}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
-          createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum}
+          createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures}
           openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}

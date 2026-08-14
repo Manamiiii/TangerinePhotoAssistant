@@ -8,6 +8,7 @@ from tangerine_photo_assistant.tags import (
     CaptureTagError,
     CaptureTagNotFoundError,
     replace_manual_capture_tags,
+    update_manual_tag_for_captures,
 )
 
 
@@ -74,8 +75,51 @@ class CaptureTagTests(unittest.TestCase):
             )
 
             connection = connect(database_path)
+            connection.execute(
+                """INSERT INTO captures(capture_key, stem, parent_relative, pairing_status)
+                   VALUES ('B', 'B', '', 'jpeg_only')"""
+            )
+            second_id = connection.execute(
+                "SELECT id FROM captures WHERE capture_key='B'"
+            ).fetchone()[0]
+            connection.commit()
+            self.assertEqual(
+                update_manual_tag_for_captures(
+                    connection, [capture_id, second_id],
+                    dimension="status", name="已修", action="add",
+                ),
+                2,
+            )
+            statuses = connection.execute(
+                """SELECT ct.capture_id, td.name FROM capture_tags ct
+                   JOIN tag_definitions td ON td.id=ct.tag_id
+                   WHERE td.dimension='status' AND ct.source='manual'
+                   ORDER BY ct.capture_id"""
+            ).fetchall()
+            self.assertEqual([tuple(row) for row in statuses], [(capture_id, "已修"), (second_id, "已修")])
+            self.assertEqual(
+                update_manual_tag_for_captures(
+                    connection, [second_id],
+                    dimension="status", name="已修", action="remove",
+                ),
+                1,
+            )
+            definitions_before = connection.execute(
+                "SELECT COUNT(*) FROM tag_definitions"
+            ).fetchone()[0]
+            self.assertEqual(
+                update_manual_tag_for_captures(
+                    connection, [second_id],
+                    dimension="location", name="不存在的地点", action="remove",
+                ),
+                0,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM tag_definitions").fetchone()[0],
+                definitions_before,
+            )
             with self.assertRaises(CaptureTagNotFoundError):
-                replace_manual_capture_tags(connection, capture_id + 1, [])
+                replace_manual_capture_tags(connection, capture_id + 1000, [])
             connection.close()
 
 
