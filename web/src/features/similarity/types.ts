@@ -33,6 +33,8 @@ export type GroupCapture = {
   auto_rating: number | null;
   auto_pick: number;
   similarity_rank: number | null;
+  score_gap: number | null;
+  recommendation_reason: string;
   user_rating: number | null;
   user_pick: number | null;
   user_reject: number;

@@ -378,6 +378,12 @@ class WebAppQueryTests(unittest.TestCase):
             group_detail = _query_similarity_group(settings, groups["items"][0]["id"])
             self.assertEqual(group_detail["capture_count"], 3)
             self.assertEqual(len(group_detail["items"]), 3)
+            scored_items = [
+                item for item in group_detail["items"] if item["technical_score"] is not None
+            ]
+            recommended = max(scored_items, key=lambda item: item["technical_score"])
+            self.assertIn("组内技术分最高", recommended["recommendation_reason"])
+            self.assertTrue(all("recommendation_reason" in item for item in group_detail["items"]))
             self.assertTrue(all(
                 item["thumbnail_url"].endswith("?size=640")
                 for item in group_detail["items"]

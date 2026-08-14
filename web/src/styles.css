@@ -431,6 +431,10 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .review-help-popover > span button { border: 0; color: var(--muted); background: transparent; cursor: pointer; }
 .review-help-popover b { margin-top: 5px; font-size: 9px; }
 .review-help-popover small { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.comparison-context-actions { display: flex; align-items: center; gap: 10px; }
+.comparison-context-actions .burst-view-toggle { margin: 0; }
+.photo-rank { position: absolute; top: 8px; left: 8px; padding: 3px 6px; border-radius: 999px; color: #fff; background: rgba(20,18,16,.76); font-size: 9px; font-weight: 800; }
+.comparison-reason { color: var(--orange-soft); font-size: 9px; line-height: 1.4; }
 .equipment-layout, .equipment-note, .equipment-hidden-panel { margin-top: 18px; }
 .editor-footer { padding: 14px 20px 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .editor-footer button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }

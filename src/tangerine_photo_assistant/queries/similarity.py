@@ -174,6 +174,55 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
             item["issues"] = json.loads(raw_issues) if raw_issues else []
             item["thumbnail_url"] = f"/api/thumbnails/{item['capture_id']}?size=640"
             items.append(item)
+        ranked = sorted(
+            (item for item in items if item["technical_score"] is not None),
+            key=lambda item: (
+                item["similarity_rank"] is None,
+                item["similarity_rank"] or 10_000,
+                -float(item["technical_score"]),
+                item["sequence_index"],
+            ),
+        )
+        best = ranked[0] if ranked else None
+        runner_up = ranked[1] if len(ranked) > 1 else None
+        component_labels = (
+            ("sharpness_score", "清晰度"),
+            ("exposure_score", "曝光"),
+            ("exif_score", "参数稳健性"),
+        )
+        for item in items:
+            item["score_gap"] = None
+            item["recommendation_reason"] = "等待技术评分"
+            if best is None or item["technical_score"] is None:
+                continue
+            if item["capture_id"] == best["capture_id"]:
+                comparison = runner_up
+                if comparison is None:
+                    item["recommendation_reason"] = "组内唯一已评分照片"
+                    continue
+                advantages = [
+                    (float(item[field]) - float(comparison[field]), label)
+                    for field, label in component_labels
+                    if item[field] is not None and comparison[field] is not None
+                ]
+                strongest = max(advantages, default=(0.0, ""))
+                item["recommendation_reason"] = (
+                    f"组内技术分最高，{strongest[1]}领先 {strongest[0]:.0f} 分"
+                    if strongest[0] >= 1 else "组内技术分最高"
+                )
+                continue
+            gap = max(0.0, float(best["technical_score"]) - float(item["technical_score"]))
+            item["score_gap"] = round(gap, 1)
+            differences = [
+                (float(best[field]) - float(item[field]), label)
+                for field, label in component_labels
+                if best[field] is not None and item[field] is not None
+            ]
+            strongest = max(differences, default=(0.0, ""))
+            item["recommendation_reason"] = (
+                f"较推荐片{strongest[1]}低 {strongest[0]:.0f} 分"
+                if strongest[0] >= 1 else f"较推荐片技术分低 {gap:.1f} 分"
+            )
         return {**dict(group), "items": items}
     finally:
         connection.close()
