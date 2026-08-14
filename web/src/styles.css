@@ -1636,6 +1636,22 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .edit-recipe-history { display: grid; gap: 6px; margin-top: 8px; }
 .edit-recipe-history button { display: flex; justify-content: space-between; gap: 10px; text-align: left; }
 .edit-recipe-history small { color: var(--muted); }
+.growth-summary-panel { margin-bottom: 18px; }
+.growth-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.growth-summary-grid article { display: grid; gap: 5px; padding: 17px 20px; border-right: 1px solid var(--line); }
+.growth-summary-grid article:last-child { border-right: 0; }
+.growth-summary-grid span, .growth-summary-grid small { color: var(--muted); font-size: 9px; }
+.growth-summary-grid strong { font-size: 22px; font-weight: 500; }
+.growth-method-note { margin: 0; padding: 12px 20px 15px; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.growth-month-table { overflow-x: auto; }
+.growth-month-head, .growth-month-table > button { display: grid; grid-template-columns: minmax(150px, 1.4fr) repeat(4, minmax(100px, 1fr)); min-width: 650px; }
+.growth-month-head { padding: 8px 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 8px; }
+.growth-month-table > button { width: 100%; border: 0; border-bottom: 1px solid var(--line); padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.growth-month-table > button:hover { background: rgba(255,122,26,.06); }
+.growth-month-table > button > span { display: grid; gap: 3px; padding: 11px 14px; border-right: 1px solid var(--line); }
+.growth-month-table > button > span:last-child { border-right: 0; }
+.growth-month-table > button strong { font-size: 11px; font-weight: 600; }
+.growth-month-table > button small { color: var(--muted); font-size: 8px; }
 
 @media (max-width: 760px) {
   .shooting-review-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1643,5 +1659,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .shooting-review-stat-grid article:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .conditional-insight-list { grid-template-columns: 1fr; }
   .edit-parameter-grid { grid-template-columns: 1fr; }
+  .growth-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .growth-summary-grid article:nth-child(2) { border-right: 0; }
+  .growth-summary-grid article:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .analysis-tag-sync, .analysis-tag-sync > div { align-items: stretch; flex-direction: column; }
 }

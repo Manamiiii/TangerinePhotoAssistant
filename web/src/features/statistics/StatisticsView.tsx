@@ -48,6 +48,34 @@ export type Statistics = {
     baseline_rate: number;
     lift: number;
   }>;
+  growth_summary: {
+    rated_count: number;
+    high_rated_count: number;
+    high_rating_rate: number | null;
+    quality_count: number;
+    technical_failure_count: number;
+    technical_failure_rate: number | null;
+    repeat_base_count: number;
+    similar_capture_count: number;
+    repeat_capture_rate: number | null;
+    selection_decisions: number;
+    selected_count: number;
+    selection_keep_rate: number | null;
+  };
+  growth_months: Array<StatisticRow & {
+    month: string;
+    rated_count: number;
+    high_rated_count: number;
+    high_rating_rate: number | null;
+    quality_count: number;
+    technical_failure_count: number;
+    technical_failure_rate: number | null;
+    similar_capture_count: number;
+    repeat_capture_rate: number | null;
+    selection_decisions: number;
+    selected_count: number;
+    selection_keep_rate: number | null;
+  }>;
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
   cameras: Array<StatisticRow & { camera_model: string }>;
@@ -131,7 +159,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
         <article><span>质量分析覆盖</span><strong>{summary ? `${qualityCoverage}%` : "—"}</strong><small>{summary ? `${numberFormat.format(summary.quality_analyzed)} / ${numberFormat.format(summary.capture_count)} 张` : "—"}</small></article>
         <article><span>平均技术分</span><strong>{summary?.average_technical_score ?? "—"}</strong><small>只计算已有质量分析的照片</small></article>
       </section>
-      <div className="statistics-view-toolbar"><div className="section-tabs" role="tablist" aria-label="统计视图">{([['overview', '概览'], ['parameters', '拍摄参数'], ['time', '时间趋势']] as const).map(([value, label]) => <button key={value} className={statisticsView === value ? "active" : ""} onClick={() => setStatisticsView(value)}>{label}</button>)}</div>{statisticsView !== "time" && <div className="section-tabs" role="group" aria-label="统计值显示"><button className={distributionMode === "count" ? "active" : ""} onClick={() => setDistributionMode("count")}>数量</button><button className={distributionMode === "percent" ? "active" : ""} onClick={() => setDistributionMode("percent")}>占比</button></div>}</div>
+      <div className="statistics-view-toolbar"><div className="section-tabs" role="tablist" aria-label="统计视图">{([['overview', '概览'], ['parameters', '拍摄参数'], ['time', '成长趋势']] as const).map(([value, label]) => <button key={value} className={statisticsView === value ? "active" : ""} onClick={() => setStatisticsView(value)}>{label}</button>)}</div>{statisticsView !== "time" && <div className="section-tabs" role="group" aria-label="统计值显示"><button className={distributionMode === "count" ? "active" : ""} onClick={() => setDistributionMode("count")}>数量</button><button className={distributionMode === "percent" ? "active" : ""} onClick={() => setDistributionMode("percent")}>占比</button></div>}</div>
       {statisticsView === "overview" && <>
       <section className="panel selection-benchmark-panel">
         <div className="panel-heading"><div><span className="section-kicker">选片基准</span><h3>技术推荐与人工入选</h3></div><span className="batch-count">只统计已有人工入选的相似组</span></div>
@@ -186,12 +214,32 @@ export function StatisticsView({ statistics, openLibraryWith }: {
         <Distribution title="快门分布" rows={statistics?.shutter_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
         <Distribution title="曝光补偿" rows={statistics?.exposure_compensation_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
       </section>}
-      {statisticsView === "time" &&
-      <section className="panel month-panel">
-        <div className="panel-heading"><div><span className="section-kicker">时间趋势</span><h3>最近拍摄月份</h3></div><span className="batch-count">点击月份跳到对应照片</span></div>
-        <div className="month-strip">{(statistics?.months ?? []).slice(-24).map((month) => <button type="button" key={month.month} onClick={() => openMonth(month.month)}><span>{month.month}</span><i style={{ height: `${Math.max(8, Math.min(100, month.count / Math.max(1, ...(statistics?.months ?? []).map((item) => item.count)) * 100))}%` }} /><strong>{month.count}</strong><small>{month.average_score ?? "—"}</small></button>)}</div>
-      </section>
-      }
+      {statisticsView === "time" && <>
+        <section className="panel growth-summary-panel">
+          <div className="panel-heading"><div><span className="section-kicker">当前基线</span><h3>人工选择与拍摄结果</h3></div><span className="batch-count">只陈述比例，不自动判断进步或退步</span></div>
+          <div className="growth-summary-grid">
+            <article><span>人工高星率</span><strong>{statistics?.growth_summary.high_rating_rate == null ? "—" : `${statistics.growth_summary.high_rating_rate}%`}</strong><small>{statistics?.growth_summary.high_rated_count ?? 0} / {statistics?.growth_summary.rated_count ?? 0} 张人工评级</small></article>
+            <article><span>技术低分率</span><strong>{statistics?.growth_summary.technical_failure_rate == null ? "—" : `${statistics.growth_summary.technical_failure_rate}%`}</strong><small>{statistics?.growth_summary.technical_failure_count ?? 0} / {statistics?.growth_summary.quality_count ?? 0} 张低于 70 分</small></article>
+            <article><span>相似拍摄占比</span><strong>{statistics?.growth_summary.repeat_capture_rate == null ? "—" : `${statistics.growth_summary.repeat_capture_rate}%`}</strong><small>{statistics?.growth_summary.similar_capture_count ?? 0} / {statistics?.growth_summary.repeat_base_count ?? 0} 张进入相似组</small></article>
+            <article><span>人工选片保留率</span><strong>{statistics?.growth_summary.selection_keep_rate == null ? "—" : `${statistics.growth_summary.selection_keep_rate}%`}</strong><small>{statistics?.growth_summary.selected_count ?? 0} / {statistics?.growth_summary.selection_decisions ?? 0} 张明确取舍</small></article>
+          </div>
+          <p className="growth-method-note">高星率只使用人工 4–5 星；技术低分只使用已有质量结果；相似占比不是缺陷；保留率描述取舍风格，不等同于选片耗时效率。</p>
+        </section>
+        <section className="panel growth-month-panel">
+          <div className="panel-heading"><div><span className="section-kicker">按拍摄月</span><h3>月度基线</h3></div><span className="batch-count">点击月份查看当月照片；先看样本量再比较</span></div>
+          <div className="growth-month-table">
+            <div className="growth-month-head"><span>月份 / 样本</span><span>人工高星</span><span>技术低分</span><span>相似拍摄</span><span>选片保留</span></div>
+            {(statistics?.growth_months ?? []).slice(-24).map((month) => <button key={month.month} onClick={() => openMonth(month.month)}>
+              <span><strong>{month.month}</strong><small>{month.count} 张 · 均分 {month.average_score ?? "—"}</small></span>
+              <span><strong>{month.high_rating_rate == null ? "—" : `${month.high_rating_rate}%`}</strong><small>{month.high_rated_count}/{month.rated_count}</small></span>
+              <span><strong>{month.technical_failure_rate == null ? "—" : `${month.technical_failure_rate}%`}</strong><small>{month.technical_failure_count}/{month.quality_count}</small></span>
+              <span><strong>{month.repeat_capture_rate == null ? "—" : `${month.repeat_capture_rate}%`}</strong><small>{month.similar_capture_count}/{month.count}</small></span>
+              <span><strong>{month.selection_keep_rate == null ? "—" : `${month.selection_keep_rate}%`}</strong><small>{month.selected_count}/{month.selection_decisions}</small></span>
+            </button>)}
+            {!(statistics?.growth_months ?? []).length && <div className="empty-state">暂无可按月份统计的拍摄数据。</div>}
+          </div>
+        </section>
+      </>}
     </>
   );
 }

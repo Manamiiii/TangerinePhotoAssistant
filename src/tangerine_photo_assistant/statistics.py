@@ -12,7 +12,11 @@ WITH capture_exif AS (
            f.camera_model, f.lens_model, f.exposure_time, f.f_number, f.iso,
            f.focal_length_mm, f.focal_length_35mm, f.exposure_compensation,
            qm.technical_score, cr.auto_rating, cr.user_rating,
-           cr.user_pick, cr.user_reject
+           cr.user_pick, cr.user_reject,
+           EXISTS(SELECT 1 FROM similarity_group_captures sgc
+                  JOIN similarity_groups sg ON sg.id=sgc.group_id
+                  WHERE sgc.capture_id=c.id AND sg.capture_count>1)
+               AS in_similarity_group
     FROM captures c
     JOIN event_captures ec ON ec.capture_id = c.id
     JOIN events e ON e.id = ec.event_id
@@ -127,6 +131,36 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
             str(item["problem"])
         )
         shooting_review_problems.append(item)
+    growth_summary = dict(connection.execute(
+        CAPTURE_CTE
+        + """
+        SELECT COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END) AS rated_count,
+               SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END) AS high_rated_count,
+               ROUND(100.0 * SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END)
+                     / NULLIF(COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END), 0), 1)
+                   AS high_rating_rate,
+               COUNT(technical_score) AS quality_count,
+               SUM(CASE WHEN technical_score<70 THEN 1 ELSE 0 END) AS technical_failure_count,
+               ROUND(100.0 * SUM(CASE WHEN technical_score<70 THEN 1 ELSE 0 END)
+                     / NULLIF(COUNT(technical_score), 0), 1) AS technical_failure_rate,
+               COUNT(*) AS repeat_base_count,
+               SUM(in_similarity_group) AS similar_capture_count,
+               ROUND(100.0 * SUM(in_similarity_group) / NULLIF(COUNT(*), 0), 1)
+                   AS repeat_capture_rate,
+               SUM(CASE WHEN user_pick=1 OR user_reject=1 THEN 1 ELSE 0 END) AS selection_decisions,
+               SUM(CASE WHEN user_pick=1 THEN 1 ELSE 0 END) AS selected_count,
+               ROUND(100.0 * SUM(CASE WHEN user_pick=1 THEN 1 ELSE 0 END)
+                     / NULLIF(SUM(CASE WHEN user_pick=1 OR user_reject=1 THEN 1 ELSE 0 END), 0), 1)
+                   AS selection_keep_rate
+        FROM capture_exif
+        """
+    ).fetchone())
+    for key in (
+        "rated_count", "high_rated_count", "quality_count",
+        "technical_failure_count", "repeat_base_count", "similar_capture_count",
+        "selection_decisions", "selected_count",
+    ):
+        growth_summary[key] = int(growth_summary[key] or 0)
     return {
         "summary": dict(summary),
         "selection_benchmark": selection_benchmark,
@@ -134,6 +168,32 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         "shooting_review_summary": shooting_review_summary,
         "shooting_review_problems": shooting_review_problems,
         "conditional_review_insights": build_conditional_review_insights(connection),
+        "growth_summary": growth_summary,
+        "growth_months": _rows(
+            connection,
+            """SELECT substr(captured_at, 1, 7) AS month, COUNT(*) AS count,
+                      COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END) AS rated_count,
+                      SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END) AS high_rated_count,
+                      ROUND(100.0 * SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END)
+                            / NULLIF(COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END), 0), 1)
+                          AS high_rating_rate,
+                      COUNT(technical_score) AS quality_count,
+                      SUM(CASE WHEN technical_score<70 THEN 1 ELSE 0 END) AS technical_failure_count,
+                      ROUND(100.0 * SUM(CASE WHEN technical_score<70 THEN 1 ELSE 0 END)
+                            / NULLIF(COUNT(technical_score), 0), 1) AS technical_failure_rate,
+                      SUM(in_similarity_group) AS similar_capture_count,
+                      ROUND(100.0 * SUM(in_similarity_group) / NULLIF(COUNT(*), 0), 1)
+                          AS repeat_capture_rate,
+                      SUM(CASE WHEN user_pick=1 OR user_reject=1 THEN 1 ELSE 0 END)
+                          AS selection_decisions,
+                      SUM(CASE WHEN user_pick=1 THEN 1 ELSE 0 END) AS selected_count,
+                      ROUND(100.0 * SUM(CASE WHEN user_pick=1 THEN 1 ELSE 0 END)
+                            / NULLIF(SUM(CASE WHEN user_pick=1 OR user_reject=1 THEN 1 ELSE 0 END), 0), 1)
+                          AS selection_keep_rate,
+                      ROUND(AVG(technical_score), 1) AS average_score
+               FROM capture_exif WHERE captured_at IS NOT NULL
+               GROUP BY month ORDER BY month""",
+        ),
         "categories": _rows(
             connection,
             """SELECT category, COUNT(*) AS count,
