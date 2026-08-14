@@ -49,6 +49,17 @@ from .archive import (
     recorded_archive_status,
     run_integrity_check,
 )
+from .albums import (
+    AlbumConflictError,
+    AlbumError,
+    AlbumNotFoundError,
+    assign_captures_to_album,
+    create_album as create_album_record,
+    create_album_type as create_album_type_record,
+    delete_album_type as delete_album_type_record,
+    rename_album_type,
+    update_album as update_album_record,
+)
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .equipment import (
     build_equipment_catalog,
@@ -1082,7 +1093,7 @@ class ScanTaskManager:
                     (run_id,),
                 )
             ]
-            assigned_count = _assign_captures_to_album(
+            assigned_count = assign_captures_to_album(
                 connection, album_id, capture_ids
             ) if capture_ids else 0
             self._update(stage="reporting", message="正在更新审计报告…")
@@ -1161,68 +1172,6 @@ def _query_library_filters(settings: Settings) -> dict[str, Any]:
     return query_library_filters(settings.database_path)
 
 
-def _assign_captures_to_album(
-    connection: sqlite3.Connection, album_id: int, capture_ids: list[int]
-) -> int:
-    capture_ids = sorted(set(capture_ids))
-    if not capture_ids:
-        return 0
-    if connection.execute(
-        "SELECT 1 FROM events WHERE id=? AND status!='archived'", (album_id,)
-    ).fetchone() is None:
-        raise ValueError("目标相册不存在")
-    placeholders = ",".join("?" for _ in capture_ids)
-    existing_ids = {
-        row[0] for row in connection.execute(
-            f"SELECT id FROM captures WHERE id IN ({placeholders})", capture_ids
-        )
-    }
-    if len(existing_ids) != len(capture_ids):
-        raise ValueError("选择中包含不存在的照片")
-    affected = {
-        row[0] for row in connection.execute(
-            f"SELECT DISTINCT event_id FROM event_captures WHERE capture_id IN ({placeholders})",
-            capture_ids,
-        )
-    }
-    connection.execute(
-        f"DELETE FROM event_captures WHERE capture_id IN ({placeholders})", capture_ids
-    )
-    next_sequence = connection.execute(
-        "SELECT COALESCE(MAX(sequence_index), -1) + 1 FROM event_captures WHERE event_id=?",
-        (album_id,),
-    ).fetchone()[0]
-    connection.executemany(
-        "INSERT INTO event_captures(event_id, capture_id, sequence_index) VALUES (?, ?, ?)",
-        (
-            (album_id, capture_id, next_sequence + index)
-            for index, capture_id in enumerate(capture_ids)
-        ),
-    )
-    affected.add(album_id)
-    for affected_id in affected:
-        connection.execute("DELETE FROM event_sources WHERE event_id=?", (affected_id,))
-        connection.execute(
-            """INSERT INTO event_sources(event_id, parent_relative)
-               SELECT ?, c.parent_relative FROM event_captures ec
-               JOIN captures c ON c.id=ec.capture_id
-               WHERE ec.event_id=? GROUP BY c.parent_relative""",
-            (affected_id, affected_id),
-        )
-        connection.execute(
-            """UPDATE events SET
-                   capture_count=(SELECT COUNT(*) FROM event_captures WHERE event_id=?),
-                   start_at=(SELECT MIN(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
-                   end_at=(SELECT MAX(c.captured_at) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id WHERE ec.event_id=?),
-                   status=CASE WHEN id=? THEN 'confirmed' ELSE status END,
-                   updated_at=? WHERE id=?""",
-            (
-                affected_id, affected_id, affected_id, album_id,
-                utc_now(), affected_id,
-            ),
-        )
-    connection.commit()
-    return len(capture_ids)
 
 
 def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
@@ -2312,29 +2261,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             connection.close()
 
     def save_album(album_id: int, request: EventUpdateRequest) -> dict[str, Any]:
-        name = request.proposed_name.strip()
-        category = request.category.strip()
-        if not name or len(name) > 180:
-            raise HTTPException(status_code=422, detail="相册名称必须为1到180个字符")
-        if request.status not in {"proposed", "confirmed"}:
-            raise HTTPException(status_code=422, detail="相册状态不受支持")
         connection = connect(settings.database_path)
         try:
-            if connection.execute(
-                "SELECT 1 FROM album_types WHERE name=?", (category,)
-            ).fetchone() is None:
-                raise HTTPException(status_code=422, detail="相册类型不存在")
-            cursor = connection.execute(
-                """
-                UPDATE events SET proposed_name=?, category=?, status=?, updated_at=?
-                WHERE id=?
-                """,
-                (name, category, request.status, utc_now(), album_id),
+            return update_album_record(
+                connection, album_id, request.proposed_name, request.category, request.status
             )
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="相册不存在")
-            connection.commit()
-            return {"id": album_id, "status": "saved"}
+        except AlbumNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AlbumError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 
@@ -2348,79 +2283,37 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
 
     @app.post("/api/albums", status_code=201)
     def create_album(request: AlbumCreateRequest) -> dict[str, Any]:
-        name = request.name.strip()
-        category = request.category.strip()
-        if not name:
-            raise HTTPException(status_code=422, detail="相册名称不能为空")
         connection = connect(settings.database_path)
         try:
-            if connection.execute(
-                "SELECT 1 FROM album_types WHERE name=?", (category,)
-            ).fetchone() is None:
-                raise HTTPException(status_code=422, detail="相册类型不存在")
-            now = utc_now()
-            cursor = connection.execute(
-                """INSERT INTO events(
-                       event_key, proposed_name, category, date_label, start_at,
-                       end_at, capture_count, status, confidence, reason_json,
-                       created_at, updated_at
-                   ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 'confirmed', 1.0, ?, ?, ?)""",
-                (
-                    f"manual-album:{uuid4().hex}", name, category,
-                    json.dumps({"method": "manual", "legacy_buckets": []}, ensure_ascii=False),
-                    now, now,
-                ),
-            )
-            connection.commit()
-            return {"id": cursor.lastrowid, "name": name, "category": category}
+            return create_album_record(connection, request.name, request.category)
+        except AlbumError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 
     @app.post("/api/album-types", status_code=201)
     def create_album_type(request: AlbumTypeCreateRequest) -> dict[str, Any]:
-        name = request.name.strip()
         connection = connect(settings.database_path)
         try:
-            try:
-                connection.execute(
-                    """INSERT INTO album_types(name, sort_order, built_in, created_at)
-                       VALUES (?, 100, 0, ?)""",
-                    (name, utc_now()),
-                )
-                connection.commit()
-            except sqlite3.IntegrityError as exc:
-                raise HTTPException(status_code=409, detail="同名相册类型已经存在") from exc
-            return {"name": name, "built_in": 0}
+            return create_album_type_record(connection, request.name)
+        except AlbumConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AlbumError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 
     @app.put("/api/album-types/{name}")
     def update_album_type(name: str, request: AlbumTypeUpdateRequest) -> dict[str, Any]:
-        next_name = request.name.strip()
-        if not next_name:
-            raise HTTPException(status_code=422, detail="相册类型名称不能为空")
         connection = connect(settings.database_path)
         try:
-            row = connection.execute(
-                "SELECT built_in FROM album_types WHERE name=?", (name,)
-            ).fetchone()
-            if row is None:
-                raise HTTPException(status_code=404, detail="相册类型不存在")
-            if row["built_in"]:
-                raise HTTPException(status_code=409, detail="内置相册类型不能改名")
-            if connection.execute(
-                "SELECT 1 FROM album_types WHERE name=?", (next_name,)
-            ).fetchone():
-                raise HTTPException(status_code=409, detail="同名相册类型已经存在")
-            connection.execute(
-                "UPDATE events SET category=?, updated_at=? WHERE category=?",
-                (next_name, utc_now(), name),
-            )
-            connection.execute(
-                "UPDATE album_types SET name=? WHERE name=?", (next_name, name)
-            )
-            connection.commit()
-            return {"name": next_name, "previous_name": name, "built_in": 0}
+            return rename_album_type(connection, name, request.name)
+        except AlbumNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AlbumConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AlbumError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 
@@ -2428,20 +2321,11 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def delete_album_type(name: str) -> dict[str, Any]:
         connection = connect(settings.database_path)
         try:
-            row = connection.execute(
-                "SELECT built_in FROM album_types WHERE name=?", (name,)
-            ).fetchone()
-            if row is None:
-                raise HTTPException(status_code=404, detail="相册类型不存在")
-            if row["built_in"]:
-                raise HTTPException(status_code=409, detail="内置相册类型不能删除")
-            if connection.execute(
-                "SELECT 1 FROM events WHERE category=? LIMIT 1", (name,)
-            ).fetchone():
-                raise HTTPException(status_code=409, detail="该类型仍被相册使用")
-            connection.execute("DELETE FROM album_types WHERE name=?", (name,))
-            connection.commit()
-            return {"name": name, "status": "deleted"}
+            return delete_album_type_record(connection, name)
+        except AlbumNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AlbumConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         finally:
             connection.close()
 
@@ -2452,10 +2336,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         connection = connect(settings.database_path)
         try:
             try:
-                assigned = _assign_captures_to_album(
-                    connection, album_id, request.capture_ids
-                )
-            except ValueError as exc:
+                assigned = assign_captures_to_album(connection, album_id, request.capture_ids)
+            except AlbumError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             return {"album_id": album_id, "assigned_count": assigned}
         finally:

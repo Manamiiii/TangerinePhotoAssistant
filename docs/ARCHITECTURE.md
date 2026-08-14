@@ -103,6 +103,8 @@ schema 20 的 `similarity_group_revisions` 保存一次分组写入的前后 JSO
 
 人工评分写入已集中到 `reviews.py`，单张旧式相似组覆盖的校验、持久化和重建也已收归
 `grouping.py`。Web 路由只负责后台任务冲突检查、HTTP 状态映射和连接生命周期。
+相册、相册类型和照片归属写操作集中在 `albums.py`，跨相册移动会在同一事务中重建来源、
+数量和拍摄范围；无效照片列表会在写入前被拒绝。
 
 旧 `/api/bursts`、`/api/duplicates` 仍作为兼容查询保留在 `webapp.py`；照片详情还承担
 扩展 EXIF 解释，分析概览还组合任务和模型运行状态。这些边界应在对应领域接口确认后再

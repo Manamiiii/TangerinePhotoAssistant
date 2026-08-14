@@ -7,6 +7,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from tangerine_photo_assistant.database import connect
+from tangerine_photo_assistant.albums import assign_captures_to_album
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.lightroom import build_lightroom_rows
 from tangerine_photo_assistant.pairing import rebuild_captures
@@ -21,7 +22,6 @@ from tangerine_photo_assistant.webapp import (
     ScanStartRequest,
     ScanTaskManager,
     SimilarityGroupEditRequest,
-    _assign_captures_to_album,
     _query_analysis_overview,
     _query_bursts,
     _query_duplicates,
@@ -179,7 +179,7 @@ class WebAppQueryTests(unittest.TestCase):
             album_id = connection.execute(
                 "SELECT id FROM events WHERE event_key='manual:test'"
             ).fetchone()[0]
-            assigned = _assign_captures_to_album(connection, album_id, [1])
+            assigned = assign_captures_to_album(connection, album_id, [1])
             membership = connection.execute(
                 "SELECT event_id FROM event_captures WHERE capture_id=1"
             ).fetchone()[0]
