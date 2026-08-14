@@ -15,10 +15,10 @@ from .database import connect
 from .inventory import utc_now
 from .metadata import METADATA_PROFILE_VERSION
 from .quality import rebuild_group_recommendations
-from .tags import replace_manual_capture_tags
+from .tags import replace_manual_capture_tags, sync_analysis_subject_tags
 from .visual import rebuild_similarity_groups
 
-GENERATOR_VERSION = 5
+GENERATOR_VERSION = 6
 
 DEMO_RAW_COMPANIONS = ("BEACH_0003", "NIGHT_0002")
 DEMO_AI_MODEL_ID = "DEMO-ONLY-no-inference"
@@ -175,6 +175,46 @@ DEMO_AI_RESULTS: dict[str, dict[str, Any]] = {
         "photoshop_needed": False,
         "photoshop_reason": "不需要",
         "overall_confidence": 0.84,
+    },
+    "BEACH_0004": {
+        "subject_type": "风景",
+        "quality_summary": "模拟结果：海边亮部接近上限，主体仍保留层次。",
+        "visible_problems": [{
+            "name": "天空高光略亮", "severity": "low",
+            "evidence": "模拟样例用于形成可验证的条件性统计。",
+            "confidence": 0.76,
+        }],
+        "shooting_advice": [],
+        "lightroom_suggestions": [{
+            "adjustment": "高光", "direction": "降低约 10",
+            "reason": "保留天空层次",
+        }],
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.76,
+    },
+    "BEACH_0005": {
+        "subject_type": "风景",
+        "quality_summary": "模拟结果：曝光整体可用，天空可稍作压暗。",
+        "visible_problems": [{
+            "name": "天空高光略亮", "severity": "low",
+            "evidence": "模拟样例用于核对同条件问题发生率。",
+            "confidence": 0.74,
+        }],
+        "shooting_advice": [],
+        "lightroom_suggestions": [{
+            "adjustment": "白色色阶", "direction": "小幅降低",
+            "reason": "减少亮部压迫感",
+        }],
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.74,
+    },
+    "DETAIL_0001": {
+        "subject_type": "其他",
+        "quality_summary": "模拟结果：静物主体清楚，未发现明确问题。",
+        "visible_problems": [], "shooting_advice": [],
+        "lightroom_suggestions": [],
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.8,
     },
 }
 
@@ -557,6 +597,8 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
         groups = rebuild_similarity_groups(connection)
         rebuild_group_recommendations(connection)
         ai_results = _seed_demo_ai_results(connection)
+        connection.commit()
+        analysis_tags = sync_analysis_subject_tags(connection)
         equipment_album = connection.execute(
             """SELECT id FROM events WHERE status!='archived'
                ORDER BY start_at IS NULL, start_at DESC, id DESC LIMIT 1"""
@@ -576,6 +618,7 @@ def seed_demo_catalog(database_path: Path) -> dict[str, int]:
             "similarity_groups": groups["similarity_groups"],
             "metadata_profiles": metadata_updated,
             "ai_results": ai_results,
+            "analysis_tag_links": analysis_tags["tag_links"],
             "album_equipment": int(equipment_album is not None),
         }
     finally:

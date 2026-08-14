@@ -21,7 +21,7 @@ function modelAdvice(result: QualityItem["ai_result"]) {
   return result?.quality_summary ?? "打开详情查看完整模型建议。";
 }
 
-export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
+export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
   quality: QualityResponse | null;
@@ -38,6 +38,8 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   startDetailBackfill: () => void;
   resumeDetailBackfill: () => void;
   startAi: (mode: "benchmark" | "recommended", limit: number) => void;
+  syncAnalysisSubjectTags: () => void;
+  clearAnalysisSubjectTags: () => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   cancelTask: () => void;
   pauseTask: () => void;
@@ -53,7 +55,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [batchSize, setBatchSize] = useState(100);
   const [resultOffset, setResultOffset] = useState(0);
   const [resultLimit, setResultLimit] = useState(40);
-  const [resultVersion, setResultVersion] = useState("photo-critique-v4");
+  const [resultVersion, setResultVersion] = useState("all");
   const [resultVerdict, setResultVerdict] = useState("all");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
@@ -107,6 +109,10 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <article className="panel analysis-action-card"><span className="section-kicker">拍摄信息</span><h3>详情数据补全</h3><p>补充扩展 EXIF、机内配方和 JPG 亮度直方图，不修改照片。</p><strong>{analysis ? `元数据待补 ${numberFormat.format(analysis.detail_data.metadata_pending)} · 直方图待补 ${numberFormat.format(analysis.detail_data.histograms_pending)}` : "正在读取"}</strong>{task?.status === "paused" && task.stage.startsWith("detail-") ? <button className="toolbar-button primary" onClick={resumeDetailBackfill}>继续补全</button> : <button className="toolbar-button" onClick={startDetailBackfill} disabled={running || (!analysis?.detail_data.metadata_pending && !analysis?.detail_data.histograms_pending)}>{analysis && !analysis.detail_data.metadata_pending && !analysis.detail_data.histograms_pending ? "当前无需补全" : "补全详情数据"}</button>}</article>
         <article className="panel analysis-action-card model"><span className="section-kicker">使用本机 GPU</span><h3>本地模型分析</h3><p>分析画面内容、可见问题和后期建议；仅保存建议，需人工复核。</p><strong>{preflight?.ready ? `${numberFormat.format(ai?.candidates?.recommended_available ?? 0)} 张推荐候选` : preflight?.blockers.join("；") ?? "正在预检"}</strong><div><button className="toolbar-button" onClick={() => startAi("benchmark", 10)} disabled={running || !summary?.analyzed || !preflight?.ready}>验证 10 张</button><label><select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} disabled={running}>{[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} 张</option>)}</select><small>{estimatedBatchSeconds ? `约 ${formatDuration(estimatedBatchSeconds)}` : "批次"}</small></label><button className="toolbar-button primary" onClick={() => startAi("recommended", batchSize)} disabled={running || !summary?.analyzed || !preflight?.ready}>运行批次</button></div></article>
       </section>
+      {(analysis?.subject_tags.eligible_captures ?? 0) > 0 && <section className="panel analysis-tag-sync">
+        <div><span className="section-kicker">题材标签</span><strong>分析来源 {numberFormat.format(analysis?.subject_tags.tagged_captures ?? 0)} / {numberFormat.format(analysis?.subject_tags.eligible_captures ?? 0)} 张</strong><small>{numberFormat.format(analysis?.subject_tags.subject_count ?? 0)} 种题材 · 不覆盖人工标签</small></div>
+        <div><button className="toolbar-button primary" onClick={syncAnalysisSubjectTags} disabled={running}>同步已有结果</button><button className="toolbar-button" onClick={clearAnalysisSubjectTags} disabled={running || !analysis?.subject_tags.tag_links}>清除分析题材</button></div>
+      </section>}
       {ai?.latest_run && ["failed", "cancelled", "paused"].includes(ai.latest_run.status) && <section className="analysis-recovery"><span>上次模型任务尚未完整结束。</span><button className="toolbar-button" onClick={() => resumeAi(ai.latest_run!.id)} disabled={running}>继续上次任务</button></section>}
       {ai?.latest_run && ai.latest_run.status === "complete" && ai.latest_run.failed_count > 0 && <section className="analysis-recovery"><span>上次任务有 {ai.latest_run.failed_count} 张失败。</span><button className="toolbar-button" onClick={() => retryAiFailures(ai.latest_run!.id)} disabled={running || !preflight?.ready}>重试失败项</button></section>}
       <section className="metric-grid">
@@ -143,9 +149,8 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <div className="panel-heading"><div><span className="section-kicker">分页复核</span><h3>全部模型结果</h3></div><span className="batch-count">{resultPage ? `${numberFormat.format(resultPage.count)} 条` : "正在读取"}</span></div>
         <div className="ai-results-toolbar">
           <label>提示词版本<select value={resultVersion} onChange={(event) => { setResultVersion(event.target.value); setResultOffset(0); }}>
-            <option value="photo-critique-v4">v4 当前结果</option>
-            {(ai?.result_audit?.versions ?? []).filter((item) => item.prompt_version !== "photo-critique-v4").map((item) => <option key={item.prompt_version} value={item.prompt_version}>{item.prompt_version}</option>)}
             <option value="all">全部版本</option>
+            {(ai?.result_audit?.versions ?? []).map((item) => <option key={item.prompt_version} value={item.prompt_version}>{item.prompt_version}</option>)}
           </select></label>
           <label>人工复核<select value={resultVerdict} onChange={(event) => { setResultVerdict(event.target.value); setResultOffset(0); }}>
             <option value="all">全部</option><option value="unreviewed">未复核</option><option value="accurate">准确</option><option value="partial">部分准确</option><option value="inaccurate">不准确</option>

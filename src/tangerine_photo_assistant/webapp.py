@@ -99,9 +99,12 @@ from .quality import (
 )
 from .reviews import CaptureReviewError, CaptureReviewNotFoundError, save_capture_review
 from .tags import (
+    analysis_subject_tag_status,
+    clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
     replace_manual_capture_tags,
+    sync_analysis_subject_tags,
     update_manual_tag_for_captures,
 )
 from .queries.albums import query_albums
@@ -1171,6 +1174,7 @@ def _query_library_captures(
     tag_location: str | None = None,
     selection_reason: str | None = None,
     model_problem: str | None = None,
+    review_condition: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -1195,6 +1199,7 @@ def _query_library_captures(
         tag_location=tag_location,
         selection_reason=selection_reason,
         model_problem=model_problem,
+        review_condition=review_condition,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -1561,23 +1566,28 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         tag_location: str | None = Query(default=None, max_length=40),
         selection_reason: str | None = Query(default=None, max_length=30),
         model_problem: str | None = Query(default=None, max_length=80),
+        review_condition: str | None = Query(default=None, max_length=280),
         date_from: str | None = Query(default=None, max_length=10),
         date_to: str | None = Query(default=None, max_length=10),
         search: str | None = Query(default=None, max_length=120),
         sort: Literal["newest", "oldest", "name", "rating"] = "newest",
         collapse_groups: bool = False,
     ) -> dict[str, Any]:
-        return _query_library_captures(
-            settings, limit, offset, album_id=album_id, category=category,
-            camera_model=camera_model, lens_model=lens_model, rating=rating,
-            selection=selection, quality=quality, date_from=date_from, date_to=date_to,
-            tag_subject=tag_subject, tag_status=tag_status,
-            tag_problem=tag_problem, tag_location=tag_location,
-            selection_reason=selection_reason,
-            model_problem=model_problem,
-            search=search, sort=sort, collapse_groups=collapse_groups,
-            unassigned_only=unassigned,
-        )
+        try:
+            return _query_library_captures(
+                settings, limit, offset, album_id=album_id, category=category,
+                camera_model=camera_model, lens_model=lens_model, rating=rating,
+                selection=selection, quality=quality, date_from=date_from, date_to=date_to,
+                tag_subject=tag_subject, tag_status=tag_status,
+                tag_problem=tag_problem, tag_location=tag_location,
+                selection_reason=selection_reason,
+                model_problem=model_problem,
+                review_condition=review_condition,
+                search=search, sort=sort, collapse_groups=collapse_groups,
+                unassigned_only=unassigned,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/library/filters")
     def library_filters() -> dict[str, Any]:
@@ -1832,6 +1842,27 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except CaptureTagError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.post("/api/analysis/subject-tags/sync")
+    def sync_subject_tags() -> dict[str, Any]:
+        if manager.snapshot()["status"] in {"running", "paused"}:
+            raise HTTPException(status_code=409, detail="后台任务运行时不能同步分析题材")
+        connection = connect(settings.database_path)
+        try:
+            return {**sync_analysis_subject_tags(connection), "status": "synchronized"}
+        finally:
+            connection.close()
+
+    @app.delete("/api/analysis/subject-tags")
+    def clear_subject_tags() -> dict[str, Any]:
+        if manager.snapshot()["status"] in {"running", "paused"}:
+            raise HTTPException(status_code=409, detail="后台任务运行时不能清除分析题材")
+        connection = connect(settings.database_path)
+        try:
+            removed = clear_analysis_subject_tags(connection)
+            return {"status": "cleared", "removed_links": removed, "recoverable": True}
         finally:
             connection.close()
 

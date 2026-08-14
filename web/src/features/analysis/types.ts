@@ -125,6 +125,12 @@ export type AnalysisOverview = {
     candidates: { benchmark_available: number; recommended_available: number } | null;
   };
   runtime: { ready: boolean; message: string };
+  subject_tags: {
+    eligible_captures: number;
+    tagged_captures: number;
+    subject_count: number;
+    tag_links: number;
+  };
   detail_data: { metadata_profile_version: number; metadata_pending: number; histograms_pending: number };
 };
 

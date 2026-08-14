@@ -43,6 +43,11 @@
 .analysis-action-card label small { color: var(--muted); font-size: 8px; }
 .analysis-recovery { padding: 11px 14px; border: 1px solid #704526; border-radius: 10px; background: rgba(112,69,38,.08); display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .analysis-recovery span { margin-right: auto; color: var(--muted); font-size: 9px; }
+.analysis-tag-sync { margin-top: -2px; padding: 13px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.analysis-tag-sync > div { display: flex; align-items: baseline; gap: 10px; }
+.analysis-tag-sync > div:last-child { flex-shrink: 0; }
+.analysis-tag-sync strong { font-size: 11px; }
+.analysis-tag-sync small { color: var(--muted); font-size: 9px; }
 .advanced-diagnostics > summary { padding: 18px 22px; color: var(--muted); font-size: 10px; cursor: pointer; }
 .advanced-diagnostics .metric-grid { margin: 0; border-width: 1px 0 0; border-radius: 0; }
 
@@ -962,6 +967,11 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .tag-editor-body .detail-section-heading > p { margin: 0; }
 .detail-tags .detail-section-heading > button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: transparent; font-size: 9px; cursor: pointer; }
 .detail-tags .detail-section-heading > button:disabled { opacity: .45; cursor: default; }
+.analysis-tag-readonly { padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 7px 10px; align-items: center; }
+.analysis-tag-readonly strong { font-size: 9px; }
+.analysis-tag-readonly > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.analysis-tag-readonly span { padding: 4px 7px; border: 1px solid rgba(255, 155, 82, .35); border-radius: 999px; color: var(--orange-soft); font-size: 8px; }
+.analysis-tag-readonly small { grid-column: 2; color: var(--muted); font-size: 8px; }
 .tag-dimension { display: grid; grid-template-columns: 68px 1fr; gap: 10px; align-items: start; margin: 9px 0; }
 .tag-dimension > strong { padding-top: 5px; color: var(--muted); font-size: 9px; }
 .tag-dimension > div { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -1592,9 +1602,20 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .shooting-review-problem-list button span { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .shooting-review-problem-list button small { grid-column: 1; color: var(--muted); font-size: 8px; }
 .shooting-review-problem-list button b { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--orange-soft); font-size: 12px; }
+.conditional-insight-list { padding: 16px 20px 20px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.conditional-insight-list > div { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; }
+.conditional-insight-list > div strong { font-size: 11px; }
+.conditional-insight-list > div small { color: var(--muted); font-size: 8px; }
+.conditional-insight-list button { padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); color: inherit; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; text-align: left; cursor: pointer; }
+.conditional-insight-list button:hover { border-color: var(--orange); }
+.conditional-insight-list button span, .conditional-insight-list button small { grid-column: 1; color: var(--muted); font-size: 8px; }
+.conditional-insight-list button strong { grid-column: 1; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.conditional-insight-list button b { grid-column: 2; grid-row: 1 / span 3; align-self: center; color: var(--orange-soft); font-size: 15px; }
 
 @media (max-width: 760px) {
   .shooting-review-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shooting-review-stat-grid article:nth-child(2) { border-right: 0; }
   .shooting-review-stat-grid article:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  .conditional-insight-list { grid-template-columns: 1fr; }
+  .analysis-tag-sync, .analysis-tag-sync > div { align-items: stretch; flex-direction: column; }
 }

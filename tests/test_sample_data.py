@@ -76,7 +76,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(seeded["manual_splits"], 1)
             self.assertEqual(seeded["similarity_groups"], 3)
             self.assertEqual(seeded["metadata_profiles"], 28)
-            self.assertEqual(seeded["ai_results"], 3)
+            self.assertEqual(seeded["ai_results"], 6)
             self.assertEqual(seeded["album_equipment"], 1)
             connection = connect(settings.database_path)
             self.assertEqual(
@@ -132,6 +132,15 @@ class DemoLibraryTests(unittest.TestCase):
             )
             self.assertEqual(
                 connection.execute(
+                    """SELECT COUNT(DISTINCT ct.capture_id)
+                       FROM capture_tags ct
+                       JOIN tag_definitions td ON td.id=ct.tag_id
+                       WHERE ct.source='analysis' AND td.dimension='subject'"""
+                ).fetchone()[0],
+                6,
+            )
+            self.assertEqual(
+                connection.execute(
                     """SELECT td.name FROM capture_tags ct
                        JOIN tag_definitions td ON td.id=ct.tag_id
                        JOIN captures c ON c.id=ct.capture_id
@@ -145,7 +154,7 @@ class DemoLibraryTests(unittest.TestCase):
                        WHERE model_id=? AND status='complete'""",
                     (DEMO_AI_MODEL_ID,),
                 ).fetchone()[0],
-                3,
+                6,
             )
             ai_result = json.loads(connection.execute(
                 """SELECT result_json FROM ai_analyses aa

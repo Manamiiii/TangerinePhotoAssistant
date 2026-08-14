@@ -11,8 +11,9 @@ from uuid import uuid4
 
 from .database import transaction
 from .inventory import utc_now
+from .tags import replace_analysis_subject_tags
 
-PROMPT_VERSION = "photo-critique-v4"
+PROMPT_VERSION = "photo-critique-v5"
 
 
 def _balanced_benchmark_candidates(
@@ -245,7 +246,7 @@ def update_ai_review(
     if verdict not in {None, "accurate", "partial", "inaccurate"}:
         raise ValueError("模型复核结论无效")
     row = connection.execute(
-        "SELECT status FROM ai_analyses WHERE id=?", (analysis_id,)
+        "SELECT status, capture_id, result_json FROM ai_analyses WHERE id=?", (analysis_id,)
     ).fetchone()
     if row is None:
         raise ValueError("模型分析记录不存在")
@@ -262,6 +263,29 @@ def update_ai_review(
             """,
             (verdict, cleaned_note, reviewed_at, analysis_id),
         )
+        is_latest = connection.execute(
+            """SELECT 1 FROM ai_analyses
+               WHERE id=? AND id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                                  WHERE newest.capture_id=? AND newest.status='complete')""",
+            (analysis_id, row["capture_id"]),
+        ).fetchone()
+        if is_latest:
+            if verdict == "inaccurate":
+                connection.execute(
+                    """DELETE FROM capture_tags WHERE capture_id=? AND source='analysis'
+                         AND tag_id IN (SELECT id FROM tag_definitions
+                                        WHERE dimension='subject')""",
+                    (row["capture_id"],),
+                )
+            else:
+                try:
+                    result = json.loads(row["result_json"] or "{}")
+                except json.JSONDecodeError:
+                    result = {}
+                if isinstance(result, dict):
+                    replace_analysis_subject_tags(
+                        connection, int(row["capture_id"]), result
+                    )
     return {
         "id": analysis_id,
         "user_verdict": verdict,
@@ -872,6 +896,23 @@ def validate_model_result(result: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Model JSON subject_type is invalid")
     if not result["quality_summary"].strip():
         raise ValueError("Model JSON quality_summary cannot be empty")
+    if "subject_tags" in result:
+        subject_tags = result["subject_tags"]
+        allowed_subject_tags = allowed_subject_types | {"建筑", "美食", "旅行", "纪实"}
+        if not isinstance(subject_tags, list) or not 1 <= len(subject_tags) <= 3:
+            raise ValueError("Model JSON subject_tags must contain 1 to 3 items")
+        seen_subjects: set[str] = set()
+        for tag in subject_tags:
+            if not isinstance(tag, dict) or not isinstance(tag.get("name"), str):
+                raise ValueError("Model JSON subject_tags item has invalid name")
+            if tag["name"] not in allowed_subject_tags or tag["name"] in seen_subjects:
+                raise ValueError("Model JSON subject_tags item is invalid or duplicated")
+            if not isinstance(tag.get("confidence"), (int, float)):
+                raise ValueError("Model JSON subject_tags item has invalid confidence")
+            tag_confidence = float(tag["confidence"])
+            if not 0.0 <= tag_confidence <= 1.0:
+                raise ValueError("Model JSON subject_tags confidence is invalid")
+            seen_subjects.add(tag["name"])
     confidence = float(result["overall_confidence"])
     if not 0.0 <= confidence <= 1.0:
         raise ValueError("Model JSON overall_confidence must be between 0 and 1")
@@ -1001,6 +1042,7 @@ def build_prompt(row: sqlite3.Row, issues: list[dict[str, Any]], equipment: str)
 - f 数越小光圈越大、进光越多；f 数越大光圈越小、进光越少。不要建议用更小光圈解决弱光或降低 ISO，除非有明确景深理由。
 - 三脚架不能冻结移动人物或宠物；镜头防抖只能减轻相机抖动。不要仅凭参数断言画面模糊，必须有可见证据。
 - 不要编造闭眼、失焦、噪点、背景问题或拍摄意图。没有可信问题时使用空数组。
+- subject_type 只给一个兼容主类；subject_tags 按画面可见内容给 1–3 个互不重复的题材，不能写人物身份或姓名。
 - 输出务必精炼：总结不超过 60 个汉字；每个建议数组最多 2 项；每个字符串字段不超过 50 个汉字。
 - 置信度必须校准在 0.50 到 0.95 之间，不能输出 1.0；证据有限时降低置信度。
 - photoshop_needed 为 false 时，photoshop_reason 必须写“不需要”，不能留空。
@@ -1014,6 +1056,7 @@ EXIF：{json.dumps(exif, ensure_ascii=False)}
 仅输出一个紧凑、完整、合法的 JSON 对象，不要 Markdown或额外解释，结构为：
 {{
   "subject_type": "人像/风景/宠物/家人/星空/其他",
+  "subject_tags": [{{"name":"人像/风景/宠物/家人/星空/建筑/美食/旅行/纪实/其他", "confidence":0.0}}],
   "quality_summary": "简短总结",
   "visible_problems": [{{"name":"问题", "severity":"low/medium/high", "evidence":"画面证据", "confidence":0.0}}],
   "shooting_advice": [{{"suggestion":"下次如何拍", "reason":"为什么", "exif_basis":"相关参数或无"}}],

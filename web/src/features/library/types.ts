@@ -55,6 +55,7 @@ export type LibraryQuery = {
   tagLocation: string;
   selectionReason: string;
   modelProblem: string;
+  reviewCondition: string;
   dateFrom: string;
   dateTo: string;
   search: string;

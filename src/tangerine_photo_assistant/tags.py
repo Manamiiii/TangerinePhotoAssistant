@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -12,6 +13,7 @@ TAG_DIMENSIONS = frozenset({"subject", "status", "problem", "location"})
 MAX_TAGS_PER_CAPTURE = 64
 MAX_TAG_NAME_LENGTH = 40
 RETIRED_WORKFLOW_STATUSES = frozenset({"精选", "待淘汰"})
+ANALYSIS_SUBJECT_LIMIT = 8
 
 
 class CaptureTagError(ValueError):
@@ -20,6 +22,133 @@ class CaptureTagError(ValueError):
 
 class CaptureTagNotFoundError(CaptureTagError):
     pass
+
+
+def _analysis_subjects(result: Mapping[str, Any]) -> list[tuple[str, float | None]]:
+    raw_tags = result.get("subject_tags")
+    candidates: list[tuple[object, object]] = []
+    if isinstance(raw_tags, list):
+        for raw in raw_tags:
+            if isinstance(raw, str):
+                candidates.append((raw, result.get("overall_confidence")))
+            elif isinstance(raw, Mapping):
+                candidates.append((raw.get("name"), raw.get("confidence")))
+    if not candidates:
+        candidates.append((result.get("subject_type"), result.get("overall_confidence")))
+
+    subjects: list[tuple[str, float | None]] = []
+    seen: set[str] = set()
+    for raw_name, raw_confidence in candidates:
+        name = " ".join(str(raw_name or "").split())
+        if not name or len(name) > MAX_TAG_NAME_LENGTH or name.casefold() in seen:
+            continue
+        try:
+            confidence = max(0.0, min(1.0, float(raw_confidence)))
+        except (TypeError, ValueError):
+            confidence = None
+        seen.add(name.casefold())
+        subjects.append((name, round(confidence, 2) if confidence is not None else None))
+        if len(subjects) >= ANALYSIS_SUBJECT_LIMIT:
+            break
+    return subjects
+
+
+def replace_analysis_subject_tags(
+    connection: sqlite3.Connection,
+    capture_id: int,
+    result: Mapping[str, Any],
+) -> int:
+    """Replace only model-derived subject tags; manual/import tags stay untouched."""
+    subjects = _analysis_subjects(result)
+    now = utc_now()
+    connection.execute(
+        """DELETE FROM capture_tags WHERE capture_id=? AND source='analysis'
+             AND tag_id IN (SELECT id FROM tag_definitions WHERE dimension='subject')""",
+        (capture_id,),
+    )
+    for order, (name, confidence) in enumerate(subjects, start=1):
+        connection.execute(
+            """INSERT OR IGNORE INTO tag_definitions(
+                   dimension, name, built_in, sort_order, created_at
+               ) VALUES ('subject', ?, 1, ?, ?)""",
+            (name, order * 10, now),
+        )
+        tag_id = connection.execute(
+            "SELECT id FROM tag_definitions WHERE dimension='subject' AND name=?",
+            (name,),
+        ).fetchone()[0]
+        connection.execute(
+            """INSERT INTO capture_tags(capture_id, tag_id, source, confidence, created_at)
+               VALUES (?, ?, 'analysis', ?, ?)""",
+            (capture_id, tag_id, confidence, now),
+        )
+    return len(subjects)
+
+
+def sync_analysis_subject_tags(connection: sqlite3.Connection) -> dict[str, int]:
+    rows = connection.execute(
+        """SELECT aa.capture_id, aa.result_json
+           FROM ai_analyses aa
+           WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+             AND COALESCE(aa.user_verdict, '')!='inaccurate'
+             AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                        WHERE newest.capture_id=aa.capture_id
+                          AND newest.status='complete')
+           ORDER BY aa.capture_id"""
+    ).fetchall()
+    synchronized = 0
+    links = 0
+    ignored = 0
+    with transaction(connection):
+        connection.execute(
+            """DELETE FROM capture_tags WHERE source='analysis'
+                 AND tag_id IN (SELECT id FROM tag_definitions WHERE dimension='subject')"""
+        )
+        for row in rows:
+            try:
+                result = json.loads(row["result_json"])
+            except (TypeError, json.JSONDecodeError):
+                ignored += 1
+                continue
+            if not isinstance(result, dict):
+                ignored += 1
+                continue
+            links += replace_analysis_subject_tags(
+                connection, int(row["capture_id"]), result
+            )
+            synchronized += 1
+    return {
+        "eligible_captures": len(rows),
+        "synchronized_captures": synchronized,
+        "tag_links": links,
+        "ignored_results": ignored,
+    }
+
+
+def clear_analysis_subject_tags(connection: sqlite3.Connection) -> int:
+    with transaction(connection):
+        cursor = connection.execute(
+            """DELETE FROM capture_tags WHERE source='analysis'
+                 AND tag_id IN (SELECT id FROM tag_definitions WHERE dimension='subject')"""
+        )
+    return int(cursor.rowcount)
+
+
+def analysis_subject_tag_status(connection: sqlite3.Connection) -> dict[str, int]:
+    row = connection.execute(
+        """SELECT COUNT(DISTINCT CASE WHEN aa.id IS NOT NULL THEN c.id END) AS eligible_captures,
+                  COUNT(DISTINCT CASE WHEN ct.capture_id IS NOT NULL THEN c.id END) AS tagged_captures,
+                  COUNT(DISTINCT ct.tag_id) AS subject_count,
+                  COUNT(ct.tag_id) AS tag_links
+           FROM captures c
+           LEFT JOIN ai_analyses aa ON aa.capture_id=c.id AND aa.status='complete'
+             AND COALESCE(aa.user_verdict, '')!='inaccurate'
+             AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                        WHERE newest.capture_id=c.id AND newest.status='complete')
+           LEFT JOIN capture_tags ct ON ct.capture_id=c.id AND ct.source='analysis'
+             AND ct.tag_id IN (SELECT id FROM tag_definitions WHERE dimension='subject')"""
+    ).fetchone()
+    return {key: int(row[key] or 0) for key in row.keys()}
 
 
 def _normalize_tags(tags: Iterable[Mapping[str, Any]]) -> list[tuple[str, str]]:

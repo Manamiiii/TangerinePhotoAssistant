@@ -19,6 +19,7 @@ from .ai_analysis import (
 from .database import connect
 from .inventory import utc_now
 from .settings import Settings
+from .tags import replace_analysis_subject_tags
 
 
 def _load_equipment(project_root: Path) -> str:
@@ -217,6 +218,21 @@ def run_worker(config_path: Path, run_id: int) -> int:
                         utc_now(), row["analysis_id"],
                     ),
                 )
+                connection.execute("SAVEPOINT analysis_subject_tags")
+                try:
+                    replace_analysis_subject_tags(
+                        connection, int(row["capture_id"]), result
+                    )
+                    connection.execute("RELEASE analysis_subject_tags")
+                except sqlite3.Error as tag_error:
+                    connection.execute("ROLLBACK TO analysis_subject_tags")
+                    connection.execute("RELEASE analysis_subject_tags")
+                    print(
+                        f"WARNING: analysis tags were not synchronized for "
+                        f"capture {row['capture_id']}: {tag_error}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
             except Exception as exc:
                 connection.execute(
                     """

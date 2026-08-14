@@ -36,6 +36,18 @@ export type Statistics = {
     repairability: "limited" | "partial" | "unknown";
     repairability_label: string;
   }>;
+  conditional_review_insights: Array<{
+    condition_key: string;
+    dimension: string;
+    dimension_label: string;
+    condition: string;
+    problem: string;
+    sample_count: number;
+    problem_count: number;
+    problem_rate: number;
+    baseline_rate: number;
+    lift: number;
+  }>;
   categories: StatisticRow[];
   months: Array<StatisticRow & { month: string; user_picks: number }>;
   cameras: Array<StatisticRow & { camera_model: string }>;
@@ -58,6 +70,7 @@ type StatisticsLibraryQuery = {
   dateTo?: string;
   selectionReason?: string;
   modelProblem?: string;
+  reviewCondition?: string;
 };
 
 function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode = "count" }: {
@@ -134,6 +147,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
             <article><span>平均置信度</span><strong>{statistics?.shooting_review_summary.average_confidence == null ? "—" : `${statistics.shooting_review_summary.average_confidence}%`}</strong><small>模型自报置信度</small></article>
           </div>
           {(statistics?.shooting_review_problems.length ?? 0) > 0 && <div className="shooting-review-problem-list"><span>常见模型观察</span>{statistics?.shooting_review_problems.map((item) => <button key={item.problem} onClick={() => openLibraryWith({ modelProblem: item.problem })}><span>{item.problem}</span><small>{item.repairability_label} · 置信度 {item.average_confidence ?? "—"}%</small><b>{numberFormat.format(item.count)}</b></button>)}</div>}
+          {(statistics?.conditional_review_insights.length ?? 0) > 0 && <div className="conditional-insight-list"><div><strong>条件性关联</strong><small>至少 3 张样本、2 次同类观察；表示相关性，不代表因果</small></div>{statistics?.conditional_review_insights.map((item) => <button key={`${item.condition_key}-${item.problem}`} onClick={() => openLibraryWith({ modelProblem: item.problem, reviewCondition: item.condition_key })}><span>{item.dimension_label} · {item.condition}</span><strong>{item.problem}</strong><small>{item.problem_count} / {item.sample_count} 张 · {item.problem_rate}%（整体 {item.baseline_rate}%）</small><b>{item.lift.toFixed(2)}×</b></button>)}</div>}
         </> : <div className="empty-state">完成本地模型分析后，这里会汇总观察、拍摄建议和后期可处理性。</div>}
       </section>
       <section className="statistics-grid">

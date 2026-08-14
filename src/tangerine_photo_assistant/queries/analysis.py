@@ -6,6 +6,7 @@ from typing import Any
 from ..ai_analysis import ai_summary, quality_summary
 from ..database import connect_readonly
 from ..metadata import METADATA_PROFILE_VERSION
+from ..tags import analysis_subject_tag_status
 
 
 def query_analysis_overview(
@@ -21,6 +22,7 @@ def query_analysis_overview(
             "quality": quality_summary(connection),
             "ai": ai_summary(connection, ai_model_path, ai_quantization),
             "runtime": {"ready": runtime_ready, "message": runtime_message},
+            "subject_tags": analysis_subject_tag_status(connection),
             "detail_data": {
                 "metadata_profile_version": METADATA_PROFILE_VERSION,
                 "metadata_pending": connection.execute(

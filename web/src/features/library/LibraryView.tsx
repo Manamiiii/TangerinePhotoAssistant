@@ -195,7 +195,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     setSelected((current) => new Set([...current].filter((id) => !memberIds.has(id)).concat([...selectionGroupDraft])));
     setSelectionGroup(null);
   };
-  const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
+  const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", reviewCondition: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
   const activeFilters: Array<{ key: keyof LibraryQuery; label: string }> = [
     ...(!albumContext && query.albumId ? [{ key: "albumId" as const, label: query.albumId === "__unassigned__" ? "未归入相册" : filters?.albums.find((album) => String(album.id) === query.albumId)?.name ?? "相册" }] : []),
     ...(query.category ? [{ key: "category" as const, label: `类型：${query.category}` }] : []),
@@ -210,6 +210,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     ...(query.tagLocation ? [{ key: "tagLocation" as const, label: `地点：${query.tagLocation}` }] : []),
     ...(query.selectionReason ? [{ key: "selectionReason" as const, label: `保留理由：${query.selectionReason}` }] : []),
     ...(query.modelProblem ? [{ key: "modelProblem" as const, label: `模型观察：${query.modelProblem}` }] : []),
+    ...(query.reviewCondition ? [{ key: "reviewCondition" as const, label: `关联条件：${query.reviewCondition.split("|")[1] ?? query.reviewCondition}` }] : []),
     ...(query.dateFrom ? [{ key: "dateFrom" as const, label: `从 ${query.dateFrom}` }] : []),
     ...(query.dateTo ? [{ key: "dateTo" as const, label: `至 ${query.dateTo}` }] : []),
   ];

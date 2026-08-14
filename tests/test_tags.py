@@ -1,18 +1,96 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from tangerine_photo_assistant.ai_analysis import update_ai_review
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.queries.details import query_capture_detail
 from tangerine_photo_assistant.tags import (
+    analysis_subject_tag_status,
+    clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
     replace_manual_capture_tags,
+    sync_analysis_subject_tags,
     update_manual_tag_for_captures,
 )
 
 
 class CaptureTagTests(unittest.TestCase):
+    def test_analysis_subject_sync_is_repeatable_and_preserves_manual_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            connection = connect(Path(temporary) / "catalog.sqlite3")
+            connection.executemany(
+                """INSERT INTO captures(capture_key, stem, parent_relative, pairing_status)
+                   VALUES (?, ?, '', 'jpeg_only')""",
+                (("A", "A"), ("B", "B")),
+            )
+            first_id, second_id = [row[0] for row in connection.execute(
+                "SELECT id FROM captures ORDER BY id"
+            )]
+            connection.commit()
+            replace_manual_capture_tags(
+                connection, first_id, [{"dimension": "subject", "name": "旅行"}]
+            )
+            connection.execute(
+                """INSERT INTO ai_runs(mode, model_id, prompt_version, status,
+                       requested_count, completed_count, started_at)
+                   VALUES ('benchmark', 'test', 'v4', 'complete', 2, 2, 'now')"""
+            )
+            run_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+            results = (
+                {"subject_type": "人像", "overall_confidence": 0.8},
+                {"subject_tags": [
+                    {"name": "建筑", "confidence": 0.7}, "旅行", "建筑",
+                ], "overall_confidence": 0.6},
+            )
+            connection.executemany(
+                """INSERT INTO ai_analyses(
+                       run_id, capture_id, model_id, prompt_version, status,
+                       selection_reason, result_json, finished_at)
+                   VALUES (?, ?, 'test', 'v4', 'complete', 'test', ?, 'now')""",
+                ((run_id, first_id, json.dumps(results[0], ensure_ascii=False)),
+                 (run_id, second_id, json.dumps(results[1], ensure_ascii=False))),
+            )
+            connection.commit()
+
+            synced = sync_analysis_subject_tags(connection)
+            self.assertEqual(synced["synchronized_captures"], 2)
+            self.assertEqual(synced["tag_links"], 3)
+            self.assertEqual(analysis_subject_tag_status(connection), {
+                "eligible_captures": 2, "tagged_captures": 2,
+                "subject_count": 3, "tag_links": 3,
+            })
+            first_tags = connection.execute(
+                """SELECT td.name, ct.source FROM capture_tags ct
+                   JOIN tag_definitions td ON td.id=ct.tag_id
+                   WHERE ct.capture_id=? ORDER BY ct.source, td.name""",
+                (first_id,),
+            ).fetchall()
+            self.assertEqual(
+                {tuple(row) for row in first_tags},
+                {("人像", "analysis"), ("旅行", "manual")},
+            )
+            self.assertEqual(sync_analysis_subject_tags(connection)["tag_links"], 3)
+            first_analysis_id = connection.execute(
+                "SELECT id FROM ai_analyses WHERE capture_id=?", (first_id,)
+            ).fetchone()[0]
+            update_ai_review(connection, first_analysis_id, "inaccurate", "题材判断错误")
+            self.assertEqual(analysis_subject_tag_status(connection), {
+                "eligible_captures": 1, "tagged_captures": 1,
+                "subject_count": 2, "tag_links": 2,
+            })
+            self.assertEqual(clear_analysis_subject_tags(connection), 2)
+            self.assertEqual(analysis_subject_tag_status(connection)["tagged_captures"], 0)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM capture_tags WHERE source='manual'"
+                ).fetchone()[0],
+                1,
+            )
+            connection.close()
+
     def test_manual_tags_replace_atomically_and_preserve_analysis_tags(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             connection = connect(Path(temporary) / "catalog.sqlite3")

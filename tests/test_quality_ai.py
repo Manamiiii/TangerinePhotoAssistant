@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from PIL import Image, ImageDraw
 
 from tangerine_photo_assistant.ai_analysis import (
+    PROMPT_VERSION,
     _balanced_benchmark_candidates,
     _format_exposure_seconds,
     ai_result_audit,
@@ -241,7 +242,7 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(summary["recent_results"][0]["quality_summary"], "测试结果")
             self.assertEqual(summary["candidates"]["benchmark_available"], 2)
             result_page = ai_results_page(
-                connection, prompt_version="photo-critique-v4", verdict="unreviewed"
+                connection, prompt_version=PROMPT_VERSION, verdict="unreviewed"
             )
             self.assertEqual(result_page["count"], 1)
             expected_capture_id = connection.execute(
@@ -273,7 +274,7 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(retry["requested_count"], 1)
             self.assertEqual(connection.execute(
                 "SELECT prompt_version FROM ai_runs WHERE id=?", (retry["run_id"],)
-            ).fetchone()[0], "photo-critique-v4")
+            ).fetchone()[0], "photo-critique-v5")
             connection.execute("DELETE FROM ai_runs WHERE id=?", (retry["run_id"],))
             connection.commit()
             review = update_ai_review(
@@ -409,6 +410,22 @@ class QualityAndAiTests(unittest.TestCase):
                 "photoshop_reason": "不需要", "overall_confidence": 0.8,
             }
             self.assertEqual(validate_model_result(complete), complete)
+            multi_subject = {
+                **complete,
+                "subject_tags": [
+                    {"name": "风景", "confidence": 0.9},
+                    {"name": "旅行", "confidence": 0.7},
+                ],
+            }
+            self.assertEqual(len(validate_model_result(multi_subject)["subject_tags"]), 2)
+            with self.assertRaises(ValueError):
+                validate_model_result({
+                    **complete,
+                    "subject_tags": [
+                        {"name": "风景", "confidence": 0.9},
+                        {"name": "风景", "confidence": 0.8},
+                    ],
+                })
             overconfident = {**complete, "photoshop_reason": "", "overall_confidence": 1.0}
             normalized = validate_model_result(overconfident)
             self.assertEqual(normalized["overall_confidence"], 0.95)

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database import connect_readonly
+from ..insights import review_condition_sql
 
 
 def query_library_captures(
@@ -25,6 +26,7 @@ def query_library_captures(
     tag_location: str | None = None,
     selection_reason: str | None = None,
     model_problem: str | None = None,
+    review_condition: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
@@ -106,6 +108,7 @@ def query_library_captures(
                        FROM ai_analyses filter_ai,
                             json_each(json_extract(filter_ai.result_json, '$.visible_problems')) problem
                        WHERE filter_ai.capture_id=c.id AND filter_ai.status='complete'
+                         AND COALESCE(filter_ai.user_verdict, '')!='inaccurate'
                          AND filter_ai.id=(SELECT MAX(newest.id) FROM ai_analyses newest
                                           WHERE newest.capture_id=c.id
                                             AND newest.status='complete')
@@ -113,6 +116,10 @@ def query_library_captures(
                    )"""
             )
             parameters.append(model_problem)
+        if review_condition:
+            expression, condition_parameters = review_condition_sql(review_condition)
+            conditions.append(expression)
+            parameters.extend(condition_parameters)
         if date_from:
             conditions.append("substr(c.captured_at, 1, 10) >= ?")
             parameters.append(date_from)
@@ -286,6 +293,7 @@ def query_library_filters(database_path: Path) -> dict[str, Any]:
                    SELECT aa.capture_id, aa.result_json
                    FROM ai_analyses aa
                    WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+                     AND COALESCE(aa.user_verdict, '')!='inaccurate'
                      AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
                                 WHERE newest.capture_id=aa.capture_id
                                   AND newest.status='complete')

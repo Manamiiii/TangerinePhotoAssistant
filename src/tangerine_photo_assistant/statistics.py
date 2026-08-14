@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from .critique import classify_repairability
+from .insights import build_conditional_review_insights
 
 CAPTURE_CTE = """
 WITH capture_exif AS (
@@ -91,6 +92,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                SELECT aa.result_json
                FROM ai_analyses aa
                WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+                 AND COALESCE(aa.user_verdict, '')!='inaccurate'
                  AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
                             WHERE newest.capture_id=aa.capture_id
                               AND newest.status='complete')
@@ -108,6 +110,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                SELECT aa.capture_id, aa.result_json
                FROM ai_analyses aa
                WHERE aa.status='complete' AND aa.result_json IS NOT NULL
+                 AND COALESCE(aa.user_verdict, '')!='inaccurate'
                  AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
                             WHERE newest.capture_id=aa.capture_id
                               AND newest.status='complete')
@@ -130,6 +133,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         "selection_reasons": selection_reasons,
         "shooting_review_summary": shooting_review_summary,
         "shooting_review_problems": shooting_review_problems,
+        "conditional_review_insights": build_conditional_review_insights(connection),
         "categories": _rows(
             connection,
             """SELECT category, COUNT(*) AS count,

@@ -47,7 +47,7 @@ function App() {
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
     pageSize: 40, albumId: "", category: "", camera: "", lens: "",
-    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "",
+    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", reviewCondition: "",
     dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
   });
   const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
@@ -131,6 +131,7 @@ function App() {
     if (libraryQuery.tagLocation) libraryParameters.set("tag_location", libraryQuery.tagLocation);
     if (libraryQuery.selectionReason) libraryParameters.set("selection_reason", libraryQuery.selectionReason);
     if (libraryQuery.modelProblem) libraryParameters.set("model_problem", libraryQuery.modelProblem);
+    if (libraryQuery.reviewCondition) libraryParameters.set("review_condition", libraryQuery.reviewCondition);
     if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
     if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
     if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
@@ -201,6 +202,7 @@ function App() {
       if (libraryQuery.tagLocation) parameters.set("tag_location", libraryQuery.tagLocation);
       if (libraryQuery.selectionReason) parameters.set("selection_reason", libraryQuery.selectionReason);
       if (libraryQuery.modelProblem) parameters.set("model_problem", libraryQuery.modelProblem);
+      if (libraryQuery.reviewCondition) parameters.set("review_condition", libraryQuery.reviewCondition);
       if (libraryQuery.dateFrom) parameters.set("date_from", libraryQuery.dateFrom);
       if (libraryQuery.dateTo) parameters.set("date_to", libraryQuery.dateTo);
       if (libraryQuery.search.trim()) parameters.set("search", libraryQuery.search.trim());
@@ -433,6 +435,29 @@ function App() {
     }, 250);
   };
 
+  const syncAnalysisSubjectTags = async () => {
+    setError(null);
+    try {
+      const result = await getJson<{ synchronized_captures: number; tag_links: number }>("/api/analysis/subject-tags/sync", { method: "POST" });
+      await refreshLibrary();
+      pushToast("success", `已从 ${result.synchronized_captures} 条现有结果同步 ${result.tag_links} 个分析题材标签`);
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
+  const clearAnalysisSubjectTags = async () => {
+    if (!window.confirm("只会清除模型生成的题材标签，人工与导入标签不受影响；之后可从已有模型结果重新同步。确认继续吗？")) return;
+    setError(null);
+    try {
+      const result = await getJson<{ removed_links: number }>("/api/analysis/subject-tags", { method: "DELETE" });
+      await refreshLibrary();
+      pushToast("success", `已清除 ${result.removed_links} 个分析题材标签，可随时重新同步`);
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  };
+
   const saveReview = async (captureId: number, review: ReviewPayload) => {
     applyReview(captureId, review);
     setSimilarityGroups((current) => {
@@ -612,7 +637,7 @@ function App() {
     setLibraryLandingSection("photos");
     setLibraryOffset(0);
     setLibraryCaptures(null);
-    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", dateFrom: "", dateTo: "", search: "", ...changes }));
+    setLibraryQuery((current) => ({ ...current, albumId: "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", reviewCondition: "", dateFrom: "", dateTo: "", search: "", ...changes }));
     setView("library");
   };
 
@@ -937,7 +962,7 @@ function App() {
           openAlbumQuality={(albumId) => { setQualityOffset(0); setQualityAlbumId(String(albumId)); setView("analysis"); }}
         />}
         {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumQuality={(albumId) => { setQualityOffset(0); setQualityAlbumId(String(albumId)); setView("analysis"); }} />}
-        {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} qualityAlbumId={qualityAlbumId} setQualityAlbumId={(albumId) => { setQualityOffset(0); setQualityAlbumId(albumId); }} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupReviewFilter("pending"); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
+        {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} qualityAlbumId={qualityAlbumId} setQualityAlbumId={(albumId) => { setQualityOffset(0); setQualityAlbumId(albumId); }} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupReviewFilter("pending"); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} syncAnalysisSubjectTags={syncAnalysisSubjectTags} clearAnalysisSubjectTags={clearAnalysisSubjectTags} saveReview={saveReview} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}

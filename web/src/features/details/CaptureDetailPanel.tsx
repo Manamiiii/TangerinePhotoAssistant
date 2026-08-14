@@ -42,6 +42,7 @@ function TagEditor({ detail, saveTags }: {
   saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
 }) {
   const manualTags = detail.tags.filter((tag) => tag.source === "manual");
+  const analysisTags = detail.tags.filter((tag) => tag.source === "analysis");
   const [selected, setSelected] = useState<Array<{ dimension: CaptureTagDimension; name: string }>>(
     manualTags.map(({ dimension, name }) => ({ dimension, name })),
   );
@@ -69,7 +70,8 @@ function TagEditor({ detail, saveTags }: {
   };
   const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
     JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
-  return <details className="detail-section detail-tags"><summary><span><strong>标签与流程</strong><small>{manualTags.length ? manualTags.map((tag) => tag.name).join(" · ") : "尚未设置人工标签"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
+  return <details className="detail-section detail-tags"><summary><span><strong>标签与流程</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "尚未设置标签"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
+    {!!analysisTags.length && <div className="analysis-tag-readonly"><strong>模型分析</strong><div>{analysisTags.map((tag) => <span key={`${tag.dimension}:${tag.name}`}>{tag.name}{tag.confidence == null ? "" : ` · ${Math.round(tag.confidence * 100)}%`}</span>)}</div><small>只读来源；人工标签独立保存，不会被同步覆盖。</small></div>}
     {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
       const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
       const selectedCustom = selected.filter((tag) => tag.dimension === dimension && !catalog.some((item) => item.name === tag.name));
