@@ -91,7 +91,7 @@ DEMO_TAGS: dict[str, list[dict[str, str]]] = {
     ],
     "NIGHT_0002": [
         {"dimension": "subject", "name": "星空"},
-        {"dimension": "status", "name": "精选"},
+        {"dimension": "status", "name": "待导出"},
     ],
 }
 

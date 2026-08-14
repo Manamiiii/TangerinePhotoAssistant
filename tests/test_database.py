@@ -15,6 +15,12 @@ class DatabaseUpgradeTests(unittest.TestCase):
             connection.execute("INSERT INTO upgrade_marker VALUES ('before-upgrade')")
             connection.execute("DROP TABLE similarity_group_revision_captures")
             connection.execute("DROP TABLE similarity_group_revisions")
+            connection.executemany(
+                """INSERT INTO tag_definitions(
+                       dimension, name, built_in, active, sort_order, created_at
+                   ) VALUES ('status', ?, 1, 1, 500, CURRENT_TIMESTAMP)""",
+                (("精选",), ("待淘汰",)),
+            )
             previous_version = SCHEMA_VERSION - 1
             connection.execute("UPDATE schema_info SET version=?", (previous_version,))
             connection.commit()
@@ -46,6 +52,13 @@ class DatabaseUpgradeTests(unittest.TestCase):
             self.assertGreater(
                 upgraded.execute("SELECT COUNT(*) FROM tag_definitions WHERE built_in=1").fetchone()[0],
                 20,
+            )
+            self.assertEqual(
+                upgraded.execute(
+                    """SELECT COUNT(*) FROM tag_definitions
+                       WHERE dimension='status' AND name IN ('精选', '待淘汰') AND active=0"""
+                ).fetchone()[0],
+                2,
             )
             upgraded.close()
 

@@ -424,6 +424,13 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .album-equipment-field > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .album-equipment-field label { padding: 8px; border-radius: 8px; background: var(--surface-raised); flex-direction: row; align-items: center; }
 .album-equipment-field input { width: auto; }
+.review-help { position: relative; }
+.review-help > button { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: transparent; cursor: pointer; }
+.review-help-popover { position: absolute; z-index: 30; top: 30px; right: 0; width: min(330px, 80vw); padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); box-shadow: 0 14px 36px rgba(0,0,0,.28); display: grid; gap: 6px; }
+.review-help-popover > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.review-help-popover > span button { border: 0; color: var(--muted); background: transparent; cursor: pointer; }
+.review-help-popover b { margin-top: 5px; font-size: 9px; }
+.review-help-popover small { color: var(--muted); font-size: 9px; line-height: 1.5; }
 .equipment-layout, .equipment-note, .equipment-hidden-panel { margin-top: 18px; }
 .editor-footer { padding: 14px 20px 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .editor-footer button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }

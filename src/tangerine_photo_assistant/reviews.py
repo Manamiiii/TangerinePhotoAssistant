@@ -26,7 +26,7 @@ def save_capture_review(
     if user_rating is not None and not 1 <= user_rating <= 5:
         raise CaptureReviewError("人工星级必须在 1 到 5 之间")
     if user_pick and user_reject:
-        raise CaptureReviewError("同一照片不能同时标为保留和待淘汰")
+        raise CaptureReviewError("同一照片不能同时标为入选和排除")
     if connection.execute(
         "SELECT 1 FROM captures WHERE id=?", (capture_id,)
     ).fetchone() is None:

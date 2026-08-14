@@ -10,6 +10,31 @@ const tagDimensionLabels: Record<CaptureTagDimension, string> = {
   location: "地点",
 };
 
+function ReviewHelp() {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeEscape);
+    };
+  }, [open]);
+  return <span ref={rootRef} className="review-help"><button type="button" aria-label="解释评价规则" aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>{open && <span className="review-help-popover" role="note"><span><strong>人工评价怎么分工</strong><button type="button" aria-label="关闭评价说明" onClick={() => setOpen(false)}>×</button></span><b>星级</b><small>表示你对照片长期价值的判断：1 星明显较弱，2 星有记录价值，3 星合格，4 星优秀，5 星代表作。</small><b>入选 / 排除</b><small>表示本轮选片结论，与星级独立；入选和排除互斥，排除只做标记，不删除照片。</small><b>工作状态</b><small>只表示待复核、待修、已修、待导出等流程阶段，不代替星级或选片结论。</small></span>}</span>;
+}
+
 function TagEditor({ detail, saveTags }: {
   detail: CaptureDetail;
   saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
@@ -42,7 +67,7 @@ function TagEditor({ detail, saveTags }: {
   };
   const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
     JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
-  return <details className="detail-section detail-tags"><summary><span><strong>标签与流程</strong><small>{manualTags.length ? manualTags.map((tag) => tag.name).join(" · ") : "尚未设置人工标签"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
+  return <details className="detail-section detail-tags"><summary><span><strong>标签与流程</strong><small>{manualTags.length ? manualTags.map((tag) => tag.name).join(" · ") : "尚未设置人工标签"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
     {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
       const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
       const selectedCustom = selected.filter((tag) => tag.dimension === dimension && !catalog.some((item) => item.name === tag.name));
@@ -270,6 +295,7 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, sa
             </div>
             <button className={`detail-pick ${detail.user_pick ? "selected" : ""}`} onClick={() => review({ user_pick: !detail.user_pick, user_reject: false })}>入选</button>
             <button className={`detail-reject ${detail.user_reject ? "rejected" : ""}`} onClick={() => review({ user_pick: false, user_reject: !detail.user_reject })}>排除</button>
+            <ReviewHelp />
             <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
           </div>
           <TagEditor detail={detail} saveTags={saveTags} />

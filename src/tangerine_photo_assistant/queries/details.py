@@ -174,6 +174,7 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
         item["tag_catalog"] = [dict(tag) for tag in connection.execute(
             """SELECT id, dimension, name, built_in
                FROM tag_definitions
+               WHERE active=1
                ORDER BY CASE dimension
                             WHEN 'subject' THEN 1 WHEN 'status' THEN 2
                             WHEN 'problem' THEN 3 ELSE 4 END,

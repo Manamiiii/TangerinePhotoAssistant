@@ -11,6 +11,7 @@ from .inventory import utc_now
 TAG_DIMENSIONS = frozenset({"subject", "status", "problem", "location"})
 MAX_TAGS_PER_CAPTURE = 64
 MAX_TAG_NAME_LENGTH = 40
+RETIRED_WORKFLOW_STATUSES = frozenset({"精选", "待淘汰"})
 
 
 class CaptureTagError(ValueError):
@@ -75,6 +76,34 @@ def replace_manual_capture_tags(
         "SELECT 1 FROM captures WHERE id=?", (capture_id,)
     ).fetchone() is None:
         raise CaptureTagNotFoundError("拍摄单元不存在")
+    inactive = {
+        (str(row["dimension"]), str(row["name"]).casefold())
+        for row in connection.execute(
+            "SELECT dimension, name FROM tag_definitions WHERE active=0"
+        )
+    }
+    existing_inactive = {
+        (str(row["dimension"]), str(row["name"]).casefold())
+        for row in connection.execute(
+            """SELECT td.dimension, td.name FROM capture_tags ct
+               JOIN tag_definitions td ON td.id=ct.tag_id
+               WHERE ct.capture_id=? AND ct.source='manual' AND td.active=0""",
+            (capture_id,),
+        )
+    }
+    if any(
+        (
+            dimension == "status"
+            and name in RETIRED_WORKFLOW_STATUSES
+            and (dimension, name.casefold()) not in existing_inactive
+        )
+        or (
+            (dimension, name.casefold()) in inactive
+            and (dimension, name.casefold()) not in existing_inactive
+        )
+        for dimension, name in normalized
+    ):
+        raise CaptureTagError("精选和待淘汰请使用选片入选/排除，不再作为工作状态新增")
 
     now = utc_now()
     with transaction(connection):
@@ -148,6 +177,15 @@ def update_manual_tag_for_captures(
                 (row["id"], *ids),
             )
         return int(cursor.rowcount)
+    existing_definition = connection.execute(
+        "SELECT active FROM tag_definitions WHERE dimension=? AND name=?",
+        (normalized_dimension, normalized_name),
+    ).fetchone()
+    if (
+        normalized_dimension == "status"
+        and normalized_name in RETIRED_WORKFLOW_STATUSES
+    ) or (existing_definition is not None and not existing_definition["active"]):
+        raise CaptureTagError("精选和待淘汰请使用选片入选/排除，不再作为工作状态新增")
     with transaction(connection):
         connection.execute(
             """INSERT OR IGNORE INTO tag_definitions(

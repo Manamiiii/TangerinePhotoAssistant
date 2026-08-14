@@ -20,6 +20,12 @@ class CaptureTagTests(unittest.TestCase):
                 """INSERT INTO captures(capture_key, stem, parent_relative, pairing_status)
                    VALUES ('A', 'A', '', 'paired')"""
             )
+            connection.executemany(
+                """INSERT INTO tag_definitions(
+                       dimension, name, built_in, active, sort_order, created_at
+                   ) VALUES ('status', ?, 1, 0, 500, CURRENT_TIMESTAMP)""",
+                (("精选",), ("待淘汰",)),
+            )
             capture_id = connection.execute("SELECT id FROM captures").fetchone()[0]
             analysis_tag = connection.execute(
                 "SELECT id FROM tag_definitions WHERE dimension='problem' AND name='失焦'"
@@ -64,6 +70,10 @@ class CaptureTagTests(unittest.TestCase):
             connection.close()
             detail = query_capture_detail(database_path, capture_id)
             self.assertIn("tag_catalog", detail)
+            self.assertNotIn(
+                "精选",
+                {tag["name"] for tag in detail["tag_catalog"] if tag["dimension"] == "status"},
+            )
             self.assertEqual(
                 {(tag["dimension"], tag["name"]) for tag in detail["tags"]},
                 {
@@ -83,6 +93,14 @@ class CaptureTagTests(unittest.TestCase):
                 "SELECT id FROM captures WHERE capture_key='B'"
             ).fetchone()[0]
             connection.commit()
+            with self.assertRaisesRegex(CaptureTagError, "选片入选/排除"):
+                update_manual_tag_for_captures(
+                    connection, [second_id], dimension="status", name="精选", action="add",
+                )
+            with self.assertRaisesRegex(CaptureTagError, "选片入选/排除"):
+                replace_manual_capture_tags(
+                    connection, second_id, [{"dimension": "status", "name": "待淘汰"}],
+                )
             self.assertEqual(
                 update_manual_tag_for_captures(
                     connection, [capture_id, second_id],
@@ -97,9 +115,25 @@ class CaptureTagTests(unittest.TestCase):
                    ORDER BY ct.capture_id"""
             ).fetchall()
             self.assertEqual([tuple(row) for row in statuses], [(capture_id, "已修"), (second_id, "已修")])
+            legacy_tag_id = connection.execute(
+                "SELECT id FROM tag_definitions WHERE dimension='status' AND name='精选'"
+            ).fetchone()[0]
+            connection.execute(
+                "DELETE FROM capture_tags WHERE capture_id=? AND source='manual'", (second_id,)
+            )
+            connection.execute(
+                """INSERT INTO capture_tags(capture_id, tag_id, source, created_at)
+                   VALUES (?, ?, 'manual', CURRENT_TIMESTAMP)""",
+                (second_id, legacy_tag_id),
+            )
+            connection.commit()
+            preserved = replace_manual_capture_tags(
+                connection, second_id, [{"dimension": "status", "name": "精选"}],
+            )
+            self.assertIn("精选", {tag["name"] for tag in preserved})
             self.assertEqual(
                 update_manual_tag_for_captures(
-                    connection, [second_id],
+                    connection, [capture_id],
                     dimension="status", name="已修", action="remove",
                 ),
                 1,

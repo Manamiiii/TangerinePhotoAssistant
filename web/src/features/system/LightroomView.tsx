@@ -39,8 +39,8 @@ export function LightroomView({ status, manifest, capabilities, albums, generate
     <section className="metric-grid">
       <article><span>相册已确认</span><strong>{status ? `${status.confirmed_events}/${status.event_count}` : "—"}</strong><small>未确认名称仍会标注为建议</small></article>
       <article><span>已有评级</span><strong>{status ? numberFormat.format(status.rated_captures) : "—"}</strong><small>人工星级与技术评级分别保存</small></article>
-      <article><span>连拍入选</span><strong>{status ? numberFormat.format(status.user_picks) : "—"}</strong><small>准备清单中的pick字段</small></article>
-      <article><span>连拍排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>只标记，不删除</small></article>
+      <article><span>选片入选</span><strong>{status ? numberFormat.format(status.user_picks) : "—"}</strong><small>人工结论，对应准备清单 pick 字段</small></article>
+      <article><span>选片排除</span><strong>{status ? numberFormat.format(status.user_rejects) : "—"}</strong><small>人工结论，只标记，不删除</small></article>
     </section>
     <section className="lightroom-grid">
       <section className="panel safety-panel"><div className="panel-heading"><div><span className="section-kicker">安全状态</span><h3>本轮只生成报告</h3></div></div><div className="safety-list"><div><b>✓</b><span><strong>照片目录保持只读</strong><small>{capabilities?.library_root ?? "当前配置的照片目录"} 不会被移动、改名或改写</small></span></div><div><b>✓</b><span><strong>原片元数据写入关闭</strong><small>不会在照片旁创建或修改 XMP 等附属文件</small></span></div><div><b>✓</b><span><strong>输出到独立工作目录</strong><small>{capabilities?.workspace_root ?? "应用工作目录"}</small></span></div><div><b>✓</b><span><strong>JPG 与 RAW 同步</strong><small>同一拍摄单元共享评级和标签</small></span></div></div></section>

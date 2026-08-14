@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -412,6 +412,7 @@ def connect(path: Path) -> sqlite3.Connection:
             dimension TEXT NOT NULL CHECK(dimension IN ('subject', 'status', 'problem', 'location')),
             name TEXT NOT NULL COLLATE NOCASE,
             built_in INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
             sort_order INTEGER NOT NULL DEFAULT 100,
             created_at TEXT NOT NULL,
             UNIQUE(dimension, name)
@@ -651,6 +652,9 @@ def connect(path: Path) -> sqlite3.Connection:
         connection, "files", "metadata_profile_version", "INTEGER NOT NULL DEFAULT 0"
     )
     _ensure_column(connection, "files", "metadata_refreshed_at", "TEXT")
+    _ensure_column(
+        connection, "tag_definitions", "active", "INTEGER NOT NULL DEFAULT 1"
+    )
     connection.execute(
         """CREATE INDEX IF NOT EXISTS idx_similarity_group_overrides_batch
            ON similarity_group_overrides(manual_batch_key)"""
@@ -668,7 +672,7 @@ def connect(path: Path) -> sqlite3.Connection:
             "人像", "风景", "宠物", "星空", "建筑", "美食", "旅行", "纪实", "其他",
         ),
         "status": (
-            "未评估", "待复核", "精选", "待修", "已修", "已导出", "待淘汰",
+            "未评估", "待复核", "待修", "修图中", "已修", "待导出", "已导出", "已归档",
         ),
         "problem": (
             "闭眼", "失焦", "抖动", "表情", "姿势", "遮挡", "曝光", "构图",
@@ -684,6 +688,10 @@ def connect(path: Path) -> sqlite3.Connection:
             for dimension, names in tag_presets.items()
             for index, name in enumerate(names, start=1)
         ),
+    )
+    connection.execute(
+        """UPDATE tag_definitions SET active=0
+           WHERE dimension='status' AND built_in=1 AND name IN ('精选', '待淘汰')"""
     )
     row = connection.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
     if row is None:
