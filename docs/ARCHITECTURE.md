@@ -90,6 +90,8 @@ schema 20 的 `similarity_group_revisions` 保存一次分组写入的前后 JSO
 应用设置页及系统能力/配置契约也已迁入该 feature；通用编辑弹层位于
 `components/ModalShell.tsx`。设备管理及摄影统计主视图与数据契约已分别移入
 `features/equipment/` 和 `features/statistics/`，入口文件只负责加载数据和页面编排。
+质量分析主视图及技术检测/本地模型结果契约位于 `features/analysis/`；任务归属、结果分页
+和分析页内部浏览状态由该 feature 自己维护，不再依赖入口文件内部实现。
 页面业务状态和接口契约均未改变，后续模块继续使用同样的“小范围迁移 + 现有回归测试”
 方式推进。
 
