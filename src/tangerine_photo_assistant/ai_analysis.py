@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from .database import transaction
+from .editing import normalize_edit_parameters
 from .inventory import utc_now
 from .tags import replace_analysis_subject_tags
 
@@ -913,6 +914,15 @@ def validate_model_result(result: dict[str, Any]) -> dict[str, Any]:
             if not 0.0 <= tag_confidence <= 1.0:
                 raise ValueError("Model JSON subject_tags confidence is invalid")
             seen_subjects.add(tag["name"])
+    if "edit_parameters" in result:
+        if not isinstance(result["edit_parameters"], dict):
+            raise ValueError("Model JSON edit_parameters must be an object")
+        try:
+            result["edit_parameters"] = normalize_edit_parameters(
+                result["edit_parameters"]
+            )
+        except ValueError as exc:
+            raise ValueError(f"Model JSON edit_parameters is invalid: {exc}") from exc
     confidence = float(result["overall_confidence"])
     if not 0.0 <= confidence <= 1.0:
         raise ValueError("Model JSON overall_confidence must be between 0 and 1")
@@ -1043,6 +1053,7 @@ def build_prompt(row: sqlite3.Row, issues: list[dict[str, Any]], equipment: str)
 - 三脚架不能冻结移动人物或宠物；镜头防抖只能减轻相机抖动。不要仅凭参数断言画面模糊，必须有可见证据。
 - 不要编造闭眼、失焦、噪点、背景问题或拍摄意图。没有可信问题时使用空数组。
 - subject_type 只给一个兼容主类；subject_tags 按画面可见内容给 1–3 个互不重复的题材，不能写人物身份或姓名。
+- edit_parameters 给出可选的全局预览起点；无明确依据时各项填 0，不要把预览滑块宣称为 Lightroom 精确数值。
 - 输出务必精炼：总结不超过 60 个汉字；每个建议数组最多 2 项；每个字符串字段不超过 50 个汉字。
 - 置信度必须校准在 0.50 到 0.95 之间，不能输出 1.0；证据有限时降低置信度。
 - photoshop_needed 为 false 时，photoshop_reason 必须写“不需要”，不能留空。
@@ -1061,6 +1072,7 @@ EXIF：{json.dumps(exif, ensure_ascii=False)}
   "visible_problems": [{{"name":"问题", "severity":"low/medium/high", "evidence":"画面证据", "confidence":0.0}}],
   "shooting_advice": [{{"suggestion":"下次如何拍", "reason":"为什么", "exif_basis":"相关参数或无"}}],
   "lightroom_suggestions": [{{"adjustment":"调整项", "direction":"方向与大致幅度", "reason":"原因"}}],
+  "edit_parameters": {{"exposure_ev":0.0,"contrast":0,"highlights":0,"shadows":0,"temperature":0,"tint":0,"saturation":0,"sharpness":0}},
   "photoshop_needed": false,
   "photoshop_reason": "不需要或具体用途",
   "overall_confidence": 0.0

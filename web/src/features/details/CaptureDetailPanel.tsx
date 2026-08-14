@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { formatDate, formatExposure, formatFileSize } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
-import type { CaptureDetail, CaptureTagDimension } from "./types";
+import type { CaptureDetail, CaptureTagDimension, EditParameters, EditRecipe } from "./types";
+import { EditRecipePanel } from "./EditRecipePanel";
 
 const tagDimensionLabels: Record<CaptureTagDimension, string> = {
   subject: "题材",
@@ -206,12 +207,14 @@ function formatMetadataText(value: unknown): string {
   return translated && translated !== value ? `${translated}（${value}）` : value;
 }
 
-export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, saveTags, navigate, hasPrev, hasNext }: {
+export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, saveTags, saveEditRecipe, restoreEditRecipe, navigate, hasPrev, hasNext }: {
   detail: CaptureDetail;
   close: () => void;
   saveAiReview: (analysisId: number, verdict: "accurate" | "partial" | "inaccurate" | null, note: string | null) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
+  saveEditRecipe: (captureId: number, parameters: EditParameters, status: EditRecipe["status"], sourceAnalysisId: number | null, note: string | null) => Promise<void>;
+  restoreEditRecipe: (captureId: number, revisionId: number) => Promise<void>;
   navigate: (direction: 1 | -1) => void;
   hasPrev: boolean;
   hasNext: boolean;
@@ -375,6 +378,7 @@ export function CaptureDetailPanel({ detail, close, saveAiReview, saveReview, sa
             {shootingReview.editing.length ? <div className="editing-suggestion-list">{shootingReview.editing.map((advice, index) => <article key={`${advice.adjustment}-${index}`}><span>{advice.tool}</span><strong>{advice.adjustment}{advice.direction ? ` · ${advice.direction}` : ""}</strong>{advice.reason && <p>{advice.reason}</p>}</article>)}</div> : <p>{shootingReview.has_model_result ? "当前结果没有建议基础调整。" : "运行本地模型复盘后才会生成后期建议。"}</p>}
             {shootingReview.photoshop && <div className="photoshop-decision"><span>Photoshop</span><strong>{shootingReview.photoshop.needed ? "建议列入精修待办" : "当前不需要"}</strong><p>{shootingReview.photoshop.reason ?? "模型未说明原因"}</p></div>}
             <small className="advice-safety-note">建议仅供预览和人工判断，不会自动写入 XMP 或修改照片。</small>
+            <details className="edit-recipe-details"><summary>参数化方案与预览</summary><EditRecipePanel detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>
           </div>
           <div className="detail-section"><h3>文件</h3><p>{detail.files.map((file) => `${file.file_name} · ${formatFileSize(file.size_bytes)}`).join(" / ")}</p></div>
         </div>

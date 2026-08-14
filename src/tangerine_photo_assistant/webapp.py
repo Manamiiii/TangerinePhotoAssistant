@@ -67,6 +67,7 @@ from .equipment import (
     save_equipment_ownership,
     set_equipment_visibility,
 )
+from .editing import EditRecipeError, restore_edit_recipe, save_edit_recipe
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityCaptureNotFoundError,
@@ -211,6 +212,13 @@ class LightroomManifestRequest(BaseModel):
 class AiReviewUpdateRequest(BaseModel):
     user_verdict: Literal["accurate", "partial", "inaccurate"] | None = None
     user_note: str | None = Field(default=None, max_length=2000)
+
+
+class EditRecipeRequest(BaseModel):
+    parameters: dict[str, float]
+    status: Literal["draft", "accepted", "dismissed"] = "draft"
+    note: str | None = Field(default=None, max_length=1000)
+    source_analysis_id: int | None = Field(default=None, ge=1)
 
 
 class ArchiveBaselineRequest(BaseModel):
@@ -1821,6 +1829,36 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except CaptureTagError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.put("/api/captures/{capture_id}/edit-recipe")
+    def update_edit_recipe(
+        capture_id: int, request: EditRecipeRequest
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return save_edit_recipe(
+                connection,
+                capture_id,
+                request.parameters,
+                status=request.status,
+                note=request.note,
+                source_analysis_id=request.source_analysis_id,
+            )
+        except EditRecipeError as exc:
+            status_code = 404 if str(exc) == "拍摄单元不存在" else 422
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.post("/api/captures/{capture_id}/edit-recipe/{revision_id}/restore")
+    def restore_edit_recipe_revision(capture_id: int, revision_id: int) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return restore_edit_recipe(connection, capture_id, revision_id)
+        except EditRecipeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:
             connection.close()
 

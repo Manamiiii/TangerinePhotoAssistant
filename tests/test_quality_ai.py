@@ -418,6 +418,14 @@ class QualityAndAiTests(unittest.TestCase):
                 ],
             }
             self.assertEqual(len(validate_model_result(multi_subject)["subject_tags"]), 2)
+            parameterized = validate_model_result({
+                **complete,
+                "edit_parameters": {"exposure_ev": 0.3, "highlights": -25},
+            })
+            self.assertEqual(parameterized["edit_parameters"]["exposure_ev"], 0.3)
+            self.assertEqual(parameterized["edit_parameters"]["contrast"], 0)
+            with self.assertRaises(ValueError):
+                validate_model_result({**complete, "edit_parameters": {"contrast": 120}})
             with self.assertRaises(ValueError):
                 validate_model_result({
                     **complete,

@@ -13,7 +13,7 @@ import { AnalysisView } from "./features/analysis/AnalysisView";
 import type { AiPreflight, AnalysisOverview, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload } from "./features/analysis/types";
 import type { GroupCapture, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter } from "./features/similarity/types";
 import { BurstsView } from "./features/similarity/BurstsView";
-import type { CaptureDetail } from "./features/details/types";
+import type { CaptureDetail, EditParameters, EditRecipe } from "./features/details/types";
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
 import type { CaptureTagDimension } from "./features/details/types";
 import type { Overview } from "./features/overview/types";
@@ -554,6 +554,40 @@ function App() {
     }
   };
 
+  const saveEditRecipe = async (
+    captureId: number,
+    parameters: EditParameters,
+    status: EditRecipe["status"],
+    sourceAnalysisId: number | null,
+    note: string | null,
+  ) => {
+    setError(null);
+    try {
+      const saved = await getJson<EditRecipe>(`/api/captures/${captureId}/edit-recipe`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parameters, status, source_analysis_id: sourceAnalysisId, note }),
+      });
+      setCaptureDetail((current) => current && current.id === captureId ? { ...current, edit_recipes: [saved, ...current.edit_recipes].slice(0, 10) } : current);
+      pushToast("success", status === "accepted" ? "已标记采用参数方案" : status === "dismissed" ? "已记录暂不采用" : "已保存参数草稿");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
+  const restoreEditRecipe = async (captureId: number, revisionId: number) => {
+    setError(null);
+    try {
+      const restored = await getJson<EditRecipe>(`/api/captures/${captureId}/edit-recipe/${revisionId}/restore`, { method: "POST" });
+      setCaptureDetail((current) => current && current.id === captureId ? { ...current, edit_recipes: [restored, ...current.edit_recipes].slice(0, 10) } : current);
+      pushToast("success", `已从版本 ${revisionId} 恢复为新草稿`);
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const batchTagCaptures = async (
     captureIds: number[],
     dimension: CaptureTagDimension,
@@ -968,7 +1002,7 @@ function App() {
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
-        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>

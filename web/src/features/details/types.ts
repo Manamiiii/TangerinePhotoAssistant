@@ -128,7 +128,30 @@ export type CaptureDetail = {
     user_note: string | null;
     reviewed_at: string | null;
   }>;
+  edit_recipes: EditRecipe[];
   thumbnail_url: string;
+};
+
+export type EditParameters = {
+  exposure_ev: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  temperature: number;
+  tint: number;
+  saturation: number;
+  sharpness: number;
+};
+
+export type EditRecipe = {
+  id: number;
+  capture_id: number;
+  source_analysis_id: number | null;
+  parameter_space: "tangerine-preview-v1";
+  parameters: EditParameters;
+  status: "draft" | "accepted" | "dismissed";
+  note: string | null;
+  created_at: string;
 };
 
 export type CaptureTagDimension = "subject" | "status" | "problem" | "location";

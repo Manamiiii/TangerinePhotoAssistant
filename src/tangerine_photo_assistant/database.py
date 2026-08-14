@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -493,6 +493,21 @@ def connect(path: Path) -> sqlite3.Connection:
             ON ai_analyses(capture_id, finished_at);
         CREATE INDEX IF NOT EXISTS idx_ai_analyses_capture_model_prompt_status
             ON ai_analyses(capture_id, model_id, prompt_version, status);
+
+        CREATE TABLE IF NOT EXISTS edit_recipe_revisions (
+            id INTEGER PRIMARY KEY,
+            capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+            source_analysis_id INTEGER REFERENCES ai_analyses(id) ON DELETE SET NULL,
+            parameter_space TEXT NOT NULL DEFAULT 'tangerine-preview-v1',
+            parameters_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft'
+                CHECK(status IN ('draft', 'accepted', 'dismissed')),
+            note TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_edit_recipe_revisions_capture
+            ON edit_recipe_revisions(capture_id, id DESC);
 
         CREATE TABLE IF NOT EXISTS archive_baselines (
             id INTEGER PRIMARY KEY,

@@ -6,6 +6,7 @@ from typing import Any
 
 from ..database import connect_readonly
 from ..critique import build_structured_critique
+from ..editing import edit_recipe_history
 
 METERING_MODE_LABELS = {
     0: "未知", 1: "平均", 2: "中央重点", 3: "点测光",
@@ -190,6 +191,7 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
                             WHEN 'problem' THEN 3 ELSE 4 END,
                         sort_order, name"""
         )]
+        item["edit_recipes"] = edit_recipe_history(connection, capture_id)
         item["thumbnail_url"] = f"/api/thumbnails/{capture_id}?size=1280"
     finally:
         connection.close()

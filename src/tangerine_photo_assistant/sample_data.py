@@ -18,7 +18,7 @@ from .quality import rebuild_group_recommendations
 from .tags import replace_manual_capture_tags, sync_analysis_subject_tags
 from .visual import rebuild_similarity_groups
 
-GENERATOR_VERSION = 6
+GENERATOR_VERSION = 7
 
 DEMO_RAW_COMPANIONS = ("BEACH_0003", "NIGHT_0002")
 DEMO_AI_MODEL_ID = "DEMO-ONLY-no-inference"
@@ -127,6 +127,11 @@ DEMO_AI_RESULTS: dict[str, dict[str, Any]] = {
                 "reason": "恢复天空层次",
             }
         ],
+        "edit_parameters": {
+            "exposure_ev": -0.2, "contrast": 4, "highlights": -18,
+            "shadows": 5, "temperature": 3, "tint": 0,
+            "saturation": 2, "sharpness": 8,
+        },
         "photoshop_needed": False,
         "photoshop_reason": "不需要",
         "overall_confidence": 0.78,
@@ -156,6 +161,11 @@ DEMO_AI_RESULTS: dict[str, dict[str, Any]] = {
                 "reason": "让主体从背景中更明确地分离",
             }
         ],
+        "edit_parameters": {
+            "exposure_ev": 0.1, "contrast": 8, "highlights": -4,
+            "shadows": 8, "temperature": 0, "tint": 0,
+            "saturation": -2, "sharpness": 10,
+        },
         "photoshop_needed": False,
         "photoshop_reason": "不需要",
         "overall_confidence": 0.72,
@@ -172,6 +182,11 @@ DEMO_AI_RESULTS: dict[str, dict[str, Any]] = {
                 "reason": "轻微展开暗部但保持夜景氛围",
             }
         ],
+        "edit_parameters": {
+            "exposure_ev": 0, "contrast": 5, "highlights": -5,
+            "shadows": 8, "temperature": -3, "tint": 1,
+            "saturation": 0, "sharpness": 6,
+        },
         "photoshop_needed": False,
         "photoshop_reason": "不需要",
         "overall_confidence": 0.84,
