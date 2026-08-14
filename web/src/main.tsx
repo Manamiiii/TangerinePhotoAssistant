@@ -930,7 +930,7 @@ function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, close
         <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%</small></div>
       </section>
       <TaskCard task={taskBelongsTo(task, "visual") ? task : null} cancel={cancelTask} />
-      {!selectedGroup && !albumId && <CollectionScopeTabs scope={browseMode} setScope={setBrowseMode} allLabel="全部相似组" />}
+      {!selectedGroup && !albumId && <div className="workspace-view-nav burst-scope-nav"><CollectionScopeTabs scope={browseMode} setScope={setBrowseMode} allLabel="全部相似组" /></div>}
       {selectedGroup ? (
         <section className="panel comparison-panel">
           <div className="panel-heading comparison-heading">
@@ -1604,7 +1604,7 @@ function LibraryView({ overview, library, albums, filters, query, updateQuery, r
   }, [task?.status, task?.result?.album_id]);
   return (
     <>
-      {!activeAlbumId && <div className="library-navigation"><CollectionScopeTabs scope={section === "photos" ? "all" : "albums"} setScope={(scope) => setSection(scope === "all" ? "photos" : "albums")} /><div className="library-maintenance"><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button primary" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新图库"}</button></div></div>}
+      {!activeAlbumId && <div className="library-navigation workspace-view-nav"><CollectionScopeTabs scope={section === "photos" ? "all" : "albums"} setScope={(scope) => setSection(scope === "all" ? "photos" : "albums")} /><div className="library-maintenance"><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button primary" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新图库"}</button></div></div>}
       <TaskCard task={taskBelongsTo(task, "library") ? task : null} cancel={cancelTask} />
       {activeAlbumId ? <>
         <AlbumWorkspaceHeader name={activeAlbum?.name ?? "相册照片"} category={activeAlbum?.category ?? "相册"} summary={`${numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片`} current="library" back={leaveAlbum} openPhotos={() => undefined} openBursts={() => openAlbumBursts(activeAlbumId)} openQuality={() => openAlbumQuality(activeAlbumId)} />
@@ -1784,9 +1784,12 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
         <article><span>组内推荐</span><strong>{summary ? numberFormat.format(summary.recommended_picks) : "—"}</strong><small>每个相似组一个候选</small></article>
         <article><span>模型分析完成</span><strong>{ai ? numberFormat.format(ai.analyzed_capture_count) : "—"}</strong><small>{ai?.latest_run ? `${ai.latest_run.model_id} · ${ai.latest_run.status}${ai.latest_run.average_seconds_per_photo ? ` · ${ai.latest_run.average_seconds_per_photo.toFixed(1)}秒/张` : ""}` : "尚未启动"}</small></article>
       </section>
-      <nav className="analysis-tabs" aria-label="质量分析内容">
-        {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
-      </nav>
+      <div className="workspace-view-nav analysis-content-nav">
+        <nav className="analysis-tabs" aria-label="质量分析内容">
+          {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
+        </nav>
+        {analysisTab === "quality" && !qualityAlbumId && <CollectionScopeTabs scope={qualityBrowseMode} setScope={setQualityBrowseMode} allLabel="全部照片" />}
+      </div>
       {analysisTab === "history" && ai?.result_audit?.latest && <details className="panel advanced-diagnostics"><summary>模型质量与运行诊断</summary><section className="metric-grid ai-audit-metrics">
         <article><span>当前提示词结果</span><strong>{numberFormat.format(ai.result_audit.latest.result_count)}</strong><small>{ai.result_audit.latest.prompt_version}</small></article>
         <article><span>发现具体问题</span><strong>{numberFormat.format(ai.result_audit.latest.with_visible_problems)}</strong><small>有画面证据才展开建议</small></article>
@@ -1850,7 +1853,6 @@ function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySear
           )}
         </section>
       )}
-      {analysisTab === "quality" && !qualityAlbumId && <CollectionScopeTabs scope={qualityBrowseMode} setScope={setQualityBrowseMode} allLabel="全部照片" />}
       {analysisTab === "quality" && qualityAlbumId && <AlbumWorkspaceHeader name={selectedQualityAlbum?.name ?? "相册质量"} category={selectedQualityAlbum?.category ?? "相册"} summary={`${numberFormat.format(selectedQualityAlbum?.analyzed_count ?? quality?.count ?? 0)} 张已分析 · ${numberFormat.format(selectedQualityAlbum?.problem_count ?? 0)} 张有问题`} current="analysis" back={() => { setQualityBrowseMode("albums"); setQualityAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(qualityAlbumId))} openBursts={() => openAlbumBursts(Number(qualityAlbumId))} openQuality={() => undefined} />}
       {analysisTab === "quality" && !qualityAlbumId && qualityBrowseMode === "albums" && <section className="panel album-selection-panel quality-album-panel">
         <div className="panel-heading"><div><span className="section-kicker">按相册复核</span><h3>选择相册</h3><p>问题数量和模型完成量来自当前已有分析，不会在这里触发重新分析。</p></div><span className="batch-count">{quality?.albums.length ?? 0} 个相册已有质量数据</span></div>
