@@ -56,6 +56,8 @@ class AiSafetyTests(unittest.TestCase):
         self.assertTrue(status["available"])
         self.assertEqual(status["memory_used_mb"], 15000)
         self.assertEqual(status["utilization_percent"], 72)
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+        self.assertEqual(run.call_args.kwargs["errors"], "replace")
 
     def test_preflight_detects_complete_and_incomplete_models(self) -> None:
         with TemporaryDirectory() as directory:

@@ -43,8 +43,13 @@ The isolated catalog also seeds fictional rich EXIF examples for shutter, exposu
 focus, stabilization, drive mode, precise time, and Fujifilm recipe sections. Two
 captures have simulated `.RAF` companions so the JPG+RAW interface can be verified;
 their payload remains the privacy-cleaned JPEG derivative and must not be used to
-test RAW decoding or image quality. Three results labeled `DEMO-ONLY-no-inference`
-exercise model-result, evidence, advice, and review layouts without loading a model.
+test RAW decoding or image quality. Six fictional results labeled
+`DEMO-ONLY-no-inference` exercise model-result, evidence, advice, and review
+layouts without loading a model. Five additional results labeled
+`DEMO-V5-SANITIZED-RUN11` preserve the output structure of a successful Windows
+v5 benchmark run. Their source identifiers and paths were removed, and they are
+attached to unrelated fictional captures only for UI and schema testing; do not
+interpret them as judgments about the displayed mock images.
 Fictional owned/unowned camera, lens, and accessory states are written only below
 `runtime/mac-test/workspace` on first preparation; later starts preserve equipment
 changes made in the UI. Rich details remain visible without ExifTool; installing

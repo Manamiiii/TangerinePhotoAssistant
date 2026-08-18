@@ -13,6 +13,7 @@ from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.quality import analyze_quality
 from tangerine_photo_assistant.sample_data import (
     DEMO_AI_MODEL_ID,
+    DEMO_V5_MODEL_ID,
     generate_demo_library,
     seed_demo_catalog,
     seed_demo_equipment,
@@ -76,7 +77,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(seeded["manual_splits"], 1)
             self.assertEqual(seeded["similarity_groups"], 3)
             self.assertEqual(seeded["metadata_profiles"], 28)
-            self.assertEqual(seeded["ai_results"], 6)
+            self.assertEqual(seeded["ai_results"], 11)
             self.assertEqual(seeded["album_equipment"], 1)
             connection = connect(settings.database_path)
             self.assertEqual(
@@ -137,7 +138,7 @@ class DemoLibraryTests(unittest.TestCase):
                        JOIN tag_definitions td ON td.id=ct.tag_id
                        WHERE ct.source='analysis' AND td.dimension='subject'"""
                 ).fetchone()[0],
-                6,
+                7,
             )
             self.assertEqual(
                 connection.execute(
@@ -163,6 +164,24 @@ class DemoLibraryTests(unittest.TestCase):
                 (DEMO_AI_MODEL_ID,),
             ).fetchone()[0])
             self.assertTrue(ai_result["quality_summary"].startswith("模拟结果："))
+            self.assertEqual(
+                connection.execute(
+                    """SELECT COUNT(*) FROM ai_analyses
+                       WHERE model_id=? AND prompt_version='photo-critique-v5'
+                         AND status='complete'""",
+                    (DEMO_V5_MODEL_ID,),
+                ).fetchone()[0],
+                5,
+            )
+            v5_result = json.loads(connection.execute(
+                """SELECT result_json FROM ai_analyses aa
+                   JOIN captures c ON c.id=aa.capture_id
+                   WHERE aa.model_id=? AND c.stem='BEACH_0004'""",
+                (DEMO_V5_MODEL_ID,),
+            ).fetchone()[0])
+            self.assertEqual(v5_result["quality_summary"], "乡村小径黄昏，高光区域略过曝。")
+            self.assertEqual(len(v5_result["edit_parameters"]), 11)
+            self.assertEqual(v5_result["subject_tags"][0]["name"], "纪实")
 
             inventory_path = seed_demo_equipment(settings.workspace)
             inventory_path.write_text(

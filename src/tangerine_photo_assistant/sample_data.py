@@ -18,10 +18,11 @@ from .quality import rebuild_group_recommendations
 from .tags import replace_manual_capture_tags, sync_analysis_subject_tags
 from .visual import rebuild_similarity_groups
 
-GENERATOR_VERSION = 7
+GENERATOR_VERSION = 8
 
 DEMO_RAW_COMPANIONS = ("BEACH_0003", "NIGHT_0002")
 DEMO_AI_MODEL_ID = "DEMO-ONLY-no-inference"
+DEMO_V5_MODEL_ID = "DEMO-V5-SANITIZED-RUN11"
 
 # Rich but fictional values for exercising every useful detail-page section on
 # the isolated Mac demo. These values are written only to the demo catalog;
@@ -233,6 +234,89 @@ DEMO_AI_RESULTS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Sanitized copies of five successful v5 results produced by the Windows local
+# model on 2026-08-18. They deliberately contain no source names, paths, capture
+# ids, or timestamps. Results are attached to existing fictional captures only
+# to exercise the Mac UI; their visual conclusions do not describe the fixture
+# images to which they are attached.
+_V5_ZERO_EDITS = {
+    "exposure_ev": 0.0, "contrast": 0.0, "highlights": 0.0,
+    "shadows": 0.0, "temperature": 0.0, "tint": 0.0,
+    "saturation": 0.0, "sharpness": 0.0, "noise_reduction": 0.0,
+    "crop_percent": 0.0, "straighten_deg": 0.0,
+}
+
+DEMO_V5_RESULTS: dict[str, dict[str, Any]] = {
+    "NIGHT_0001": {
+        "subject_type": "其他",
+        "subject_tags": [
+            {"name": "建筑", "confidence": 0.95},
+            {"name": "纪实", "confidence": 0.95},
+        ],
+        "quality_summary": "长曝光夜景，车流光轨清晰，主体细节保留良好。",
+        "visible_problems": [], "shooting_advice": [],
+        "lightroom_suggestions": [], "edit_parameters": dict(_V5_ZERO_EDITS),
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.95,
+    },
+    "BEACH_0004": {
+        "subject_type": "风景",
+        "subject_tags": [
+            {"name": "纪实", "confidence": 0.85},
+            {"name": "建筑", "confidence": 0.75},
+        ],
+        "quality_summary": "乡村小径黄昏，高光区域略过曝。",
+        "visible_problems": [{
+            "name": "亮部过曝", "severity": "high",
+            "evidence": "天空与电线杆顶部区域接近纯白", "confidence": 0.9,
+        }],
+        "shooting_advice": [{
+            "suggestion": "使用更低曝光补偿或减光镜",
+            "reason": "高光区域细节丢失",
+            "exif_basis": "exposure_compensation=-0.33",
+        }],
+        "lightroom_suggestions": [{
+            "adjustment": "高光", "direction": "压暗",
+            "reason": "天空与电线杆顶部过曝",
+        }],
+        "edit_parameters": dict(_V5_ZERO_EDITS),
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.88,
+    },
+    "DETAIL_0001": {
+        "subject_type": "宠物",
+        "subject_tags": [{"name": "宠物", "confidence": 0.95}],
+        "quality_summary": "橘猫趴地，表情生动，画面清晰。",
+        "visible_problems": [], "shooting_advice": [],
+        "lightroom_suggestions": [], "edit_parameters": dict(_V5_ZERO_EDITS),
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.95,
+    },
+    "PARK_0004": {
+        "subject_type": "人像",
+        "subject_tags": [{"name": "纪实", "confidence": 0.92}],
+        "quality_summary": "人物面部清晰，背景有生活气息，快门较慢但主体稳定。",
+        "visible_problems": [],
+        "shooting_advice": [{
+            "suggestion": "若需更清晰动作，可提高快门速度",
+            "reason": "当前快门1/1秒，等效焦距88mm，手持易晃动",
+            "exif_basis": "exposure_seconds:0.909, focal_length_35mm:88.0",
+        }],
+        "lightroom_suggestions": [], "edit_parameters": dict(_V5_ZERO_EDITS),
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.88,
+    },
+    "NIGHT_0002": {
+        "subject_type": "人像",
+        "subject_tags": [{"name": "旅行", "confidence": 0.95}],
+        "quality_summary": "侧脸人像，背景为海面，画面清晰，高光轻微过曝。",
+        "visible_problems": [], "shooting_advice": [],
+        "lightroom_suggestions": [], "edit_parameters": dict(_V5_ZERO_EDITS),
+        "photoshop_needed": False, "photoshop_reason": "不需要",
+        "overall_confidence": 0.95,
+    },
+}
+
 SCENES: tuple[dict[str, Any], ...] = (
     {
         "relative": "旅行/2026/2026-07-12_海边散步",
@@ -424,18 +508,42 @@ def generate_demo_library(source_root: Path, target_root: Path) -> dict[str, Any
 
 
 def _seed_demo_ai_results(connection: sqlite3.Connection) -> int:
-    connection.execute("DELETE FROM ai_runs WHERE model_id=?", (DEMO_AI_MODEL_ID,))
+    connection.execute(
+        "DELETE FROM ai_runs WHERE model_id IN (?, ?)",
+        (DEMO_AI_MODEL_ID, DEMO_V5_MODEL_ID),
+    )
+    inserted = _seed_demo_ai_run(
+        connection, model_id=DEMO_AI_MODEL_ID,
+        prompt_version="photo-critique-v4", results=DEMO_AI_RESULTS,
+        started_at="2026-08-06T10:00:00+00:00",
+    )
+    inserted += _seed_demo_ai_run(
+        connection, model_id=DEMO_V5_MODEL_ID,
+        prompt_version="photo-critique-v5", results=DEMO_V5_RESULTS,
+        started_at="2026-08-18T03:09:12+00:00",
+    )
+    return inserted
+
+
+def _seed_demo_ai_run(
+    connection: sqlite3.Connection, *, model_id: str, prompt_version: str,
+    results: dict[str, dict[str, Any]], started_at: str,
+) -> int:
+    start = datetime.fromisoformat(started_at)
+    finished = start + timedelta(seconds=max(1, len(results)) * 8)
     cursor = connection.execute(
         """INSERT INTO ai_runs(
                mode, model_id, prompt_version, status, requested_count,
                completed_count, failed_count, started_at, finished_at
-           ) VALUES ('benchmark', ?, 'photo-critique-v4', 'complete', ?, ?, 0,
-                     '2026-08-06T10:00:00+00:00', '2026-08-06T10:00:24+00:00')""",
-        (DEMO_AI_MODEL_ID, len(DEMO_AI_RESULTS), len(DEMO_AI_RESULTS)),
+           ) VALUES ('benchmark', ?, ?, 'complete', ?, ?, 0, ?, ?)""",
+        (
+            model_id, prompt_version, len(results), len(results),
+            start.isoformat(), finished.isoformat(),
+        ),
     )
     run_id = int(cursor.lastrowid)
     inserted = 0
-    for offset, (stem, result) in enumerate(DEMO_AI_RESULTS.items()):
+    for offset, (stem, result) in enumerate(results.items()):
         capture = connection.execute(
             "SELECT id FROM captures WHERE stem=? ORDER BY id LIMIT 1", (stem,)
         ).fetchone()
@@ -445,15 +553,16 @@ def _seed_demo_ai_results(connection: sqlite3.Connection) -> int:
             """INSERT INTO ai_analyses(
                    run_id, capture_id, model_id, prompt_version, status, priority,
                    selection_reason, result_json, attempt_count, started_at, finished_at
-               ) VALUES (?, ?, ?, 'photo-critique-v4', 'complete', 100,
+               ) VALUES (?, ?, ?, ?, 'complete', 100,
                          'isolated_demo_fixture', ?, 1, ?, ?)""",
             (
                 run_id,
                 capture["id"],
-                DEMO_AI_MODEL_ID,
+                model_id,
+                prompt_version,
                 json.dumps(result, ensure_ascii=False),
-                f"2026-08-06T10:00:{offset * 8:02d}+00:00",
-                f"2026-08-06T10:00:{(offset + 1) * 8:02d}+00:00",
+                (start + timedelta(seconds=offset * 8)).isoformat(),
+                (start + timedelta(seconds=(offset + 1) * 8)).isoformat(),
             ),
         )
         inserted += 1

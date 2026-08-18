@@ -36,6 +36,8 @@ def _competing_comfyui_processes() -> list[str]:
             ["powershell.exe", "-NoProfile", "-Command", script],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -53,7 +55,8 @@ def gpu_status() -> dict[str, Any]:
     ]
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, timeout=5, check=False,
+            command, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=5, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode != 0 or not result.stdout.strip():
