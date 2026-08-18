@@ -71,7 +71,7 @@ function TagEditor({ detail, saveTags }: {
   };
   const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
     JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
-  return <details className="detail-section detail-tags"><summary><span><strong>标签与流程</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "尚未设置标签"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
+  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
     {!!analysisTags.length && <div className="analysis-tag-readonly"><strong>模型分析</strong><div>{analysisTags.map((tag) => <span key={`${tag.dimension}:${tag.name}`}>{tag.name}{tag.confidence == null ? "" : ` · ${Math.round(tag.confidence * 100)}%`}</span>)}</div><small>只读来源；人工标签独立保存，不会被同步覆盖。</small></div>}
     {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
       const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
@@ -308,7 +308,6 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
           </div>
           {detail.user_pick ? <div className="detail-selection-reasons"><span>为什么保留这张</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
-          <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
           <div className="exif-strip">
             <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门 <ParameterHelp kind="shutter" /></span></div>
             <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈 <ParameterHelp kind="aperture" /></span></div>
@@ -319,6 +318,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断入选、排除与保留理由" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
             <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "展开完整详情"}</button>
           </div>
+          <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
           {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未技术评分" : `技术分 ${Math.round(detail.technical_score)}`}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
           <div className={`detail-section detail-exif-section ${sectionClass(["browse"])}`}>
             <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
