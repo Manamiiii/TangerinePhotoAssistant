@@ -298,10 +298,6 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
           <span className="section-kicker">{detail.category ?? "未分类"}</span>
           <h2>{detail.stem}</h2>
           <p>{detail.event_name ?? detail.parent_relative}</p>
-          <div className="detail-context-bar">
-            <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断入选、排除与保留理由" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
-            <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "展开完整详情"}</button>
-          </div>
           <div className="detail-review-bar">
             <div className="detail-stars" role="radiogroup" aria-label="人工星级">
               {[1, 2, 3, 4, 5].map((star) => <button key={star} className={detail.user_rating != null && detail.user_rating >= star ? "filled" : ""} aria-label={`${star} 星`} onClick={() => review({ user_rating: detail.user_rating === star ? null : star })}>★</button>)}
@@ -318,6 +314,10 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈 <ParameterHelp kind="aperture" /></span></div>
             <div><strong>{exif?.iso ? `ISO ${exif.iso}` : "—"}</strong><span>感光度 <ParameterHelp kind="iso" /></span></div>
             <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""} <ParameterHelp kind="focal" /></span></div>
+          </div>
+          <div className="detail-context-bar">
+            <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断入选、排除与保留理由" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
+            <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "展开完整详情"}</button>
           </div>
           {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未技术评分" : `技术分 ${Math.round(detail.technical_score)}`}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
           <div className={`detail-section detail-exif-section ${sectionClass(["browse"])}`}>

@@ -47,6 +47,10 @@ class DemoLibraryTests(unittest.TestCase):
                 self.assertEqual(exif.get(272), "X-S20")
                 self.assertIsNone(exif.get(34853))
                 self.assertTrue(str(exif.get(36867)).startswith("2026:"))
+            for name in ("MODEL_V5_TRAFFIC.JPG", "MODEL_V5_CAT.JPG"):
+                with Image.open(source / name) as image:
+                    self.assertLessEqual(max(image.size), 1080)
+                    self.assertFalse(image.getexif())
 
     def test_seeds_visible_selection_and_manual_grouping_examples(self) -> None:
         source = Path(__file__).resolve().parents[1] / "sample-library" / "photos" / "mac-test-event"

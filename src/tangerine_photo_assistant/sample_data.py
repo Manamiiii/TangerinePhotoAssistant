@@ -18,7 +18,7 @@ from .quality import rebuild_group_recommendations
 from .tags import replace_manual_capture_tags, sync_analysis_subject_tags
 from .visual import rebuild_similarity_groups
 
-GENERATOR_VERSION = 8
+GENERATOR_VERSION = 9
 
 DEMO_RAW_COMPANIONS = ("BEACH_0003", "NIGHT_0002")
 DEMO_AI_MODEL_ID = "DEMO-ONLY-no-inference"
@@ -350,7 +350,8 @@ SCENES: tuple[dict[str, Any], ...] = (
         "relative": "旅行/2026/2026-08-01_城市夜景",
         "prefix": "NIGHT",
         "count": 6,
-        "sources": ("MAC_TEST_0002.JPG", "MAC_TEST_0004.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
+        "sources": ("MODEL_V5_TRAFFIC.JPG", "MAC_TEST_0004.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
+        "source_brightness": {"MODEL_V5_TRAFFIC.JPG": 1.0},
         "start": datetime(2026, 8, 1, 20, 15, 0),
         "gap_seconds": 4,
         "lens": "XF16-80mmF4 R OIS WR",
@@ -364,7 +365,8 @@ SCENES: tuple[dict[str, Any], ...] = (
         "relative": "日常/2026/2026-08-05_静物练习",
         "prefix": "DETAIL",
         "count": 4,
-        "sources": ("MAC_TEST_0004.JPG", "MAC_TEST_0002.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
+        "sources": ("MODEL_V5_CAT.JPG", "MAC_TEST_0002.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
+        "source_brightness": {"MODEL_V5_CAT.JPG": 1.0},
         "start": datetime(2026, 8, 5, 15, 40, 0),
         "gap_seconds": 8,
         "lens": "XC15-45mmF3.5-5.6 OIS PZ",
@@ -415,7 +417,11 @@ def _render_variant(source: Path, target: Path, scene: dict[str, Any], index: in
     bottom = min(height, height - inset + vertical)
     if right - left > width // 2 and bottom - top > height // 2:
         image = image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
-    brightness = float(scene["brightness"]) * (0.96 + (index % 5) * 0.02)
+    brightness_override = scene.get("source_brightness", {}).get(source.name)
+    brightness = (
+        float(brightness_override) if brightness_override is not None
+        else float(scene["brightness"]) * (0.96 + (index % 5) * 0.02)
+    )
     image = ImageEnhance.Brightness(image).enhance(brightness)
     image = ImageEnhance.Contrast(image).enhance(0.98 + (index % 3) * 0.025)
     captured_at = scene["start"] + timedelta(seconds=scene["gap_seconds"] * index)
