@@ -13,7 +13,7 @@ import { AnalysisView } from "./features/analysis/AnalysisView";
 import type { AiPreflight, AnalysisOverview, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload } from "./features/analysis/types";
 import type { GroupCapture, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter } from "./features/similarity/types";
 import { BurstsView } from "./features/similarity/BurstsView";
-import type { CaptureDetail, EditParameters, EditRecipe } from "./features/details/types";
+import type { CaptureDetail, DetailMode, EditParameters, EditRecipe } from "./features/details/types";
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
 import type { CaptureTagDimension } from "./features/details/types";
 import type { Overview } from "./features/overview/types";
@@ -69,6 +69,7 @@ function App() {
   const [groupAlbumId, setGroupAlbumId] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
+  const [detailMode, setDetailMode] = useState<DetailMode>("browse");
   const [detailContext, setDetailContext] = useState<number[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [equipment, setEquipment] = useState<EquipmentCatalog | null>(null);
@@ -690,10 +691,11 @@ function App() {
     setView("library");
   };
 
-  const openCapture = async (captureId: number, context?: number[]) => {
+  const openCapture = async (captureId: number, context?: number[], mode?: DetailMode) => {
     setError(null);
     try {
       setCaptureDetail(await getJson<CaptureDetail>(`/api/captures/${captureId}`));
+      setDetailMode(mode ?? (view === "bursts" ? "select" : view === "analysis" ? "analyze" : "browse"));
       if (context) setDetailContext(context);
       else setDetailContext((current) => current.includes(captureId) ? current : []);
     } catch (reason) {
@@ -1017,7 +1019,7 @@ function App() {
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} />}
-        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>

@@ -1,3 +1,5 @@
+export type DetailMode = "browse" | "select" | "analyze";
+
 export type CaptureDetail = {
   id: number;
   stem: string;
