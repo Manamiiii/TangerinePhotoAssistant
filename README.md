@@ -10,6 +10,8 @@
 
 项目已完成活动图库迁移与保护基线，并支持增量扫描、SQLite 建库、批量 EXIF、JPG/RAW 配对、相册建议、元数据连拍候选、JPEG 视觉指纹、相似连拍拆分、后台完整性核对、技术质量分析和本地 Qwen3-VL 任务。任何照片删除、原文件元数据写入和 XMP 写入仍默认关闭。
 
+跨品牌元数据基线使用合成字段快照覆盖 Canon、Nikon、Sony、Panasonic、OM System、Apple、Google 和 Samsung，并测试无 EXIF 与损坏文件。它验证标准 EXIF 的安全归一化，不冒充真实厂商 MakerNote 或 RAW 解码样片；真实 RAW/HEIC 兼容仍需要来源与授权明确的小样本补充。
+
 ## 当前资料库
 
 - 历史原片：`D:\Photo`，25,085 个文件，只用于长期保存和完整性检查

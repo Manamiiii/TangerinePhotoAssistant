@@ -1,4 +1,6 @@
+import json
 import unittest
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -8,9 +10,12 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import refresh_metadata_profile, scan_library
 from tangerine_photo_assistant.metadata import (
     METADATA_PROFILE_VERSION,
+    ExifToolMetadataReader,
     MetadataResult,
     PillowMetadataReader,
+    _gps_coordinate,
     database_fields,
+    normalize_datetime,
 )
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.reporting import build_report
@@ -67,6 +72,27 @@ def settings_for(root: Path) -> Settings:
 
 
 class InventoryTests(unittest.TestCase):
+    def test_vendor_snapshots_normalize_without_real_photos(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "metadata" / "vendor_snapshots.json"
+        snapshots = json.loads(fixture.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(snapshots), 8)
+        for snapshot in snapshots:
+            with self.subTest(vendor=snapshot["vendor"]):
+                fields = database_fields(snapshot["values"])
+                for key, expected in snapshot["expected"].items():
+                    self.assertEqual(fields[key], expected)
+
+    def test_datetime_and_gps_normalization_reject_invalid_values(self) -> None:
+        self.assertIsNone(normalize_datetime("2026:13:40 25:61:61"))
+        self.assertEqual(
+            normalize_datetime("2026:08:09 10:11:12", "+99:00"),
+            "2026-08-09T10:11:12",
+        )
+        self.assertAlmostEqual(_gps_coordinate((31, 13, 30), "N") or 0, 31.225)
+        self.assertAlmostEqual(_gps_coordinate((121, 28, 0), "W") or 0, -121.4666667)
+        self.assertIsNone(_gps_coordinate((95, 0, 0), "N"))
+
     def test_pillow_metadata_reader_reads_common_jpeg_exif(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "sample.jpg"
@@ -85,6 +111,43 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(fields["camera_model"], "X-S20")
             self.assertEqual(fields["width"], 48)
             self.assertEqual(fields["height"], 32)
+
+    def test_pillow_reader_safely_handles_no_exif_and_corrupt_images(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            plain = root / "plain.jpg"
+            corrupt = root / "corrupt.jpg"
+            Image.new("RGB", (24, 16), "blue").save(plain)
+            corrupt.write_bytes(b"not-a-jpeg")
+
+            plain_result, corrupt_result = PillowMetadataReader().read([plain, corrupt])
+
+            self.assertEqual(plain_result.values, {"ImageWidth": 24, "ImageHeight": 16})
+            self.assertIsNone(plain_result.error)
+            self.assertIsNone(corrupt_result.values)
+            self.assertTrue(corrupt_result.error)
+
+    def test_exiftool_partial_batch_keeps_file_errors_explicit(self) -> None:
+        class FakeProcess:
+            def __init__(self, output: str) -> None:
+                self.stdin = StringIO()
+                self.stdout = StringIO(output)
+
+            def poll(self):
+                return None
+
+        with TemporaryDirectory() as directory:
+            failed = Path(directory) / "broken.raw"
+            missing = Path(directory) / "missing.raw"
+            output = json.dumps({"SourceFile": str(failed), "Error": "Invalid file"})
+            process = FakeProcess(f"[{output}]\n{{ready1}}\n")
+            reader = ExifToolMetadataReader(Path("exiftool"))
+
+            results = list(reader._read_batch(process, [failed, missing], 1))  # type: ignore[arg-type]
+
+            self.assertEqual(results[0].error, "Invalid file")
+            self.assertIsNone(results[0].values)
+            self.assertEqual(results[1].error, "No ExifTool result")
 
     def test_scan_pairs_jpeg_and_raw_and_enriches_metadata(self) -> None:
         with TemporaryDirectory() as directory:

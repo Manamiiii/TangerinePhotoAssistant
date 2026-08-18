@@ -14,6 +14,13 @@
 - 后端：FastAPI + SQLite
 - 当前代码 schema：26
 
+2026-08-18 元数据 profile 3 增加跨品牌标准 EXIF 基线：相机厂商别名、空白与 NUL 字符会在
+数据库展示字段中归一化，原始安全字段仍保留在 `exif_json`；拍摄时间支持子秒和时区，镜头可
+回退到标准 LensSpecification/LensInfo，Pillow 降级读取补充方向、测光、闪光、白平衡、标准
+镜头字段和 GPS。合成快照覆盖 Canon、Nikon、Sony、Panasonic、OM System、Apple、Google、
+Samsung，以及无 EXIF 和损坏 JPEG；未纳入来源不明照片或大型 RAW。profile 升级只会增加
+可手动启动的详情补全数量，不会自动读取正式照片或运行模型。
+
 2026-08-18 公共发布基础补充：未发生过扫描的空数据库会在首页引导进入三步首次设置向导，
 分别确认只读照片目录、持久工作目录与可重建缓存；ExifTool 和本地模型均可跳过。Windows、
 macOS 以及安装 Zenity/KDialog 的 Linux 桌面支持原生目录选择，手工绝对路径仍保留。选择目录

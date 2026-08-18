@@ -8,7 +8,7 @@ from PIL import Image
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.equipment import build_equipment_catalog
 from tangerine_photo_assistant.inventory import enrich_metadata, scan_library
-from tangerine_photo_assistant.metadata import PillowMetadataReader
+from tangerine_photo_assistant.metadata import METADATA_PROFILE_VERSION, PillowMetadataReader
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.quality import analyze_quality
 from tangerine_photo_assistant.sample_data import (
@@ -108,7 +108,7 @@ class DemoLibraryTests(unittest.TestCase):
                 """SELECT exif_json, metadata_profile_version
                    FROM files WHERE file_name='BEACH_0001.JPG'"""
             ).fetchone()
-            self.assertEqual(metadata["metadata_profile_version"], 2)
+            self.assertEqual(metadata["metadata_profile_version"], METADATA_PROFILE_VERSION)
             exif = json.loads(metadata["exif_json"])
             self.assertEqual(exif["ShutterType"], "Mechanical")
             self.assertEqual(exif["AFMode"], "Zone")

@@ -41,14 +41,19 @@ integrations as capabilities, not assumptions.
 - The local service exposes a native directory picker on Windows and macOS, with
   Zenity/KDialog support on Linux when installed. Picking a folder never creates,
   scans, copies, or moves files; manual absolute-path entry remains available.
+- Synthetic metadata snapshots cover Canon, Nikon, Sony, Panasonic, OM System,
+  Apple, Google, and Samsung standard EXIF shapes, plus no-EXIF and corrupt JPEG
+  behavior. They exercise normalized vendor names, timezone/subsecond capture
+  times, standard lens specifications, GPS conversion, and explicit error fallback
+  without redistributing third-party photos.
 
 ## Release work still required
 
 1. Choose the public license and contribution policy. The project metadata stays
    proprietary until the owner makes that explicit legal decision.
 2. Add signed Windows and macOS packages around the existing local web service.
-3. Add vendor-neutral metadata fixtures for Canon, Nikon, Sony, Panasonic, OM
-   System, Apple, and common no-EXIF/corrupt-file cases.
+3. Add licensed real-world RAW/HEIC metadata samples for the synthetic vendor
+   baseline where closed-beta users expose compatibility gaps.
 4. Add migration fixtures for every supported schema and an explicit restore UI
    for user reviews, picks, notes, and manual grouping decisions.
 5. Add a redacted diagnostic export and verify that logs exclude GPS, serial
