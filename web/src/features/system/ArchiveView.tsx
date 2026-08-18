@@ -20,6 +20,7 @@ export type ArchiveStatus = {
   } | null;
 };
 type PortableStatus = { download_url?: string; size_bytes?: number; valid?: boolean; matched_captures?: number; missing_captures?: number; confirmation?: string; restored?: boolean };
+type DiagnosticStatus = { download_url: string; size_bytes: number; integrity: string };
 
 export function ArchiveView({ archive, activeLibrary, createBaseline, createActiveBaseline, checkIntegrity }: {
   archive: ArchiveStatus | null;
@@ -34,6 +35,9 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   const [portableError, setPortableError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [portableBusy, setPortableBusy] = useState(false);
+  const [diagnosticStatus, setDiagnosticStatus] = useState<DiagnosticStatus | null>(null);
+  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
+  const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const runCheck = async (scope: "archive" | "active") => {
     setChecking(scope);
     try { await checkIntegrity(scope); } finally { setChecking(null); }
@@ -74,6 +78,14 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
     catch (reason) { setPortableError((reason as Error).message); }
     finally { setPortableBusy(false); }
   };
+  const exportDiagnostics = async () => {
+    setDiagnosticBusy(true);
+    try {
+      setDiagnosticError(null);
+      setDiagnosticStatus(await getJson<DiagnosticStatus>("/api/diagnostics/export", { method: "POST" }));
+    } catch (reason) { setDiagnosticError((reason as Error).message); }
+    finally { setDiagnosticBusy(false); }
+  };
   return <>
     <section className="compact-summary"><div><span className="section-kicker">系统维护</span><h2>图库完整性</h2><p>需要时手动核对磁盘文件；日常浏览只读取上次结果，不扫描照片目录。</p></div></section>
     <section className="statistics-grid">
@@ -85,6 +97,10 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
       {portableStatus?.download_url && <div className="portable-result"><span>备份已生成 · {formatBytes(portableStatus.size_bytes ?? 0)}</span><a href={portableStatus.download_url} download>下载 JSON</a></div>}
       <div className="portable-restore"><label className="toolbar-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => void selectBackup(event.target.files?.[0])} /></label>{portableStatus?.valid && <><span>匹配 {portableStatus.matched_captures} 个拍摄单元 · 缺少 {portableStatus.missing_captures} 个</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={portableStatus.confirmation} /><button className="toolbar-button" disabled={portableBusy || confirmation !== portableStatus.confirmation} onClick={() => void restoreHumanData()}>恢复人工数据</button></>}{portableStatus?.restored && <strong>恢复完成，操作前数据库备份已保留。</strong>}</div>
       {portableError && <div className="portable-error" role="alert">{portableError}</div>}
+    </section>
+    <section className="panel portable-data-panel"><div className="panel-heading"><div><span className="section-kicker">故障排查</span><h3>脱敏诊断包</h3></div><button className="toolbar-button" disabled={diagnosticBusy} onClick={() => void exportDiagnostics()}>{diagnosticBusy ? "正在生成" : "生成诊断包"}</button></div><p>仅按白名单汇总版本、运行能力、数据库完整性、数据量和任务状态；不读取或打包照片，不包含文件名、路径、GPS、设备序列号、备注、标签文字、模型提示词或结果正文。</p>
+      {diagnosticStatus && <div className="portable-result"><span>诊断包已生成 · {formatBytes(diagnosticStatus.size_bytes)} · 数据库 {diagnosticStatus.integrity === "ok" ? "正常" : diagnosticStatus.integrity}</span><a href={diagnosticStatus.download_url} download>下载 ZIP</a></div>}
+      {diagnosticError && <div className="portable-error" role="alert">{diagnosticError}</div>}
     </section>
   </>;
 }

@@ -59,6 +59,7 @@ from .albums import (
     update_album as update_album_record,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
+from .diagnostics import write_diagnostic_bundle
 from .equipment import (
     build_equipment_catalog,
     delete_equipment_item,
@@ -2313,6 +2314,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             connection.close()
         return {**result, "download_url": f"/api/reports/{result['filename']}"}
 
+    @app.post("/api/diagnostics/export", status_code=201)
+    def export_diagnostics() -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            result = write_diagnostic_bundle(connection, settings, manager.snapshot())
+        finally:
+            connection.close()
+        return {**result, "download_url": f"/api/reports/{result['filename']}"}
+
     @app.post("/api/human-data/restore/preflight")
     def human_data_restore_preflight(backup: dict[str, Any]) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
@@ -2348,7 +2358,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             re.fullmatch(r"phone-share-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
         )
         is_human_data = bool(re.fullmatch(r"tangerine-human-data-\d{8}-\d{6}-\d{6}\.json", filename))
-        if filename not in allowed and not is_migration_report and not is_phone_share and not is_human_data:
+        is_diagnostics = bool(re.fullmatch(r"tangerine-diagnostics-\d{8}-\d{6}-\d{6}\.zip", filename))
+        if filename not in allowed and not is_migration_report and not is_phone_share and not is_human_data and not is_diagnostics:
             raise HTTPException(status_code=404, detail="报告不存在")
         path = (settings.reports_path / filename).resolve()
         if not path.is_file() or not path.is_relative_to(settings.reports_path.resolve()):

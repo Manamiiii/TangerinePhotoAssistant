@@ -53,6 +53,10 @@ integrations as capabilities, not assumptions.
   current grouping overrides, edit histories, AI review verdicts, or equipment.
 - Generated migration fixtures exercise every supported schema version 1–25 into
   schema 26, verifying both preserved fixture data and the pre-upgrade backup.
+- A redacted diagnostic ZIP is constructed from an explicit whitelist. It reports
+  versions, capability and safety switches, database integrity and aggregate counts,
+  while excluding images, names and paths, GPS, serials, user-authored text, model
+  payloads, and raw error messages. Its archive contains one inspectable JSON file.
 
 ## Release work still required
 
@@ -63,8 +67,8 @@ integrations as capabilities, not assumptions.
    baseline where closed-beta users expose compatibility gaps.
 4. Extend portable restore to confirmed album names/membership after collision
    semantics are defined; current export covers capture-level human decisions.
-5. Add a redacted diagnostic export and verify that logs exclude GPS, serial
-   numbers, absolute user paths, and image content.
+5. Audit runtime logs separately to ensure future errors never emit GPS, serial
+   numbers, absolute user paths, or image content.
 6. Run a small closed beta before enabling update telemetry or any networked
    feature. Telemetry must remain opt-in and inspectable.
 
