@@ -46,6 +46,13 @@ integrations as capabilities, not assumptions.
   behavior. They exercise normalized vendor names, timezone/subsecond capture
   times, standard lens specifications, GPS conversion, and explicit error fallback
   without redistributing third-party photos.
+- A portable human-data JSON export excludes photos, absolute paths, GPS,
+  thumbnails, and model result bodies. Restore preflights stable capture keys,
+  requires explicit confirmation, blocks around background tasks, and creates an
+  integrity-checked SQLite backup before changing ratings, picks, notes, tags,
+  current grouping overrides, edit histories, AI review verdicts, or equipment.
+- Generated migration fixtures exercise every supported schema version 1–25 into
+  schema 26, verifying both preserved fixture data and the pre-upgrade backup.
 
 ## Release work still required
 
@@ -54,8 +61,8 @@ integrations as capabilities, not assumptions.
 2. Add signed Windows and macOS packages around the existing local web service.
 3. Add licensed real-world RAW/HEIC metadata samples for the synthetic vendor
    baseline where closed-beta users expose compatibility gaps.
-4. Add migration fixtures for every supported schema and an explicit restore UI
-   for user reviews, picks, notes, and manual grouping decisions.
+4. Extend portable restore to confirmed album names/membership after collision
+   semantics are defined; current export covers capture-level human decisions.
 5. Add a redacted diagnostic export and verify that logs exclude GPS, serial
    numbers, absolute user paths, and image content.
 6. Run a small closed beta before enabling update telemetry or any networked

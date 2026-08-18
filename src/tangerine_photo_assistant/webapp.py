@@ -96,6 +96,7 @@ from .migration import (
     switch_active_library,
 )
 from .pairing import rebuild_captures
+from .portable_data import preflight_restore, restore_portable_backup, write_portable_backup
 from .quality import (
     analyze_quality,
     backfill_histograms,
@@ -339,6 +340,11 @@ class AppSettingsRequest(BaseModel):
 class DirectoryPickerRequest(BaseModel):
     initial_path: str = Field(default="", max_length=1000)
     title: str = Field(default="选择目录", min_length=1, max_length=80)
+
+
+class PortableRestoreRequest(BaseModel):
+    backup: dict[str, Any]
+    confirmation: str = Field(default="", max_length=40)
 
 
 class TaskCancelled(RuntimeError):
@@ -2298,6 +2304,37 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             connection.close()
         return {**result, "download_url": f"/api/reports/{result['filename']}"}
 
+    @app.post("/api/human-data/export", status_code=201)
+    def export_human_data() -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            result = write_portable_backup(connection, settings.workspace / "Equipment" / "inventory.json", settings.reports_path)
+        finally:
+            connection.close()
+        return {**result, "download_url": f"/api/reports/{result['filename']}"}
+
+    @app.post("/api/human-data/restore/preflight")
+    def human_data_restore_preflight(backup: dict[str, Any]) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return preflight_restore(connection, backup)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.post("/api/human-data/restore")
+    def human_data_restore(request: PortableRestoreRequest) -> dict[str, Any]:
+        if manager.snapshot()["status"] in {"running", "paused"}:
+            raise HTTPException(status_code=409, detail="后台任务运行或暂停期间不能恢复人工数据")
+        connection = connect(settings.database_path)
+        try:
+            return restore_portable_backup(connection, request.backup, settings.workspace / "Equipment" / "inventory.json", settings.workspace / "Backups" / "AnalysisDatabase", request.confirmation)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
     @app.get("/api/reports/{filename}")
     def download_report(filename: str) -> FileResponse:
         allowed = {
@@ -2310,7 +2347,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         is_phone_share = bool(
             re.fullmatch(r"phone-share-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
         )
-        if filename not in allowed and not is_migration_report and not is_phone_share:
+        is_human_data = bool(re.fullmatch(r"tangerine-human-data-\d{8}-\d{6}-\d{6}\.json", filename))
+        if filename not in allowed and not is_migration_report and not is_phone_share and not is_human_data:
             raise HTTPException(status_code=404, detail="报告不存在")
         path = (settings.reports_path / filename).resolve()
         if not path.is_file() or not path.is_relative_to(settings.reports_path.resolve()):

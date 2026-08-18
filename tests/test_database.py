@@ -7,6 +7,30 @@ from tangerine_photo_assistant.database import SCHEMA_VERSION, connect
 
 
 class DatabaseUpgradeTests(unittest.TestCase):
+    def test_generated_schema_matrix_upgrades_every_supported_version(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for version in range(1, SCHEMA_VERSION):
+                with self.subTest(version=version):
+                    database = root / f"schema-{version}" / "catalog.sqlite3"
+                    database.parent.mkdir()
+                    legacy = sqlite3.connect(database)
+                    legacy.execute("CREATE TABLE schema_info(version INTEGER NOT NULL)")
+                    legacy.execute("INSERT INTO schema_info VALUES (?)", (version,))
+                    legacy.execute("CREATE TABLE preserved_fixture(value TEXT)")
+                    legacy.execute("INSERT INTO preserved_fixture VALUES ('kept')")
+                    legacy.commit(); legacy.close()
+                    upgraded = connect(database)
+                    self.assertEqual(upgraded.execute("SELECT version FROM schema_info").fetchone()[0], SCHEMA_VERSION)
+                    self.assertEqual(upgraded.execute("SELECT value FROM preserved_fixture").fetchone()[0], "kept")
+                    upgraded.close()
+                    backups = list((database.parent / "SchemaBackups").glob("*.sqlite3"))
+                    self.assertEqual(len(backups), 1)
+                    backup = sqlite3.connect(backups[0])
+                    self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                    self.assertEqual(backup.execute("SELECT version FROM schema_info").fetchone()[0], version)
+                    backup.close()
+
     def test_upgrade_creates_verified_backup_before_mutating_catalog(self) -> None:
         with TemporaryDirectory() as directory:
             database = Path(directory) / "catalog.sqlite3"
