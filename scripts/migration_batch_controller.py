@@ -63,7 +63,7 @@ def main() -> int:
                 )
                 log(f"resume submitted; task={task['id']}")
         except Exception as exc:
-            log(f"poll error: {exc}")
+            log(f"poll error: {type(exc).__name__}")
         time.sleep(20)
 
 

@@ -43,11 +43,11 @@ def main() -> int:
             paused = request_json(
                 f"{args.api_root}/api/ai/runs/current/pause", method="POST"
             )
-            log(f"safe pause requested; message={paused.get('message')}")
+            log(f"safe pause requested; status={paused.get('status', 'submitted')}")
         else:
             log("no running AI task required a pause")
     except Exception as exc:
-        log(f"deadline guard error: {exc}")
+        log(f"deadline guard error: {type(exc).__name__}")
         return 1
     return 0
 

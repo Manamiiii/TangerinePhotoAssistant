@@ -229,7 +229,7 @@ def run_worker(config_path: Path, run_id: int) -> int:
                     connection.execute("RELEASE analysis_subject_tags")
                     print(
                         f"WARNING: analysis tags were not synchronized for "
-                        f"capture {row['capture_id']}: {tag_error}",
+                        f"capture {row['capture_id']} ({type(tag_error).__name__})",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -288,7 +288,9 @@ def main() -> int:
     try:
         return run_worker(args.config.resolve(), args.run_id)
     except Exception as exc:
-        print(f"ERROR: {exc}", file=sys.stderr, flush=True)
+        # Worker stderr is persisted as a support log. Keep detailed errors in the
+        # local database, but never echo paths or model payloads into that log.
+        print(f"ERROR: {type(exc).__name__}", file=sys.stderr, flush=True)
         return 1
 
 

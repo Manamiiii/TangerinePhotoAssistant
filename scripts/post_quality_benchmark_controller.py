@@ -65,7 +65,7 @@ def main() -> int:
                 time.sleep(30)
                 continue
             if task["status"] in {"failed", "cancelled"}:
-                log(f"task ended unsafely: {task.get('error') or task.get('message')}")
+                log(f"task ended unsafely: status={task['status']} stage={task.get('stage')}")
                 return 2
             if benchmark_started:
                 if task["status"] == "complete":
@@ -87,11 +87,11 @@ def main() -> int:
                 log(f"quality error gate failed: {quality['errors']} errors")
                 return 2
             if not runtime["ready"]:
-                log(f"model runtime unavailable: {runtime['message']}")
+                log("model runtime unavailable")
                 return 2
             comfy = comfyui_processes()
             if comfy:
-                log("ComfyUI process gate blocked benchmark: " + " | ".join(comfy))
+                log(f"ComfyUI process gate blocked benchmark: processes={len(comfy)}")
                 return 2
             task = request_json(
                 f"{args.api_root}/api/ai/analyze",
@@ -101,7 +101,7 @@ def main() -> int:
             benchmark_started = True
             log(f"100-photo benchmark submitted; task={task['id']}")
         except Exception as exc:
-            log(f"controller error: {exc}")
+            log(f"controller error: {type(exc).__name__}")
         time.sleep(30)
 
     try:
@@ -110,7 +110,7 @@ def main() -> int:
             request_json(f"{args.api_root}/api/tasks/current/cancel", method="POST")
             log("deadline reached; running task cancellation requested")
     except Exception as exc:
-        log(f"deadline cancellation check failed: {exc}")
+        log(f"deadline cancellation check failed: {type(exc).__name__}")
     return 3
 
 

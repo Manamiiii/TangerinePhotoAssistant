@@ -57,6 +57,9 @@ integrations as capabilities, not assumptions.
   versions, capability and safety switches, database integrity and aggregate counts,
   while excluding images, names and paths, GPS, serials, user-authored text, model
   payloads, and raw error messages. Its archive contains one inspectable JSON file.
+- Persistent worker and long-running controller logs record exception categories and
+  aggregate states, not raw exception text, task error bodies, runtime path messages,
+  or external process command lines. A regression test guards those log boundaries.
 
 ## Release work still required
 
@@ -67,9 +70,7 @@ integrations as capabilities, not assumptions.
    baseline where closed-beta users expose compatibility gaps.
 4. Extend portable restore to confirmed album names/membership after collision
    semantics are defined; current export covers capture-level human decisions.
-5. Audit runtime logs separately to ensure future errors never emit GPS, serial
-   numbers, absolute user paths, or image content.
-6. Run a small closed beta before enabling update telemetry or any networked
+5. Run a small closed beta before enabling update telemetry or any networked
    feature. Telemetry must remain opt-in and inspectable.
 
 Packaging must call the existing configuration and capability boundaries rather
