@@ -336,6 +336,11 @@ class AppSettingsRequest(BaseModel):
     models: ModelSettingsRequest
 
 
+class DirectoryPickerRequest(BaseModel):
+    initial_path: str = Field(default="", max_length=1000)
+    title: str = Field(default="选择目录", min_length=1, max_length=80)
+
+
 class TaskCancelled(RuntimeError):
     pass
 
@@ -1365,6 +1370,72 @@ def _can_open_folder() -> bool:
     )
 
 
+def _directory_picker_command() -> tuple[list[str], str] | None:
+    if os.name == "nt":
+        executable = shutil.which("powershell") or shutil.which("pwsh")
+        if executable is None:
+            return None
+        script = (
+            "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$dialog=New-Object System.Windows.Forms.FolderBrowserDialog; "
+            "$dialog.Description=$env:TANGERINE_PICKER_TITLE; "
+            "$dialog.ShowNewFolderButton=$true; "
+            "if (Test-Path -LiteralPath $env:TANGERINE_PICKER_INITIAL -PathType Container) "
+            "{$dialog.SelectedPath=$env:TANGERINE_PICKER_INITIAL}; "
+            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+            "{[Console]::Write($dialog.SelectedPath)}"
+        )
+        return [executable, "-NoProfile", "-STA", "-Command", script], "windows"
+    if platform.system() == "Darwin" and shutil.which("osascript"):
+        script = (
+            "on run argv\n"
+            "return POSIX path of (choose folder with prompt (item 1 of argv))\n"
+            "end run"
+        )
+        return ["osascript", "-e", script], "macos"
+    if executable := shutil.which("zenity"):
+        return [executable, "--file-selection", "--directory"], "zenity"
+    if executable := shutil.which("kdialog"):
+        return [executable, "--getexistingdirectory"], "kdialog"
+    return None
+
+
+def _can_pick_directory() -> bool:
+    return _directory_picker_command() is not None
+
+
+def _pick_directory(initial_path: str, title: str) -> Path | None:
+    picker = _directory_picker_command()
+    if picker is None:
+        raise OSError("当前桌面环境没有可用的原生目录选择器")
+    command, kind = picker
+    initial = Path(initial_path).expanduser() if initial_path.strip() else None
+    if initial is not None and not initial.is_dir():
+        initial = None
+    environment = os.environ.copy()
+    environment["TANGERINE_PICKER_TITLE"] = title
+    environment["TANGERINE_PICKER_INITIAL"] = str(initial or "")
+    if kind == "macos":
+        command.append(title)
+    elif kind == "zenity":
+        command.extend(["--title", title])
+        if initial is not None:
+            command.extend(["--filename", f"{initial}{os.sep}"])
+    elif kind == "kdialog":
+        command.extend([str(initial or Path.cwd()), "--title", title])
+    completed = subprocess.run(
+        command, capture_output=True, text=True, env=environment, check=False
+    )
+    selected = completed.stdout.strip()
+    if completed.returncode != 0 or not selected:
+        return None
+    path = Path(selected).expanduser()
+    if not path.is_dir():
+        raise OSError(f"选择的目录不存在：{path}")
+    return path.resolve()
+
+
 def _open_folder(path: Path) -> None:
     if os.name == "nt":
         os.startfile(path)  # type: ignore[attr-defined]
@@ -1394,6 +1465,7 @@ def _runtime_capabilities(settings: Settings) -> dict[str, Any]:
         "ai": {"ready": ai_ready, "message": ai_message},
         "features": {
             "open_folder": _can_open_folder(),
+            "directory_picker": _can_pick_directory(),
             "raw_pairing": bool(settings.raw_extensions),
             "lightroom_manifest": True,
             "phone_share_export": True,
@@ -1551,6 +1623,17 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 status_code=500, detail=f"无法打开系统文件管理器：{exc}"
             ) from exc
         return {"opened": True, "path": str(path)}
+
+    @app.post("/api/system/directory-picker")
+    def pick_directory(request: DirectoryPickerRequest) -> dict[str, Any]:
+        try:
+            selected = _pick_directory(request.initial_path, request.title)
+        except OSError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return {
+            "cancelled": selected is None,
+            "path": str(selected) if selected is not None else None,
+        }
 
     @app.post("/api/system/folders/{folder_kind}/open")
     def open_configured_folder(folder_kind: str) -> dict[str, Any]:

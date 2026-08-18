@@ -7,7 +7,7 @@ import type { SimilarityGroupsResponse } from "../similarity/types";
 import type { LibraryCapturesResponse, LibraryFilters } from "../library/types";
 import type { Overview } from "../overview/types";
 
-export function HomeView({ overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, openPhotos, openAlbums, openAlbum, openBursts, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+export function HomeView({ overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
@@ -17,7 +17,9 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   similarity: SimilarityGroupsResponse | null;
   task: Task | null;
   capabilities: SystemCapabilities | null;
+  firstRun: boolean;
   openPhotos: () => void;
+  openSetup: () => void;
   openAlbums: () => void;
   openAlbum: (albumId: number) => void;
   openBursts: () => void;
@@ -46,8 +48,8 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
       <article><span>最近拍摄月</span><strong>{latestMonth ? numberFormat.format(latestMonth.count) : "—"}</strong><small>{latestMonth?.month ?? "暂无拍摄日期"}</small></article>
     </section>
     {overview?.capture_total === 0 && <section className="panel welcome-panel">
-      <div><span className="section-kicker">本地图库</span><h3>从你的照片目录开始</h3><p>照片保持只读，索引、评分和缩略图保存在独立工作目录。</p></div>
-      <div className="welcome-capabilities"><span><b>图库</b>{capabilities?.library_root ?? "正在读取配置"}</span><span><b>元数据</b>{capabilities?.metadata.message ?? "正在检测"}</span><button className="toolbar-button primary" onClick={openPhotos}>打开照片图库</button></div>
+      <div><span className="section-kicker">本地图库</span><h3>{firstRun ? "连接你的照片目录" : "图库中还没有照片"}</h3><p>{firstRun ? "先确认照片、工作数据与缓存目录；设置过程不会扫描或修改照片。" : "当前目录已经完成过扫描，可以在照片图库中手动更新索引。"}</p></div>
+      <div className="welcome-capabilities"><span><b>图库</b>{capabilities?.library_root ?? "正在读取配置"}</span><span><b>元数据</b>{capabilities?.metadata.message ?? "正在检测"}</span><button className="toolbar-button primary" onClick={firstRun ? openSetup : openPhotos}>{firstRun ? "开始设置" : "打开照片图库"}</button></div>
     </section>}
     {overview && overview.capture_total > 0 && <section className="home-workspace-grid">
       <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button><div><button onClick={openPhotos}>照片图库</button><button onClick={openBursts}>相似组选片</button><button onClick={openStatistics}>摄影统计</button></div></section>

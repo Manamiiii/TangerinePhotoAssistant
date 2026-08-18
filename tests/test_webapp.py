@@ -1,7 +1,9 @@
 import unittest
+from subprocess import CompletedProcess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import sleep
+from unittest.mock import patch
 
 from PIL import Image
 from pydantic import ValidationError
@@ -36,6 +38,7 @@ from tangerine_photo_assistant.webapp import (
     _query_quality,
     _query_similarity_group,
     _query_similarity_groups,
+    _pick_directory,
 )
 
 
@@ -60,6 +63,20 @@ def settings_for(root: Path) -> Settings:
 
 
 class WebAppQueryTests(unittest.TestCase):
+    def test_directory_picker_returns_existing_selection_without_writing(self) -> None:
+        with TemporaryDirectory() as directory:
+            selected = Path(directory).resolve()
+            with patch(
+                "tangerine_photo_assistant.webapp._directory_picker_command",
+                return_value=(["picker"], "zenity"),
+            ), patch(
+                "tangerine_photo_assistant.webapp.subprocess.run",
+                return_value=CompletedProcess(["picker"], 0, f"{selected}\n", ""),
+            ) as run:
+                self.assertEqual(_pick_directory(str(selected), "选择照片目录"), selected)
+            self.assertIn("--title", run.call_args.args[0])
+            self.assertTrue(selected.is_dir())
+
     def test_empty_catalog_keeps_shared_collection_shapes(self) -> None:
         with TemporaryDirectory() as directory:
             settings = settings_for(Path(directory))

@@ -34,21 +34,26 @@ integrations as capabilities, not assumptions.
 - The home page contains no prescribed selection funnel. Empty libraries receive
   a small first-use explanation; established libraries prioritize recent photos
   and exceptional items that actually require attention.
+- A three-step first-launch wizard separates the read-only photo root, durable
+  workspace, and rebuildable cache. Optional metadata and local-model paths can
+  be skipped, all settings remain editable later, and saving still uses the same
+  validated/atomic configuration path as the full settings center.
+- The local service exposes a native directory picker on Windows and macOS, with
+  Zenity/KDialog support on Linux when installed. Picking a folder never creates,
+  scans, copies, or moves files; manual absolute-path entry remains available.
 
 ## Release work still required
 
 1. Choose the public license and contribution policy. The project metadata stays
    proprietary until the owner makes that explicit legal decision.
 2. Add signed Windows and macOS packages around the existing local web service.
-3. Extend the settings center into a first-launch wizard and add native directory
-   pickers when a desktop shell is selected.
-4. Add vendor-neutral metadata fixtures for Canon, Nikon, Sony, Panasonic, OM
+3. Add vendor-neutral metadata fixtures for Canon, Nikon, Sony, Panasonic, OM
    System, Apple, and common no-EXIF/corrupt-file cases.
-5. Add migration fixtures for every supported schema and an explicit restore UI
+4. Add migration fixtures for every supported schema and an explicit restore UI
    for user reviews, picks, notes, and manual grouping decisions.
-6. Add a redacted diagnostic export and verify that logs exclude GPS, serial
+5. Add a redacted diagnostic export and verify that logs exclude GPS, serial
    numbers, absolute user paths, and image content.
-7. Run a small closed beta before enabling update telemetry or any networked
+6. Run a small closed beta before enabling update telemetry or any networked
    feature. Telemetry must remain opt-in and inspectable.
 
 Packaging must call the existing configuration and capability boundaries rather

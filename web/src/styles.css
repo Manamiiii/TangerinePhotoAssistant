@@ -1347,6 +1347,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .event-row.album-row { grid-template-columns: 58px minmax(0, 1fr); gap: 9px; }
   .album-row .event-measure, .album-row .album-date { display: none; }
   .album-row-actions { grid-column: 2; grid-row: 2; justify-content: start; }
+  .setup-wizard-heading, .setup-wizard-actions { align-items: stretch; flex-direction: column; }
+  .setup-steps, .setup-capability-grid, .setup-safety-list { grid-template-columns: 1fr; }
+  .settings-path-input { grid-template-columns: 1fr; }
 }
 
 /* Empty-library guidance stays lightweight and disappears after the first scan. */
@@ -1382,6 +1385,35 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .settings-folder-actions { margin: 14px 18px 0; padding-top: 13px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .settings-folder-actions > span { color: var(--muted); font-size: 8.5px; }
 .settings-folder-actions > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.settings-path-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.settings-path-input .toolbar-button { min-width: 82px; }
+.setup-wizard-shell { overflow: hidden; }
+.setup-wizard-heading { padding: 24px 26px 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); }
+.setup-wizard-heading h2 { margin: 5px 0 7px; font-size: 22px; }
+.setup-wizard-heading p, .setup-step-intro p { margin: 0; color: var(--muted); font-size: 9.5px; line-height: 1.6; }
+.setup-steps { padding: 16px 26px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; background: rgba(128, 118, 105, .05); }
+.setup-steps button { padding: 8px; border: 0; color: var(--muted); background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; font: inherit; cursor: pointer; }
+.setup-steps button b { width: 23px; height: 23px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; font-size: 8px; }
+.setup-steps button span { font-size: 9px; }
+.setup-steps button.active { color: var(--text); }
+.setup-steps button.active b { border-color: var(--orange); color: #17110c; background: var(--orange); }
+.setup-steps button.complete b { border-color: #4f8c61; color: #4f8c61; }
+.setup-step { padding: 24px 8px 8px; }
+.setup-step-intro { padding: 0 18px 20px; }
+.setup-step-intro h3 { margin: 0 0 6px; }
+.setup-capability-grid { padding: 0 18px 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.setup-capability-grid article { padding: 14px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; gap: 5px; }
+.setup-capability-grid span, .setup-capability-grid small { color: var(--muted); font-size: 8px; }
+.setup-capability-grid strong { font-size: 10px; }
+.setup-optional-fields { padding-top: 2px; }
+.setup-summary { margin: 0 18px; padding: 14px; border-radius: 10px; background: rgba(128, 118, 105, .08); display: grid; gap: 9px; }
+.setup-summary span { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+.setup-summary b { display: inline-block; min-width: 72px; color: var(--text); font-weight: 500; }
+.setup-safety-list { padding: 16px 18px 6px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: var(--muted); font-size: 9px; }
+.setup-wizard-actions { margin-top: 20px; padding: 17px 26px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.setup-wizard-actions > span { color: var(--muted); font-size: 8.5px; }
+.setup-wizard-actions > div { display: flex; gap: 8px; }
+.setup-return-banner { padding: 11px 16px; border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 9px; }
 
 /* Capture detail: RAW badge, EXIF grid, histogram, score bars */
 .detail-image { position: relative; }

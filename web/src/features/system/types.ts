@@ -6,6 +6,7 @@ export type SystemCapabilities = {
   ai: { ready: boolean; message: string };
   features: {
     open_folder: boolean;
+    directory_picker: boolean;
     raw_pairing: boolean;
     lightroom_manifest: boolean;
     phone_share_export: boolean;
@@ -17,6 +18,11 @@ export type SystemCapabilities = {
     allow_delete: boolean;
     allow_original_metadata_write: boolean;
   };
+};
+
+export type DirectoryPickerResult = {
+  cancelled: boolean;
+  path: string | null;
 };
 
 export type EditableSettings = {
