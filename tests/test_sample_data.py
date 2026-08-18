@@ -32,11 +32,11 @@ class DemoLibraryTests(unittest.TestCase):
             second = generate_demo_library(source, target)
 
             self.assertEqual(first, second)
-            self.assertEqual(first["sample_count"], 30)
-            self.assertEqual(first["event_count"], 4)
+            self.assertEqual(first["sample_count"], 32)
+            self.assertEqual(first["event_count"], 5)
             self.assertEqual(first["exact_duplicate_count"], 2)
             self.assertEqual(first["simulated_raw_count"], 2)
-            self.assertEqual(len(list(target.rglob("*.JPG"))), 28)
+            self.assertEqual(len(list(target.rglob("*.JPG"))), 30)
             self.assertEqual(len(list(target.rglob("*.RAF"))), 2)
             self.assertEqual(
                 (target / first["files"][-1]["relative_path"]).read_bytes(),
@@ -80,7 +80,7 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(seeded["reviews"], 6)
             self.assertEqual(seeded["manual_splits"], 1)
             self.assertEqual(seeded["similarity_groups"], 3)
-            self.assertEqual(seeded["metadata_profiles"], 28)
+            self.assertEqual(seeded["metadata_profiles"], 30)
             self.assertEqual(seeded["ai_results"], 11)
             self.assertEqual(seeded["album_equipment"], 1)
             connection = connect(settings.database_path)
@@ -142,7 +142,7 @@ class DemoLibraryTests(unittest.TestCase):
                        JOIN tag_definitions td ON td.id=ct.tag_id
                        WHERE ct.source='analysis' AND td.dimension='subject'"""
                 ).fetchone()[0],
-                7,
+                8,
             )
             self.assertEqual(
                 connection.execute(
@@ -186,6 +186,15 @@ class DemoLibraryTests(unittest.TestCase):
             self.assertEqual(v5_result["quality_summary"], "乡村小径黄昏，高光区域略过曝。")
             self.assertEqual(len(v5_result["edit_parameters"]), 11)
             self.assertEqual(v5_result["subject_tags"][0]["name"], "纪实")
+            v5_fixture_stems = {
+                row[0] for row in connection.execute(
+                    """SELECT c.stem FROM ai_analyses aa
+                       JOIN captures c ON c.id=aa.capture_id
+                       WHERE aa.model_id=? AND c.stem LIKE 'V5_SAMPLE_%'""",
+                    (DEMO_V5_MODEL_ID,),
+                ).fetchall()
+            }
+            self.assertEqual(v5_fixture_stems, {"V5_SAMPLE_0001", "V5_SAMPLE_0002"})
 
             inventory_path = seed_demo_equipment(settings.workspace)
             inventory_path.write_text(

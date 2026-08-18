@@ -48,11 +48,12 @@ test RAW decoding or image quality. Six fictional results labeled
 layouts without loading a model. Five additional results labeled
 `DEMO-V5-SANITIZED-RUN11` preserve the output structure of a successful Windows
 v5 benchmark run. Their source identifiers and paths were removed, and they are
-attached to fictional captures for UI and schema testing. `NIGHT_0001` and
-`DETAIL_0001` use explicitly approved, resized, metadata-free copies of the actual
-non-person traffic-night and cat inputs, so their v5 text matches the displayed
-image. The other three results remain attached to unrelated fictional images and
-must not be interpreted as judgments about those displayed mock images.
+attached to fictional captures for UI and schema testing. The dedicated album
+`v5实测样片` contains `V5_SAMPLE_0001` (traffic night) and `V5_SAMPLE_0002`
+(cat), using explicitly approved, resized, metadata-free copies of the actual
+non-person inputs, so their v5 text matches the displayed image. The other three
+results remain attached to unrelated fictional images and must not be interpreted
+as judgments about those displayed mock images.
 Fictional owned/unowned camera, lens, and accessory states are written only below
 `runtime/mac-test/workspace` on first preparation; later starts preserve equipment
 changes made in the UI. Rich details remain visible without ExifTool; installing

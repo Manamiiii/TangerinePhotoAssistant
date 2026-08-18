@@ -18,7 +18,7 @@ from .quality import rebuild_group_recommendations
 from .tags import replace_manual_capture_tags, sync_analysis_subject_tags
 from .visual import rebuild_similarity_groups
 
-GENERATOR_VERSION = 9
+GENERATOR_VERSION = 10
 
 DEMO_RAW_COMPANIONS = ("BEACH_0003", "NIGHT_0002")
 DEMO_AI_MODEL_ID = "DEMO-ONLY-no-inference"
@@ -247,7 +247,7 @@ _V5_ZERO_EDITS = {
 }
 
 DEMO_V5_RESULTS: dict[str, dict[str, Any]] = {
-    "NIGHT_0001": {
+    "V5_SAMPLE_0001": {
         "subject_type": "其他",
         "subject_tags": [
             {"name": "建筑", "confidence": 0.95},
@@ -283,7 +283,7 @@ DEMO_V5_RESULTS: dict[str, dict[str, Any]] = {
         "photoshop_needed": False, "photoshop_reason": "不需要",
         "overall_confidence": 0.88,
     },
-    "DETAIL_0001": {
+    "V5_SAMPLE_0002": {
         "subject_type": "宠物",
         "subject_tags": [{"name": "宠物", "confidence": 0.95}],
         "quality_summary": "橘猫趴地，表情生动，画面清晰。",
@@ -350,8 +350,7 @@ SCENES: tuple[dict[str, Any], ...] = (
         "relative": "旅行/2026/2026-08-01_城市夜景",
         "prefix": "NIGHT",
         "count": 6,
-        "sources": ("MODEL_V5_TRAFFIC.JPG", "MAC_TEST_0004.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
-        "source_brightness": {"MODEL_V5_TRAFFIC.JPG": 1.0},
+        "sources": ("MAC_TEST_0002.JPG", "MAC_TEST_0004.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
         "start": datetime(2026, 8, 1, 20, 15, 0),
         "gap_seconds": 4,
         "lens": "XF16-80mmF4 R OIS WR",
@@ -365,8 +364,7 @@ SCENES: tuple[dict[str, Any], ...] = (
         "relative": "日常/2026/2026-08-05_静物练习",
         "prefix": "DETAIL",
         "count": 4,
-        "sources": ("MODEL_V5_CAT.JPG", "MAC_TEST_0002.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
-        "source_brightness": {"MODEL_V5_CAT.JPG": 1.0},
+        "sources": ("MAC_TEST_0004.JPG", "MAC_TEST_0002.JPG", "MAC_TEST_0001.JPG", "MAC_TEST_0003.JPG"),
         "start": datetime(2026, 8, 5, 15, 40, 0),
         "gap_seconds": 8,
         "lens": "XC15-45mmF3.5-5.6 OIS PZ",
@@ -375,6 +373,24 @@ SCENES: tuple[dict[str, Any], ...] = (
         "iso": 400,
         "focal": (35, 1),
         "brightness": 1.08,
+    },
+    {
+        "relative": "模型验收/2026/2026-08-18_v5实测样片",
+        "prefix": "V5_SAMPLE",
+        "count": 2,
+        "sources": ("MODEL_V5_TRAFFIC.JPG", "MODEL_V5_CAT.JPG"),
+        "start": datetime(2026, 8, 18, 12, 0, 0),
+        "gap_seconds": 60,
+        "lens": "演示数据已脱敏",
+        "exposure": (1, 125),
+        "aperture": (40, 10),
+        "iso": 200,
+        "focal": (35, 1),
+        "brightness": 1.0,
+        "source_brightness": {
+            "MODEL_V5_TRAFFIC.JPG": 1.0,
+            "MODEL_V5_CAT.JPG": 1.0,
+        },
     },
 )
 
