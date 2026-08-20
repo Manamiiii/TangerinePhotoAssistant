@@ -27,8 +27,9 @@ export function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem
   const categoryLabels: Record<string, string> = { prime: "定焦", zoom: "变焦", macro: "微距", teleconverter: "增距镜", cinema: "电影镜头" };
   const commonBrands = ["Fujifilm", "Sony", "Canon", "Nikon", "Panasonic / LUMIX", "OM System", "Olympus", "Leica", "Ricoh", "Pentax", "Hasselblad", "DJI", "Sigma", "Tamron"];
   const emptyDraft = (kind: EquipmentKind): EquipmentDraft => ({ kind, brand: kind === "lens" ? "Fujifilm" : "", model: "", display_name: "", category: kind === "lens" ? "prime" : "", section: kind === "accessory" ? "accessories" : "", notes: "", image_path: "", filter_thread_mm: "", thread_mm: "", owned: true });
-  const editDraft = (kind: EquipmentKind, item: EquipmentItem): EquipmentDraft => ({ kind, key: item.inventory_key, brand: item.brand ?? "", model: item.model ?? "", display_name: item.display_name ?? "", category: item.category ?? "", section: item.section ?? "", notes: item.notes ?? "", image_path: item.image_path ?? "", filter_thread_mm: item.filter_thread_mm ? String(item.filter_thread_mm) : "", thread_mm: item.thread_mm ? String(item.thread_mm) : "", owned: item.owned, source: item.source });
+  const editDraft = (kind: EquipmentKind, item: EquipmentItem): EquipmentDraft => ({ kind, key: item.inventory_key, brand: item.brand ?? "", model: item.model ?? "", display_name: item.display_name ?? "", category: item.category ?? "", section: item.section ?? "", notes: item.notes ?? "", image_path: item.image_source === "bundled" ? "" : item.image_path ?? "", filter_thread_mm: item.filter_thread_mm ? String(item.filter_thread_mm) : "", thread_mm: item.thread_mm ? String(item.thread_mm) : "", owned: item.owned, source: item.source });
   const imageUrl = (kind: EquipmentKind, item: EquipmentItem) => `/api/equipment/image?${new URLSearchParams({ kind, key: item.inventory_key })}`;
+  const imageCredit = (item: EquipmentItem) => item.image_attribution?.source_url ? <span className="equipment-image-credit" title={item.image_attribution.changes}><a href={item.image_attribution.source_url} target="_blank" rel="noreferrer">图片：{item.image_attribution.creator ?? "来源页"}</a>{item.image_attribution.license_url && <> · <a href={item.image_attribution.license_url} target="_blank" rel="noreferrer">{item.image_attribution.license_name ?? "授权信息"}</a></>} ↗</span> : null;
   const visibleLenses = (equipment?.lenses ?? []).filter((item) => {
     if (lensFilter === "owned" && !item.owned) return false;
     if (lensFilter === "unowned" && item.owned) return false;
@@ -73,7 +74,7 @@ export function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem
             {visibleCameras.map((item) => (
               <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
                 <div className={`equipment-icon ${item.image_path ? "with-image" : ""}`}>{item.image_path ? <img src={imageUrl("camera", item)} alt="" /> : "C"}</div>
-                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"} · {numberFormat.format(item.capture_count ?? 0)} 个拍摄单元{item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+                <div><strong>{item.display_name ?? item.model}</strong><span>{item.brand ?? "未知品牌"} · {numberFormat.format(item.capture_count ?? 0)} 个拍摄单元{item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span>{imageCredit(item)}</div>
                 {actions("camera", item)}
               </article>
             ))}
@@ -92,7 +93,7 @@ export function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem
           <div className="equipment-list">
             {visibleLenses.map((item) => <article className={`equipment-row ${item.owned ? "" : "unowned"}`} key={item.inventory_key}>
               <div className={`equipment-icon ${item.image_path ? "with-image" : ""}`}>{item.image_path ? <img src={imageUrl("lens", item)} alt="" /> : "L"}</div>
-              <div><strong>{item.display_name ?? item.model}</strong><span>{categoryLabels[item.category ?? ""] ?? "镜头"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm` : ""}{item.capture_count ? ` · ${numberFormat.format(item.capture_count)} 个拍摄单元` : ""}{item.source === "catalog" ? " · 官方目录" : item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+              <div><strong>{item.display_name ?? item.model}</strong><span>{categoryLabels[item.category ?? ""] ?? "镜头"}{item.filter_thread_mm ? ` · ${item.filter_thread_mm}mm` : ""}{item.capture_count ? ` · ${numberFormat.format(item.capture_count)} 个拍摄单元` : ""}{item.source === "catalog" ? " · 官方目录" : item.status === "detected" ? " · EXIF 发现" : ""}{item.notes ? ` · ${item.notes}` : ""}</span>{imageCredit(item)}</div>
               {actions("lens", item)}
             </article>)}
             {!visibleLenses.length && <div className="empty-state">当前条件下没有镜头。</div>}
@@ -105,7 +106,7 @@ export function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem
             {(equipment?.accessories ?? []).map((item) => (
               <article className="equipment-row" key={item.inventory_key}>
                 <div className={`equipment-icon accessory ${item.image_path ? "with-image" : ""}`}>{item.image_path ? <img src={imageUrl("accessory", item)} alt="" /> : String(accessoryLabels[item.section ?? ""] ?? "附件").slice(0, 1)}</div>
-                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}{item.album_count ? ` · 用于 ${numberFormat.format(item.album_count)} 个相册` : ""}{item.notes ? ` · ${item.notes}` : ""}</span></div>
+                <div><strong>{item.display_name ?? item.model ?? item.kind}</strong><span>{accessoryLabels[item.section ?? ""] ?? "附件"}{item.thread_mm ? ` · ${item.thread_mm}mm` : ""}{item.stops ? ` · ${item.stops} 档` : ""}{item.album_count ? ` · 用于 ${numberFormat.format(item.album_count)} 个相册` : ""}{item.notes ? ` · ${item.notes}` : ""}</span>{imageCredit(item)}</div>
                 {actions("accessory", item)}
               </article>
             ))}
@@ -128,7 +129,7 @@ export function EquipmentView({ equipment, changeOwnership, saveItem, deleteItem
           {editor.kind === "lens" && <><label><span>镜头类型</span><select value={editor.category} onChange={(event) => setEditor({ ...editor, category: event.target.value })}><option value="prime">定焦</option><option value="zoom">变焦</option><option value="macro">微距</option><option value="teleconverter">增距镜</option><option value="cinema">电影镜头</option></select></label><label><span>滤镜口径 mm</span><input type="number" min="1" value={editor.filter_thread_mm} onChange={(event) => setEditor({ ...editor, filter_thread_mm: event.target.value })} /></label></>}
           {editor.kind === "accessory" && <><label><span>附件类型</span><select value={editor.section} onChange={(event) => setEditor({ ...editor, section: event.target.value })}>{Object.entries(accessoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>口径 mm</span><input type="number" min="1" value={editor.thread_mm} onChange={(event) => setEditor({ ...editor, thread_mm: event.target.value })} /></label></>}
           <label className="wide"><span>个人备注</span><textarea value={editor.notes} onChange={(event) => setEditor({ ...editor, notes: event.target.value })} /></label>
-          <label className="wide"><span>本地设备图片</span><input value={editor.image_path} onChange={(event) => setEditor({ ...editor, image_path: event.target.value })} placeholder="可选：JPG、PNG 或 WebP 的本机绝对路径" /><small>图片只从本机读取，不上传、不写入设备官网；清空即可恢复字母图标。</small></label>
+          <label className="wide"><span>本地设备图片</span><input value={editor.image_path} onChange={(event) => setEditor({ ...editor, image_path: event.target.value })} placeholder="可选：JPG、PNG 或 WebP 的本机绝对路径" /><small>本地图片优先于内置开放授权素材；清空后使用内置图片，没有素材时显示字母图标。</small></label>
           <label className="equipment-owned-check"><input type="checkbox" checked={editor.owned} onChange={(event) => setEditor({ ...editor, owned: event.target.checked })} /><span>已拥有</span></label>
         </div>
         <footer className="editor-footer"><button onClick={() => setEditor(null)}>取消</button><button className="primary" disabled={editorSaving || (!editor.model.trim() && !editor.display_name.trim())} onClick={() => void submitEditor()}>{editorSaving ? "保存中…" : "保存"}</button></footer>

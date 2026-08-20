@@ -101,6 +101,49 @@ def _load_inventory(path: Path | None) -> dict[str, Any]:
     return result
 
 
+def _load_bundled_images(profile_path: Path) -> dict[tuple[EquipmentKind, str], dict[str, Any]]:
+    manifest_path = profile_path.parent / "images.toml"
+    if not manifest_path.is_file():
+        return {}
+    with manifest_path.open("rb") as handle:
+        manifest = tomllib.load(handle)
+    asset_root = manifest_path.parent.resolve()
+    result: dict[tuple[EquipmentKind, str], dict[str, Any]] = {}
+    for raw_asset in manifest.get("images", []):
+        kind = str(raw_asset.get("kind", ""))
+        model = str(raw_asset.get("model", "")).strip()
+        relative_file = str(raw_asset.get("file", "")).strip()
+        if kind not in {"camera", "lens", "accessory"} or not model or not relative_file:
+            continue
+        image_path = (asset_root / relative_file).resolve()
+        if not image_path.is_relative_to(asset_root):
+            raise ValueError(f"内置设备图片路径超出 equipment 目录：{relative_file}")
+        result[(kind, _normalize_model(model))] = {
+            "image_path": str(image_path),
+            "image_source": "bundled",
+            "image_attribution": {
+                "title": raw_asset.get("title"),
+                "creator": raw_asset.get("creator"),
+                "source_url": raw_asset.get("source_url"),
+                "license_name": raw_asset.get("license_name"),
+                "license_url": raw_asset.get("license_url"),
+                "changes": raw_asset.get("changes"),
+            },
+        }
+    return result
+
+
+def _apply_bundled_image(
+    item: dict[str, Any],
+    kind: EquipmentKind,
+    bundled_images: dict[tuple[EquipmentKind, str], dict[str, Any]],
+) -> dict[str, Any]:
+    if item.get("image_path"):
+        return item
+    asset = bundled_images.get((kind, _normalize_model(str(item.get("model", "")))))
+    return {**item, **asset} if asset else item
+
+
 def _write_inventory(path: Path, inventory: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -286,6 +329,7 @@ def build_equipment_catalog(
             catalog = tomllib.load(handle)
 
     inventory = _load_inventory(inventory_path)
+    bundled_images = _load_bundled_images(profile_path)
     camera_usage = _capture_usage(connection, "camera_model")
     lens_usage = _capture_usage(connection, "lens_model")
     accessory_album_usage = _album_equipment_usage(connection, "accessory")
@@ -315,8 +359,25 @@ def build_equipment_catalog(
     for custom in inventory["custom"]["accessory"]:
         accessories.append(_decorate({**deepcopy(custom), "source": "custom"}, "accessory", {}, inventory, True, accessory_album_usage))
 
-    cameras = [_decorate(item, "camera", camera_usage, inventory, owned) for item, owned in camera_pairs]
-    lenses = [_decorate(item, "lens", lens_usage, inventory, owned) for item, owned in lens_pairs]
+    cameras = [
+        _apply_bundled_image(
+            _decorate(item, "camera", camera_usage, inventory, owned),
+            "camera",
+            bundled_images,
+        )
+        for item, owned in camera_pairs
+    ]
+    lenses = [
+        _apply_bundled_image(
+            _decorate(item, "lens", lens_usage, inventory, owned),
+            "lens",
+            bundled_images,
+        )
+        for item, owned in lens_pairs
+    ]
+    accessories = [
+        _apply_bundled_image(item, "accessory", bundled_images) for item in accessories
+    ]
     all_items = {"camera": cameras, "lens": lenses, "accessory": accessories}
     hidden_items = {
         kind: [item for item in items if item["inventory_key"] in inventory["hidden"][kind]]

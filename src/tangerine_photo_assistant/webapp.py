@@ -2232,7 +2232,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 project_root / "equipment" / "catalogs" / "fujifilm-x.toml",
                 settings.workspace / "Equipment" / "inventory.json",
             )
-        except (FileNotFoundError, tomllib.TOMLDecodeError, json.JSONDecodeError) as exc:
+        except (FileNotFoundError, tomllib.TOMLDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             connection.close()

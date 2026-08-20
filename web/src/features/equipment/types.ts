@@ -33,6 +33,15 @@ export type EquipmentItem = {
   source?: string;
   notes?: string;
   image_path?: string;
+  image_source?: "bundled";
+  image_attribution?: {
+    title?: string;
+    creator?: string;
+    source_url?: string;
+    license_name?: string;
+    license_url?: string;
+    changes?: string;
+  };
   inventory_key: string;
   owned: boolean;
   status: string;

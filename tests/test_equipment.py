@@ -34,6 +34,67 @@ class EquipmentCatalogTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_bundled_image_matches_exact_model_without_changing_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            connection = connect(root / "catalog.sqlite3")
+            try:
+                profile = root / "profile.toml"
+                profile.write_text("schema_version = 1\n", encoding="utf-8")
+                official = root / "official.toml"
+                official.write_text(
+                    'schema_version = 1\n[[lenses]]\nbrand = "Fujifilm"\nmodel = "XF23mmF1.4 R LM WR"\n',
+                    encoding="utf-8",
+                )
+                (root / "images.toml").write_text(
+                    '''[[images]]
+kind = "lens"
+model = "XF23mmF1.4 R LM WR"
+file = "images/xf23.jpg"
+title = "XF23"
+creator = "Example Creator"
+source_url = "https://example.test/source"
+license_name = "CC BY-SA 4.0"
+license_url = "https://creativecommons.org/licenses/by-sa/4.0/"
+changes = "Resized"
+''',
+                    encoding="utf-8",
+                )
+                expected_path = root / "images" / "xf23.jpg"
+
+                catalog = build_equipment_catalog(connection, profile, official, root / "missing.json")
+                lens = catalog["lenses"][0]
+                self.assertFalse(lens["owned"])
+                self.assertEqual(lens["image_path"], str(expected_path.resolve()))
+                self.assertEqual(lens["image_source"], "bundled")
+                self.assertEqual(lens["image_attribution"]["creator"], "Example Creator")
+
+                inventory = root / "Equipment" / "inventory.json"
+                local_path = root / "my-xf23.jpg"
+                save_equipment_item(
+                    inventory,
+                    "lens",
+                    {"display_name": "我的 XF23", "image_path": str(local_path)},
+                    lens["inventory_key"],
+                    catalog["lenses"],
+                )
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                lens = catalog["lenses"][0]
+                self.assertEqual(lens["image_path"], str(local_path))
+                self.assertNotIn("image_source", lens)
+
+                save_equipment_item(
+                    inventory,
+                    "lens",
+                    {"display_name": "我的 XF23", "image_path": ""},
+                    lens["inventory_key"],
+                    catalog["lenses"],
+                )
+                catalog = build_equipment_catalog(connection, profile, official, inventory)
+                self.assertEqual(catalog["lenses"][0]["image_source"], "bundled")
+            finally:
+                connection.close()
+
     def test_profile_and_capture_usage_are_combined(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
