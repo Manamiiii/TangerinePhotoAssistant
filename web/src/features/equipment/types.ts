@@ -9,6 +9,7 @@ export type EquipmentDraft = {
   category: string;
   section: string;
   notes: string;
+  image_path: string;
   filter_thread_mm: string;
   thread_mm: string;
   owned: boolean;
@@ -31,6 +32,7 @@ export type EquipmentItem = {
   category?: string;
   source?: string;
   notes?: string;
+  image_path?: string;
   inventory_key: string;
   owned: boolean;
   status: string;

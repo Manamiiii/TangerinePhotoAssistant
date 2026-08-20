@@ -11,13 +11,58 @@ from tangerine_photo_assistant.tags import (
     clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
+    create_tag_definition,
+    delete_tag_definition,
+    list_tag_definitions,
     replace_manual_capture_tags,
     sync_analysis_subject_tags,
+    update_tag_definition,
     update_manual_tag_for_captures,
 )
 
 
 class CaptureTagTests(unittest.TestCase):
+    def test_definition_management_preserves_used_and_builtin_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            connection = connect(Path(temporary) / "catalog.sqlite3")
+            created = create_tag_definition(connection, "subject", "街头")
+            renamed = update_tag_definition(
+                connection, created["id"], name="街头摄影", active=False
+            )
+            self.assertEqual(renamed["name"], "街头摄影")
+            self.assertFalse(renamed["active"])
+            restored = create_tag_definition(connection, "subject", "街头摄影")
+            self.assertTrue(restored["active"])
+            delete_tag_definition(connection, created["id"])
+            self.assertNotIn("街头摄影", {item["name"] for item in list_tag_definitions(connection)})
+
+            built_in = next(
+                item for item in list_tag_definitions(connection)
+                if item["dimension"] == "subject" and item["built_in"]
+            )
+            with self.assertRaisesRegex(CaptureTagError, "不能改名"):
+                update_tag_definition(connection, built_in["id"], name="新名称")
+            with self.assertRaisesRegex(CaptureTagError, "不能删除"):
+                delete_tag_definition(connection, built_in["id"])
+
+            connection.execute(
+                """INSERT INTO captures(capture_key,stem,parent_relative,pairing_status)
+                   VALUES ('used','used','','jpeg_only')"""
+            )
+            capture_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+            connection.commit()
+            used = create_tag_definition(connection, "location", "常用地点")
+            replace_manual_capture_tags(
+                connection, capture_id, [{"dimension": "location", "name": "常用地点"}]
+            )
+            with self.assertRaisesRegex(CaptureTagError, "正在被照片使用"):
+                delete_tag_definition(connection, used["id"])
+            update_tag_definition(connection, used["id"], active=False)
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM capture_tags").fetchone()[0], 1
+            )
+            connection.close()
+
     def test_analysis_subject_sync_is_repeatable_and_preserves_manual_tags(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             connection = connect(Path(temporary) / "catalog.sqlite3")

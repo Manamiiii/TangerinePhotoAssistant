@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getJson } from "../../api";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
-import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice, technicalGrade } from "../../formatters";
+import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice } from "../../formatters";
 import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload } from "./types";
 
 type CollectionScope = "all" | "albums";
@@ -117,10 +117,11 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
       {ai?.latest_run && ai.latest_run.status === "complete" && ai.latest_run.failed_count > 0 && <section className="analysis-recovery"><span>上次任务有 {ai.latest_run.failed_count} 张失败。</span><button className="toolbar-button" onClick={() => retryAiFailures(ai.latest_run!.id)} disabled={running || !preflight?.ready}>重试失败项</button></section>}
       <section className="metric-grid">
         <article><span>技术分析完成</span><strong>{summary ? numberFormat.format(summary.analyzed) : "—"}</strong><small>{summary?.errors ?? 0} 个读取错误</small></article>
-        <article><span>平均技术分</span><strong>{summary?.average_score ?? "—"}</strong><small>算法证据，不代表审美</small></article>
+        <article><span>平均基础技术分</span><strong>{summary?.average_score ?? "—"}</strong><small>只衡量曝光、全局细节与参数风险</small></article>
         <article><span>组内推荐</span><strong>{summary ? numberFormat.format(summary.recommended_picks) : "—"}</strong><small>每个相似组一个候选</small></article>
         <article><span>模型分析完成</span><strong>{ai ? numberFormat.format(ai.analyzed_capture_count) : "—"}</strong><small>{ai?.latest_run ? `${ai.latest_run.model_id} · ${ai.latest_run.status}${ai.latest_run.average_seconds_per_photo ? ` · ${ai.latest_run.average_seconds_per_photo.toFixed(1)}秒/张` : ""}` : "尚未启动"}</small></article>
       </section>
+      <section className="quality-score-note"><strong>为什么技术分普遍较高？</strong><span>它表示文件在基础曝光、全局细节和手持参数上是否明显异常，不评价构图、表情、时机、主体价值或你的审美。高分只代表“没有检测到明显基础故障”，不代表这是一张好照片；具体画面仍以人工选片和模型复盘为准。</span></section>
       <div className="workspace-view-nav analysis-content-nav">
         <nav className="analysis-tabs" aria-label="质量分析内容">
           {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
@@ -204,7 +205,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <div className="quality-review-grid">
           {(quality?.items ?? []).map((item) => (
             <article className="quality-review-card" key={item.capture_id}>
-              <button className="quality-review-photo" onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /><span>{Math.round(item.technical_score)} 分 · {technicalGrade(item.technical_score)}</span></button>
+              <button className="quality-review-photo" onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /><span>基础技术 {Math.round(item.technical_score)} · {item.issues.length ? `${item.issues.length} 项需复核` : "未见明显故障"}</span></button>
               <div className="quality-review-copy"><div><strong>{item.stem}</strong><small>{item.event_name} · {item.category}{item.auto_pick ? " · 组内推荐" : ""}</small></div><p>{item.ai_result?.quality_summary ?? (item.issues[0]?.message || "未发现明确技术问题")}</p><div className="quality-advice"><b>{item.ai_result ? "模型建议" : "技术建议"}</b><span>{item.ai_result ? modelAdvice(item.ai_result) : (item.issues[0] ? technicalAdvice(item.issues[0].code) : "当前技术指标正常，可结合构图和表达继续人工判断。")}</span></div></div>
               <div className="review-controls"><button onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}>查看详情</button>
                 <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>

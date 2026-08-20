@@ -8,13 +8,14 @@ const dateFormat = new Intl.DateTimeFormat("zh-CN", {
 });
 
 export function formatBytes(bytes: number) {
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return formatFileSize(bytes);
 }
 
 export function formatFileSize(bytes: number) {
-  return bytes >= 1024 ** 3
-    ? `${(bytes / 1024 ** 3).toFixed(2)} GB`
-    : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${numberFormat.format(bytes)} B`;
 }
 
 export function formatDuration(seconds: number | null | undefined) {

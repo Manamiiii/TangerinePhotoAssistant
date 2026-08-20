@@ -16,6 +16,7 @@ export type LibraryCapture = {
   user_pick: number | null;
   user_reject: number | null;
   user_note: string | null;
+  technical_score: number | null;
   similarity_group_id: number | null;
   similarity_group_size: number | null;
   item_type: "photo" | "group";

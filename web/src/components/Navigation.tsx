@@ -50,13 +50,13 @@ export function AlbumWorkspaceHeader({ name, category, summary, current, back, o
   openQuality: () => void;
 }) {
   const destinations = [
-    ["library", "照片", openPhotos],
-    ["bursts", "连拍选片", openBursts],
-    ["analysis", "质量分析", openQuality],
+    ["library", "相册照片", openPhotos],
+    ["bursts", "相似组选片", openBursts],
+    ["analysis", "质量结果", openQuality],
   ] as const;
   return <section className="album-workspace-header">
-    <button className="album-back" onClick={back}>← 返回相册</button>
+    <button className="album-back" onClick={back}>← 返回相册列表</button>
     <div className="album-workspace-title"><span>{category}</span><h2>{name}</h2><small>{summary}</small></div>
-    <nav aria-label="相册工作区">{destinations.map(([value, label, open]) => <button key={value} className={current === value ? "active" : ""} onClick={open}>{label}</button>)}</nav>
+    <nav aria-label="在当前相册内切换功能" title="保持当前相册范围，切换照片、相似组选片和质量结果">{destinations.map(([value, label, open]) => <button key={value} className={current === value ? "active" : ""} onClick={open}>{label}</button>)}</nav>
   </section>;
 }

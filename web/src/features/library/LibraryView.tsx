@@ -3,7 +3,7 @@ import { getJson } from "../../api";
 import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
-import { formatBytes, formatDate, numberFormat } from "../../formatters";
+import { formatBytes, formatDate, formatFileSize, numberFormat } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
 import type { Overview } from "../overview/types";
 import type { CaptureTagDimension } from "../details/types";
@@ -65,10 +65,10 @@ function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, crea
           {(albums?.items ?? []).map((album) => (
             <article className="event-row album-row" key={album.id}>
               <div className={`category-chip category-${album.category}`}>{album.category}</div>
-              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.source_count ? `${album.source_count} 个来源目录` : "手动创建"}{album.equipment_count ? ` · ${album.equipment_count} 件拍摄附件` : ""}</span></div>
+              <div className="event-main"><strong>{album.proposed_name}</strong><span>{album.source_count ? `${album.source_count} 个拍摄来源` : "手动创建"}{album.equipment_count ? ` · ${album.equipment_count} 件本次使用附件` : ""}</span></div>
               <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
               <div className="album-date"><strong>{album.start_at?.slice(0, 10) ?? "—"}</strong><span>拍摄日期</span></div>
-              <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button><button className={album.status === "confirmed" ? "confirmed" : ""} disabled={album.status === "confirmed"} onClick={() => updateAlbum(album, { status: "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认"}</button><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button></div>
+              <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button>{album.source_count > 0 && <button title="打开该相册的第一个现存来源目录" onClick={() => void getJson(`/api/albums/${album.id}/open-folder`, { method: "POST" })}>打开目录</button>}<button className={album.status === "confirmed" ? "confirmed" : ""} disabled={album.status === "confirmed"} onClick={() => updateAlbum(album, { status: "confirmed" })}>{album.status === "confirmed" ? "已确认" : "确认"}</button><button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button></div>
             </article>
           ))}
           {!albums?.items.length && <div className="empty-state">还没有相册，可以新建一个空相册。</div>}
@@ -121,7 +121,42 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   </ModalShell>;
 }
 
-function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, batchTag, changePage, changePageSize, albumContext = false }: {
+type ManagedTag = { id: number; dimension: CaptureTagDimension; name: string; built_in: number; active: number; capture_count: number };
+const tagDimensionLabels: Record<CaptureTagDimension, string> = { subject: "题材", status: "工作状态", problem: "人工问题", location: "地点" };
+
+function TagManager({ close, changed }: { close: () => void; changed: () => void }) {
+  const [items, setItems] = useState<ManagedTag[]>([]);
+  const [dimension, setDimension] = useState<CaptureTagDimension>("subject");
+  const [newName, setNewName] = useState("");
+  const [editing, setEditing] = useState<ManagedTag | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const load = async () => setItems((await getJson<{ items: ManagedTag[] }>("/api/tag-definitions")).items);
+  useEffect(() => { void load(); }, []);
+  const mutate = async (path: string, method: "POST" | "PUT" | "DELETE", body?: object) => {
+    try {
+      setError(null);
+      await getJson(path, { method, ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
+      await load();
+      changed();
+    } catch (reason) { setError((reason as Error).message); }
+  };
+  const visible = items.filter((item) => item.dimension === dimension);
+  return <ModalShell title="管理分类与状态" close={close} wide>
+    <div className="tag-manager">
+      <p>题材、问题和地点可多选；工作状态每张只保留一个。内置标签可以停用但不会删除，自定义标签可改名；正在使用的标签只能停用，以免丢失照片上的已有标记。</p>
+      <div className="section-tabs">{(Object.entries(tagDimensionLabels) as Array<[CaptureTagDimension, string]>).map(([value, label]) => <button key={value} className={dimension === value ? "active" : ""} onClick={() => setDimension(value)}>{label}</button>)}</div>
+      <form onSubmit={(event) => { event.preventDefault(); if (newName.trim()) { void mutate("/api/tag-definitions", "POST", { dimension, name: newName.trim() }); setNewName(""); } }}><input value={newName} maxLength={40} placeholder={`新增${tagDimensionLabels[dimension]}标签`} onChange={(event) => setNewName(event.target.value)} /><button className="toolbar-button primary" disabled={!newName.trim()}>新增</button></form>
+      <div className="tag-manager-list">{visible.map((item) => <div className={!item.active ? "inactive" : ""} key={item.id}>
+        {editing?.id === item.id ? <input autoFocus value={editingName} maxLength={40} onChange={(event) => setEditingName(event.target.value)} /> : <span><strong>{item.name}</strong><small>{item.built_in ? "内置" : "自定义"} · {item.capture_count} 张照片{!item.active ? " · 已停用" : ""}</small></span>}
+        <div>{editing?.id === item.id ? <><button onClick={() => { if (editingName.trim()) void mutate(`/api/tag-definitions/${item.id}`, "PUT", { name: editingName.trim() }); setEditing(null); }}>保存</button><button onClick={() => setEditing(null)}>取消</button></> : <>{!item.built_in && <button onClick={() => { setEditing(item); setEditingName(item.name); }}>改名</button>}<button onClick={() => void mutate(`/api/tag-definitions/${item.id}`, "PUT", { active: !item.active })}>{item.active ? "停用" : "恢复"}</button>{!item.built_in && item.capture_count === 0 && <button className="danger-text" onClick={() => void mutate(`/api/tag-definitions/${item.id}`, "DELETE")}>删除</button>}</>}</div>
+      </div>)}</div>
+      {error && <div className="portable-error" role="alert">{error}</div>}
+    </div>
+  </ModalShell>;
+}
+
+function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, batchTag, changePage, changePageSize, albumContext = false, refreshLibrary }: {
   library: LibraryCapturesResponse | null;
   filters: LibraryFilters | null;
   query: LibraryQuery;
@@ -135,6 +170,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
   albumContext?: boolean;
+  refreshLibrary?: () => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -154,6 +190,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [batchTagName, setBatchTagName] = useState("");
   const [batchTagAction, setBatchTagAction] = useState<"add" | "remove">("add");
   const [batchTagSaving, setBatchTagSaving] = useState(false);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
   useEffect(() => window.localStorage.setItem("tangerine-photo-layout", layout), [layout]);
   const toggle = (captureIds: number[]) => setSelected((current) => {
     const next = new Set(current);
@@ -218,8 +255,8 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     <section className="library-filter-shell">
       <div className="library-filter-toolbar">
         <label className="library-search"><span aria-hidden="true">⌕</span><input aria-label="搜索照片" value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="搜索文件名、相册或目录" /></label>
-        <button className={`toolbar-button filter-toggle ${filtersOpen ? "active" : ""}`} onClick={() => setFiltersOpen((current) => !current)}>筛选{activeFilters.length ? <b>{activeFilters.length}</b> : null}</button>
-        <label className="sort-control"><span>排序</span><select value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
+        <button className={`toolbar-button filter-toggle ${filtersOpen ? "active" : ""}`} onClick={() => setFiltersOpen((current) => !current)}>筛选{activeFilters.length ? <b>{activeFilters.length}</b> : null}</button><button className="toolbar-button tag-manager-entry" onClick={() => setTagManagerOpen(true)}>管理标签</button>
+        <label className="sort-control"><select aria-label="照片排序" value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
         {(activeFilters.length > 0 || query.search) && <button className="filter-clear" onClick={clearFilters}>全部清除</button>}
       </div>
       {activeFilters.length > 0 && <div className="active-filter-chips">{activeFilters.map((filter) => <button key={filter.key} onClick={() => updateQuery({ [filter.key]: "" })}>{filter.label}<span>×</span></button>)}</div>}
@@ -239,9 +276,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     </section>
     <section className={`selection-toolbar ${selectionMode ? "visible" : ""}`}>
       <div><strong>本次选择 {selected.size} 张</strong><button onClick={() => setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds]))}>{allSelected ? "取消本页" : "选择本页"}</button><button onClick={() => setSelected(new Set())}>清空</button><button onClick={leaveSelectionMode}>完成</button></div>
-      <div className="selection-actions"><button disabled={!selected.size} onClick={() => setBatchTagEditor(true)}>批量标记</button><label>归入相册<select value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum || !selected.size} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>应用</button><label>分享尺寸<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="primary-action" disabled={!selected.size || exporting} onClick={exportSelected}><span>{exporting ? "正在生成" : "导出分享包"}</span><b>↓</b></button></div>
+      <div className="selection-actions"><button disabled={!selected.size} title="为所选照片添加或移除题材、工作状态、问题和地点标签" onClick={() => setBatchTagEditor(true)}>添加/移除标签</button><label>归入<select aria-label="目标相册" value={targetAlbum} onChange={(event) => setTargetAlbum(event.target.value)}><option value="">选择相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><button disabled={!targetAlbum || !selected.size} onClick={async () => { await assignToAlbum(Number(targetAlbum), Array.from(selected)); setSelected(new Set()); }}>归入</button><label>分享图长边<select value={maxEdge} onChange={(event) => setMaxEdge(Number(event.target.value))}><option value={1080}>1080px</option><option value={2048}>2048px</option><option value={3840}>3840px</option></select></label><button className="toolbar-button primary export-share-button" disabled={!selected.size || exporting} onClick={exportSelected}>{exporting ? "正在生成" : "导出分享包 ↓"}</button></div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张照片 · {formatBytes(latestExport.size_bytes)} · EXIF 已移除</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
+    {layout === "list" && <div className="photo-list-header" aria-hidden="true"><span>照片</span><span>拍摄时间</span><span>相册 / 分组</span><span>大小</span><span>评价</span></div>}
     <section className={`photo-library-grid layout-${layout} ${selectionMode ? "selecting" : ""}`}>
       {items.map((item) => {
         const itemSelected = item.selection_capture_ids.every((captureId) => selected.has(captureId));
@@ -249,7 +287,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
         return <article className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={isGroup ? `group-${item.similarity_group_id}` : `photo-${item.id}`}>
         {selectionMode && <button className="photo-select" aria-label={`${isGroup ? "选择组内照片" : itemSelected ? "取消选择" : "选择"} ${item.stem}`} onClick={() => isGroup ? void openGroupSelection(item.similarity_group_id!) : toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : isGroup ? "…" : ""}</span></button>}
         <button className="photo-open" onClick={() => isGroup && selectionMode ? void openGroupSelection(item.similarity_group_id!) : isGroup && openGroup ? openGroup(item.similarity_group_id!) : openCapture(item.id, items.filter((entry) => entry.item_type === "photo").map((entry) => entry.id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张{selectionMode ? " · 选择组内" : ""}</span>}</button>
-        <div className="photo-card-copy"><div><strong>{isGroup ? `连拍 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{isGroup ? `${item.similarity_group_size} 张 · ${formatBytes(item.size_bytes)} · ${item.group_pick_count ?? 0} 张入选` : `${formatBytes(item.size_bytes)} · ${item.album_name ?? "尚未归入相册"}`}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出连拍</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>连拍组 · {item.similarity_group_size} 张</button> : null}{item.similarity_group_id && (item.user_pick ? <b>组内入选</b> : item.user_reject ? <b className="rejected">组内排除</b> : null)}</div></div></div>
+        {layout === "list" ? <div className="photo-card-copy photo-list-copy"><div className="photo-list-identity"><strong>{isGroup ? `相似组 · ${item.stem}` : item.stem}</strong><small>{[item.camera_model, item.lens_model, item.pairing_status === "paired" ? "JPG + RAW" : null].filter(Boolean).join(" · ") || "器材信息未知"}</small></div><time>{item.captured_at ? item.captured_at.replace("T", " ").slice(0, 16) : "时间未知"}</time><div className="photo-list-context">{isGroup ? <>{item.similarity_group_size} 张相似照片<small>{item.group_pick_count ? `${item.group_pick_count} 张人工入选` : "尚未人工选片"}</small></> : <>{item.album_name ?? "尚未归入相册"}{item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>查看相似组</button> : null}</>}</div><span className="photo-list-size">{formatFileSize(item.size_bytes)}</span><div className="photo-list-review"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span>{item.user_pick ? <b>已入选</b> : item.user_reject ? <b className="rejected">已排除</b> : item.technical_score != null ? <small>基础技术 {Math.round(item.technical_score)}</small> : <small>未分析</small>}</div></div> : <div className="photo-card-copy"><div><strong>{isGroup ? `相似组 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p>{isGroup ? `${item.similarity_group_size} 张 · ${formatBytes(item.size_bytes)} · ${item.group_pick_count ?? 0} 张人工入选` : `${formatBytes(item.size_bytes)} · ${item.album_name ?? "尚未归入相册"}`}</p><div className="photo-card-status"><span>{item.user_rating ? `${item.user_rating} 星` : "未评分"}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出相似组</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>相似组 · {item.similarity_group_size} 张</button> : null}{item.similarity_group_id && (item.user_pick ? <b>人工入选</b> : item.user_reject ? <b className="rejected">人工排除</b> : null)}</div></div></div>}
       </article>})}
       {!items.length && <div className="empty-state">图库中还没有可查看的 JPEG 照片。</div>}
     </section>
@@ -260,10 +298,11 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       <footer className="editor-footer"><span>已选择 {selectionGroupDraft.size} 张</span><button onClick={() => setSelectionGroup(null)}>取消</button><button className="primary" onClick={applyGroupSelection}>确认选择</button></footer>
     </ModalShell>}
     {batchTagEditor && <ModalShell title={`批量标记 · ${selected.size} 张`} close={() => setBatchTagEditor(false)}><form className="editor-form" onSubmit={async (event) => { event.preventDefault(); if (!batchTagName.trim()) return; setBatchTagSaving(true); try { await batchTag(Array.from(selected), batchTagDimension, batchTagName.trim(), batchTagAction); setBatchTagEditor(false); setBatchTagName(""); } finally { setBatchTagSaving(false); } }}><label><span>操作</span><select value={batchTagAction} onChange={(event) => setBatchTagAction(event.target.value as "add" | "remove")}><option value="add">添加标签</option><option value="remove">移除人工标签</option></select></label><label><span>维度</span><select value={batchTagDimension} onChange={(event) => { setBatchTagDimension(event.target.value as CaptureTagDimension); setBatchTagName(""); }}><option value="subject">题材</option><option value="status">工作状态</option><option value="problem">人工问题</option><option value="location">地点</option></select></label><label><span>标签</span><input list="batch-tag-options" value={batchTagName} maxLength={40} placeholder={batchTagAction === "add" ? "选择或输入标签" : "选择要移除的标签"} onChange={(event) => setBatchTagName(event.target.value)} /><datalist id="batch-tag-options">{(filters?.tags ?? []).filter((tag) => tag.dimension === batchTagDimension).map((tag) => <option key={tag.name} value={tag.name} />)}</datalist></label>{batchTagDimension === "status" && batchTagAction === "add" && <p>设置新状态会替换所选照片原有的人工工作状态。</p>}<footer><button type="button" className="toolbar-button" onClick={() => setBatchTagEditor(false)}>取消</button><button className="toolbar-button primary" disabled={!batchTagName.trim() || batchTagSaving}>{batchTagSaving ? "保存中…" : "应用"}</button></footer></form></ModalShell>}
+    {tagManagerOpen && <TagManager close={() => setTagManagerOpen(false)} changed={() => void refreshLibrary?.()} />}
   </>;
 }
 
-export function LibraryView({ overview, library, albums, filters, equipment, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts, openAlbumQuality }: {
+export function LibraryView({ overview, library, albums, filters, equipment, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
   overview: Overview | null;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
@@ -297,6 +336,7 @@ export function LibraryView({ overview, library, albums, filters, equipment, que
   changeAlbumPageSize: (limit: number) => void;
   openAlbumBursts: (albumId: number) => void;
   openAlbumQuality: (albumId: number) => void;
+  refreshLibrary: () => void;
 }) {
   const [section, setSection] = useState<LibrarySection>(requestedSection);
   const [activeAlbumId, setActiveAlbumId] = useState<number | null>(null);
@@ -308,7 +348,7 @@ export function LibraryView({ overview, library, albums, filters, equipment, que
   const activeAlbum = filters?.albums.find((album) => album.id === activeAlbumId) ?? null;
   useEffect(() => {
     if (activeAlbumId === null) setSection(requestedSection);
-  }, [activeAlbumId, requestedSection]);
+  }, [requestedSection]);
   useEffect(() => {
     if (query.albumId && query.albumId !== "__unassigned__") {
       setActiveAlbumId(Number(query.albumId));
@@ -350,10 +390,9 @@ export function LibraryView({ overview, library, albums, filters, equipment, que
       <TaskCard task={isLibraryTask(task) ? task : null} cancel={cancelTask} />
       {activeAlbumId ? <>
         <AlbumWorkspaceHeader name={activeAlbum?.name ?? "相册照片"} category={activeAlbum?.category ?? "相册"} summary={`${numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片`} current="library" back={leaveAlbum} openPhotos={() => undefined} openBursts={() => openAlbumBursts(activeAlbumId)} openQuality={() => openAlbumQuality(activeAlbumId)} />
-        <div className="album-context-actions"><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>更新图库</button></div>
-        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} albumContext />
+        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} albumContext refreshLibrary={refreshLibrary} />
       </> : <>
-        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} />}
+        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} changePage={changePage} changePageSize={changePageSize} refreshLibrary={refreshLibrary} />}
         {section === "albums" && <AlbumsView albums={albums} filters={filters} equipment={equipment} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
       </>}
       {updateOpen && <ModalShell title="更新图库" close={() => setUpdateOpen(false)}><form className="editor-form" onSubmit={(event) => { event.preventDefault(); void runUpdate(); }}>

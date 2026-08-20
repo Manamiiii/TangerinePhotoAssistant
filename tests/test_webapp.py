@@ -39,6 +39,8 @@ from tangerine_photo_assistant.webapp import (
     _query_similarity_group,
     _query_similarity_groups,
     _pick_directory,
+    _open_file,
+    _reveal_file,
 )
 
 
@@ -63,6 +65,16 @@ def settings_for(root: Path) -> Settings:
 
 
 class WebAppQueryTests(unittest.TestCase):
+    def test_windows_file_actions_only_delegate_to_desktop_shell(self) -> None:
+        source = Path(r"D:\Photos\sample.jpg")
+        with patch("tangerine_photo_assistant.webapp.os.name", "nt"), patch(
+            "tangerine_photo_assistant.webapp.os.startfile", create=True
+        ) as startfile, patch("tangerine_photo_assistant.webapp.subprocess.Popen") as popen:
+            _open_file(source)
+            _reveal_file(source)
+        startfile.assert_called_once_with(source)
+        popen.assert_called_once_with(["explorer.exe", f"/select,{source}"])
+
     def test_directory_picker_returns_existing_selection_without_writing(self) -> None:
         with TemporaryDirectory() as directory:
             selected = Path(directory).resolve()

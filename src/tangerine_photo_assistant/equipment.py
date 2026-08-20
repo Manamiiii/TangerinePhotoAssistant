@@ -163,7 +163,7 @@ def save_equipment_item(
     clean = {
         field: value.strip() if isinstance(value, str) else value
         for field, value in item.items()
-        if field in {"brand", "model", "display_name", "category", "section", "kind", "notes", "filter_thread_mm", "thread_mm", "system_mm", "lens_thread_mm", "stops"}
+        if field in {"brand", "model", "display_name", "category", "section", "kind", "notes", "image_path", "filter_thread_mm", "thread_mm", "system_mm", "lens_thread_mm", "stops"}
         and value not in (None, "")
     }
     if key is None:

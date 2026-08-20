@@ -24,6 +24,99 @@ class CaptureTagNotFoundError(CaptureTagError):
     pass
 
 
+def list_tag_definitions(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [dict(row) for row in connection.execute(
+        """SELECT td.id, td.dimension, td.name, td.built_in, td.active,
+                  COUNT(DISTINCT ct.capture_id) AS capture_count
+           FROM tag_definitions td
+           LEFT JOIN capture_tags ct ON ct.tag_id=td.id
+           GROUP BY td.id
+           ORDER BY CASE td.dimension
+                        WHEN 'subject' THEN 1 WHEN 'status' THEN 2
+                        WHEN 'problem' THEN 3 ELSE 4 END,
+                    td.active DESC, td.sort_order, td.name"""
+    )]
+
+
+def create_tag_definition(
+    connection: sqlite3.Connection, dimension: str, name: str
+) -> dict[str, Any]:
+    normalized_dimension, normalized_name = _normalize_tags((
+        {"dimension": dimension, "name": name},
+    ))[0]
+    if normalized_dimension == "status" and normalized_name in RETIRED_WORKFLOW_STATUSES:
+        raise CaptureTagError("精选和待淘汰请使用选片入选/排除")
+    with transaction(connection):
+        existing = connection.execute(
+            "SELECT id FROM tag_definitions WHERE dimension=? AND name=?",
+            (normalized_dimension, normalized_name),
+        ).fetchone()
+        if existing is not None:
+            connection.execute(
+                "UPDATE tag_definitions SET active=1 WHERE id=?", (existing["id"],)
+            )
+            tag_id = int(existing["id"])
+        else:
+            cursor = connection.execute(
+                """INSERT INTO tag_definitions(
+                       dimension,name,built_in,active,sort_order,created_at
+                   ) VALUES (?,?,0,1,1000,?)""",
+                (normalized_dimension, normalized_name, utc_now()),
+            )
+            tag_id = int(cursor.lastrowid)
+    return next(item for item in list_tag_definitions(connection) if item["id"] == tag_id)
+
+
+def update_tag_definition(
+    connection: sqlite3.Connection,
+    tag_id: int,
+    *,
+    name: str | None = None,
+    active: bool | None = None,
+) -> dict[str, Any]:
+    row = connection.execute(
+        "SELECT id,dimension,name,built_in FROM tag_definitions WHERE id=?", (tag_id,)
+    ).fetchone()
+    if row is None:
+        raise CaptureTagNotFoundError("标签不存在")
+    next_name = str(row["name"])
+    if name is not None:
+        if row["built_in"]:
+            raise CaptureTagError("内置标签不能改名，可以停用")
+        _, next_name = _normalize_tags((
+            {"dimension": str(row["dimension"]), "name": name},
+        ))[0]
+        duplicate = connection.execute(
+            "SELECT 1 FROM tag_definitions WHERE dimension=? AND name=? AND id!=?",
+            (row["dimension"], next_name, tag_id),
+        ).fetchone()
+        if duplicate is not None:
+            raise CaptureTagError("同一维度已存在同名标签")
+    with transaction(connection):
+        connection.execute(
+            "UPDATE tag_definitions SET name=?, active=COALESCE(?,active) WHERE id=?",
+            (next_name, None if active is None else int(active), tag_id),
+        )
+    return next(item for item in list_tag_definitions(connection) if item["id"] == tag_id)
+
+
+def delete_tag_definition(connection: sqlite3.Connection, tag_id: int) -> None:
+    row = connection.execute(
+        """SELECT td.built_in, COUNT(ct.tag_id) AS link_count
+           FROM tag_definitions td LEFT JOIN capture_tags ct ON ct.tag_id=td.id
+           WHERE td.id=? GROUP BY td.id""",
+        (tag_id,),
+    ).fetchone()
+    if row is None:
+        raise CaptureTagNotFoundError("标签不存在")
+    if row["built_in"]:
+        raise CaptureTagError("内置标签不能删除，可以停用")
+    if row["link_count"]:
+        raise CaptureTagError("标签正在被照片使用，请先停用；停用不会丢失已有标记")
+    with transaction(connection):
+        connection.execute("DELETE FROM tag_definitions WHERE id=?", (tag_id,))
+
+
 def _analysis_subjects(result: Mapping[str, Any]) -> list[tuple[str, float | None]]:
     raw_tags = result.get("subject_tags")
     candidates: list[tuple[object, object]] = []

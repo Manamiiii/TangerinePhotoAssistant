@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getJson } from "../../api";
 import { formatDate, formatExposure, formatFileSize } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
 import type { CaptureDetail, CaptureTagDimension, DetailMode, EditParameters, EditRecipe } from "./types";
@@ -158,7 +159,7 @@ function ParameterHelp({ kind }: { kind: keyof typeof parameterHelp }) {
     };
   }, [open]);
   return <span ref={rootRef} className="parameter-help">
-    <button type="button" aria-label={`解释${help.title}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>
+    <button type="button" aria-label={`解释${help.title}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>i</button>
     {open && <span className="parameter-help-popover" role="note"><span className="parameter-help-heading"><strong>{help.title}</strong><button type="button" aria-label="关闭解释" onClick={() => setOpen(false)}>×</button></span><span>{help.meaning}</span><b>可能的选项与含义</b><span className="parameter-help-options">{help.options.map(([value, meaning]) => <span key={value}><strong>{value}</strong><small>{meaning}</small></span>)}</span>{help.note && <em>{help.note}</em>}</span>}
   </span>;
 }
@@ -195,16 +196,16 @@ const metadataValueTranslations: Record<string, string> = {
 
 function formatMetadataText(value: unknown): string {
   if (value == null || value === "") return "—";
-  if (Array.isArray(value)) return value.map(formatMetadataText).join(" · ");
+  if (Array.isArray(value)) return [...new Set(value.map(formatMetadataText))].join(" · ");
   if (typeof value !== "string") return String(value);
   const trimmed = value.trim();
   const translated = metadataValueTranslations[trimmed.toLocaleLowerCase()];
   if (!translated && trimmed.includes(";")) {
     const segments = trimmed.split(";").map((item) => item.trim());
     const localized = segments.map((item) => metadataValueTranslations[item.toLocaleLowerCase()] ?? item);
-    if (localized.some((item, index) => item !== segments[index])) return `${localized.join("；")}（${value}）`;
+    if (localized.some((item, index) => item !== segments[index])) return [...new Set(localized)].join("；");
   }
-  return translated && translated !== value ? `${translated}（${value}）` : value;
+  return translated ?? value;
 }
 
 export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveReview, saveTags, saveEditRecipe, restoreEditRecipe, navigate, hasPrev, hasNext }: {
@@ -291,6 +292,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
           {detail.files.some((file) => file.role === "raw") && <span className="raw-badge">JPG + RAW</span>}
           <div className="detail-view-controls">
             <button onClick={() => { setImmersive((current) => !current); setZoom(0); }}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
+            {!immersive && <><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>文件位置</button></>}
             {immersive && <><button onClick={() => setZoom(0)}>适应</button><button onClick={() => setZoom((current) => current ? Math.max(1, current - .5) : 1)}>−</button><button onClick={() => setZoom((current) => current ? Math.min(4, current + .5) : 1)}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => void backdropRef.current?.requestFullscreen?.()}>浏览器全屏</button></>}
           </div>
         </div>
@@ -307,7 +309,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <ReviewHelp />
             <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
           </div>
-          {detail.user_pick ? <div className="detail-selection-reasons"><span>为什么保留这张</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
+          {detail.user_pick ? <div className="detail-selection-reasons"><span title="记录这张照片被人工入选的原因，用于复盘选片偏好和统计">保留依据</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
           <div className="exif-strip">
             <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门 <ParameterHelp kind="shutter" /></span></div>
             <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈 <ParameterHelp kind="aperture" /></span></div>
@@ -316,10 +318,10 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
           </div>
           <div className="detail-context-bar">
             <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断入选、排除与保留理由" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
-            <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "展开完整详情"}</button>
+            <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "完整详情与后期建议"}</button>
           </div>
           <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
-          {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未技术评分" : `技术分 ${Math.round(detail.technical_score)}`}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
+          {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未技术评分" : `基础技术分 ${Math.round(detail.technical_score)}`}{shootingReview.editing.length ? ` · 后期建议 ${shootingReview.editing.length} 项` : ""}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
           <div className={`detail-section detail-exif-section ${sectionClass(["browse"])}`}>
             <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
             <dl className="exif-grid">
@@ -374,14 +376,12 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             {!!shootingReview.next_time.length && <div className="critique-block"><h4>下次怎么拍</h4><div className="critique-card-list">{shootingReview.next_time.map((advice, index) => <article className="critique-card next-time" key={`${advice.suggestion}-${index}`}><strong>{advice.suggestion}</strong>{advice.reason && <p>{advice.reason}</p>}{advice.exif_basis && <small>参数依据：{advice.exif_basis}</small>}</article>)}</div></div>}
             {!!shootingReview.technical_evidence.length && <details className="technical-evidence-details"><summary>基础技术证据 · {shootingReview.technical_evidence.length} 项</summary><ul>{shootingReview.technical_evidence.map((issue) => <li key={issue.code}><span>{issue.inference ? "规则推测" : "测量结果"}</span><p>{issue.message}</p></li>)}</ul></details>}
             {latestAnalysis && <div className="ai-review-controls">
-              <span>这条分析是否可信？</span>
-              <div>
+              <div className="ai-review-verdict"><span>分析可信度</span>
                 <button className={latestAnalysis.user_verdict === "accurate" ? "selected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "accurate", aiNote)}>准确</button>
                 <button className={latestAnalysis.user_verdict === "partial" ? "selected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "partial", aiNote)}>部分准确</button>
                 <button className={latestAnalysis.user_verdict === "inaccurate" ? "rejected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "inaccurate", aiNote)}>不准确</button>
               </div>
-              <textarea value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="可选：记录误判、漏判或参数建议问题" maxLength={2000} />
-              <button onClick={() => saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote)}>保存备注</button>
+              <div className="ai-review-note"><textarea value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="可选：记录误判、漏判或参数建议问题" maxLength={2000} /><button onClick={() => saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote)}>保存</button></div>
             </div>}
           </div>
           <div className={`detail-section editing-review-section ${sectionClass(["analyze"])}`}><h3>后期建议</h3>
@@ -390,7 +390,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <small className="advice-safety-note">建议仅供预览和人工判断，不会自动写入 XMP 或修改照片。</small>
             <details className="edit-recipe-details"><summary>参数化方案与预览</summary><EditRecipePanel detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>
           </div>
-          <div className={`detail-section ${sectionClass([])}`}><h3>文件</h3><p>{detail.files.map((file) => `${file.file_name} · ${formatFileSize(file.size_bytes)}`).join(" / ")}</p></div>
+          <div className={`detail-section detail-file-section ${sectionClass([])}`}><h3>文件</h3><p>{detail.files.map((file) => `${file.file_name} · ${formatFileSize(file.size_bytes)}`).join(" / ")}</p><div><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>在资源管理器中显示</button></div></div>
         </div>
       </section>
     </div>

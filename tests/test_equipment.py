@@ -161,13 +161,14 @@ kind = "neutral_density"
                 save_equipment_item(
                     inventory,
                     "camera",
-                    {"brand": "Test", "model": "C-2", "display_name": "改名机身", "notes": "备用", "owned": False},
+                    {"brand": "Test", "model": "C-2", "display_name": "改名机身", "notes": "备用", "image_path": str(root / "camera.png"), "owned": False},
                     custom_key,
                 )
                 catalog = build_equipment_catalog(connection, profile, official, inventory)
                 custom_camera = next(item for item in catalog["cameras"] if item["inventory_key"] == custom_key)
                 self.assertEqual(custom_camera["model"], "C-2")
                 self.assertEqual(custom_camera["notes"], "备用")
+                self.assertEqual(custom_camera["image_path"], str(root / "camera.png"))
                 self.assertFalse(custom_camera["owned"])
 
                 delete_equipment_item(inventory, "camera", custom_key)

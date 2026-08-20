@@ -116,8 +116,12 @@ from .tags import (
     clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
+    create_tag_definition,
+    delete_tag_definition,
+    list_tag_definitions,
     replace_manual_capture_tags,
     sync_analysis_subject_tags,
+    update_tag_definition,
     update_manual_tag_for_captures,
 )
 from .queries.albums import query_albums
@@ -182,6 +186,11 @@ class BatchCaptureTagRequest(CaptureTagInput):
     action: Literal["add", "remove"] = "add"
 
 
+class TagDefinitionUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+    active: bool | None = None
+
+
 class EquipmentOwnershipRequest(BaseModel):
     kind: Literal["camera", "lens", "accessory"]
     key: str = Field(min_length=1, max_length=300)
@@ -197,6 +206,7 @@ class EquipmentItemRequest(BaseModel):
     category: str | None = Field(default=None, max_length=50)
     section: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=1000)
+    image_path: str | None = Field(default=None, max_length=1000)
     filter_thread_mm: int | None = Field(default=None, ge=1, le=300)
     thread_mm: int | None = Field(default=None, ge=1, le=300)
     owned: bool = True
@@ -1454,6 +1464,26 @@ def _open_folder(path: Path) -> None:
         raise OSError("No supported desktop folder opener is available")
 
 
+def _open_file(path: Path) -> None:
+    if os.name == "nt":
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", str(path)])
+    elif shutil.which("xdg-open") is not None:
+        subprocess.Popen(["xdg-open", str(path)])
+    else:
+        raise OSError("No supported desktop file opener is available")
+
+
+def _reveal_file(path: Path) -> None:
+    if os.name == "nt":
+        subprocess.Popen(["explorer.exe", f"/select,{path}"])
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", "-R", str(path)])
+    else:
+        _open_folder(path.parent)
+
+
 def _runtime_capabilities(settings: Settings) -> dict[str, Any]:
     exiftool = settings.find_exiftool()
     ai_ready, ai_message = settings.ai_runtime_status()
@@ -1939,6 +1969,73 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         finally:
             connection.close()
 
+    def capture_source_path(capture_id: int) -> Path:
+        connection = connect_readonly(settings.database_path)
+        try:
+            row = connection.execute(
+                """SELECT f.path FROM capture_files cf
+                   JOIN files f ON f.id=cf.file_id
+                   WHERE cf.capture_id=? AND f.present=1
+                   ORDER BY CASE cf.role WHEN 'jpeg' THEN 1 WHEN 'raw' THEN 2 ELSE 3 END,
+                            f.id LIMIT 1""",
+                (capture_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise HTTPException(status_code=404, detail="照片文件不存在或已离线")
+        path = Path(row["path"])
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="照片文件当前不可用")
+        return path
+
+    @app.post("/api/captures/{capture_id}/open")
+    def open_capture_file(capture_id: int) -> dict[str, str]:
+        try:
+            _open_file(capture_source_path(capture_id))
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"无法打开照片：{exc}") from exc
+        return {"status": "opened"}
+
+    @app.post("/api/captures/{capture_id}/reveal")
+    def reveal_capture_file(capture_id: int) -> dict[str, str]:
+        try:
+            _reveal_file(capture_source_path(capture_id))
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"无法在文件管理器中显示照片：{exc}") from exc
+        return {"status": "opened"}
+
+    @app.post("/api/albums/{album_id}/open-folder")
+    def open_album_folder(album_id: int) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            exists = connection.execute(
+                "SELECT 1 FROM events WHERE id=? AND status!='archived'", (album_id,)
+            ).fetchone()
+            if exists is None:
+                raise HTTPException(status_code=404, detail="相册不存在")
+            sources = [
+                str(row[0]) for row in connection.execute(
+                    "SELECT parent_relative FROM event_sources WHERE event_id=? ORDER BY parent_relative",
+                    (album_id,),
+                )
+            ]
+        finally:
+            connection.close()
+        root = settings.originals.resolve()
+        candidates = [
+            (root / source).resolve() for source in sources
+            if (root / source).resolve().is_relative_to(root)
+        ]
+        path = next((candidate for candidate in candidates if candidate.is_dir()), None)
+        if path is None:
+            raise HTTPException(status_code=404, detail="相册没有当前可用的来源目录")
+        try:
+            _open_folder(path)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"无法打开相册目录：{exc}") from exc
+        return {"status": "opened", "source_count": len(sources)}
+
     @app.put("/api/captures/{capture_id}/edit-recipe")
     def update_edit_recipe(
         capture_id: int, request: EditRecipeRequest
@@ -2030,6 +2127,51 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         finally:
             connection.close()
 
+    @app.get("/api/tag-definitions")
+    def tag_definitions() -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return {"items": list_tag_definitions(connection)}
+        finally:
+            connection.close()
+
+    @app.post("/api/tag-definitions", status_code=201)
+    def create_tag(request: CaptureTagInput) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return create_tag_definition(connection, request.dimension, request.name)
+        except CaptureTagError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.put("/api/tag-definitions/{tag_id}")
+    def update_tag(tag_id: int, request: TagDefinitionUpdateRequest) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return update_tag_definition(
+                connection, tag_id, name=request.name, active=request.active
+            )
+        except CaptureTagNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CaptureTagError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.delete("/api/tag-definitions/{tag_id}")
+    def delete_tag(tag_id: int) -> dict[str, str]:
+        connection = connect(settings.database_path)
+        try:
+            delete_tag_definition(connection, tag_id)
+            return {"status": "deleted"}
+        except CaptureTagNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CaptureTagError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
     @app.post("/api/analysis/subject-tags/sync")
     def sync_subject_tags() -> dict[str, Any]:
         if manager.snapshot()["status"] in {"running", "paused"}:
@@ -2107,6 +2249,21 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return equipment()
+
+    @app.get("/api/equipment/image")
+    def equipment_image(
+        kind: Literal["camera", "lens", "accessory"],
+        key: str = Query(min_length=1, max_length=300),
+    ) -> FileResponse:
+        catalog = equipment()
+        collection = catalog[{"camera": "cameras", "lens": "lenses", "accessory": "accessories"}[kind]]
+        item = next((entry for entry in collection if entry["inventory_key"] == key), None)
+        if item is None or not item.get("image_path"):
+            raise HTTPException(status_code=404, detail="设备没有配置图片")
+        path = Path(str(item["image_path"])).expanduser()
+        if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"} or not path.is_file():
+            raise HTTPException(status_code=404, detail="设备图片不可用")
+        return FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
 
     @app.post("/api/equipment/items", status_code=201)
     def create_equipment_item(request: EquipmentItemRequest) -> dict[str, Any]:
