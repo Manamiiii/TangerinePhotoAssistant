@@ -1880,3 +1880,43 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .growth-summary-grid article:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .analysis-tag-sync, .analysis-tag-sync > div { align-items: stretch; flex-direction: column; }
 }
+
+/* 2026-08 follow-up polish: visible metadata, compact review and stable actions */
+.photo-card-equipment { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.filter-drawer-heading { grid-column: 1 / -1; min-height: 28px; display: flex; align-items: center; justify-content: space-between; }
+.filter-drawer-heading > span { color: var(--muted); font-size: 9px; }
+.filter-drawer-heading button { padding: 5px 8px; border: 0; border-radius: 7px; color: var(--orange-soft); background: transparent; font-size: 9px; cursor: pointer; }
+.filter-drawer-heading button:hover { background: rgba(255,122,26,.08); }
+
+.event-row.album-row { grid-template-columns: 72px minmax(220px, 1.8fr) 82px 104px 250px; }
+.album-row-actions { display: grid; grid-template-columns: 44px 58px 44px 82px; justify-content: end; gap: 7px; }
+.album-row-actions > span { display: block; }
+.album-row-actions .album-open-action { margin-left: 3px; }
+
+.ai-review-controls > .ai-review-note { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px; }
+.ai-review-controls .ai-review-note textarea { width: 100%; min-width: 0; }
+.ai-review-controls .ai-review-note button { width: auto; height: 30px; align-self: end; padding: 0 10px; }
+
+.edit-recipe-details { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.edit-recipe-details > summary { padding: 1px 0; }
+.edit-recipe-details[open] > summary { margin-bottom: 13px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+.edit-recipe-details .edit-recipe-panel { margin-top: 0; }
+.edit-preview > .preview-original-toggle { position: absolute; right: 10px; bottom: 10px; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.36); border-radius: 50%; padding: 0; background: rgba(10,8,7,.76); color: white; cursor: pointer; }
+.preview-original-toggle svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.preview-original-toggle:active { color: var(--orange-soft); transform: scale(.96); }
+
+.photo-flags { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.photo-flags .photo-flag { position: static; padding: 5px 8px; border: 1px solid rgba(255,255,255,.34); border-radius: 7px; color: #fff; background: #9b430d; box-shadow: 0 2px 8px rgba(0,0,0,.45); font-size: 9px; font-weight: 750; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.photo-flags .photo-flag.user { color: #fff; background: #24643a; }
+.photo-flags .photo-flag.diversity { color: #fff; background: #594395; }
+.similarity-picker-photo span { color: #fff; background: #9b430d; box-shadow: 0 2px 7px rgba(0,0,0,.45); font-size: 9px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+
+@media (max-width: 1180px) {
+  .event-row.album-row { grid-template-columns: 64px minmax(180px, 1fr) 70px 92px 236px; gap: 10px; }
+}
+@media (max-width: 760px) {
+  .event-row.album-row { grid-template-columns: 58px minmax(0, 1fr); gap: 9px; }
+  .album-row-actions { display: flex; flex-wrap: wrap; grid-column: 2; grid-row: 2; justify-content: flex-start; }
+  .album-row-actions > span { display: none; }
+  .album-row-actions .album-open-action { margin-left: 4px; }
+}

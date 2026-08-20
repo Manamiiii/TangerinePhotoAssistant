@@ -153,9 +153,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
                 <div className="photo-frame">
                   <img src={item.thumbnail_url} loading="lazy" alt={`${item.stem} 缩略图`} />
                   {item.similarity_rank && <span className="photo-rank">#{item.similarity_rank}</span>}
-                  {item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}
-                  {comparisonOrder === "balanced" && item.diversity_candidate ? <span className="photo-flag diversity">差异候选</span> : null}
-                  {item.user_pick ? <span className="photo-flag user">组内入选</span> : null}
+                  {(item.auto_pick || (comparisonOrder === "balanced" && item.diversity_candidate) || item.user_pick) && <span className="photo-flags">{item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}{comparisonOrder === "balanced" && item.diversity_candidate ? <span className="photo-flag diversity">差异候选</span> : null}{item.user_pick ? <span className="photo-flag user">组内入选</span> : null}</span>}
                 </div>
                 <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span><small className={`recommendation-tier ${item.recommendation_tier}`}>{tierLabels[item.recommendation_tier]}</small><small className="comparison-reason">{comparisonOrder === "balanced" && item.diversity_reason ? item.diversity_reason : item.recommendation_reason}</small></div>
                 <div className="photo-review" onClick={(event) => event.stopPropagation()}>

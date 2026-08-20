@@ -36,7 +36,7 @@ function ReviewHelp() {
       document.removeEventListener("keydown", closeEscape);
     };
   }, [open]);
-  return <span ref={rootRef} className="review-help"><button type="button" aria-label="解释评价规则" aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>{open && <span className="review-help-popover" role="note"><span><strong>人工评价怎么分工</strong><button type="button" aria-label="关闭评价说明" onClick={() => setOpen(false)}>×</button></span><b>星级</b><small>表示你对照片长期价值的判断：1 星明显较弱，2 星有记录价值，3 星合格，4 星优秀，5 星代表作。</small><b>入选 / 排除</b><small>表示本轮选片结论，与星级独立；入选和排除互斥，排除只做标记，不删除照片。</small><b>工作状态</b><small>只表示待复核、待修、已修、待导出等流程阶段，不代替星级或选片结论。</small></span>}</span>;
+  return <span ref={rootRef} className="review-help"><button type="button" aria-label="解释评价规则" aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>{open && <span className="review-help-popover" role="note"><span><strong>人工评价怎么分工</strong><button type="button" aria-label="关闭评价说明" onClick={() => setOpen(false)}>×</button></span><b>星级</b><small>表示你对照片长期价值的判断：1 星明显较弱，2 星有记录价值，3 星合格，4 星优秀，5 星代表作。</small><b>入选 / 排除</b><small>表示是否进入最终保留集合：相似组用来选优，普通单张也可以明确取舍；导出分享包和 Lightroom 准备清单可只使用人工入选照片。它与星级独立，排除只做标记，不删除照片。</small><b>工作状态</b><small>只表示待复核、待修、已修、待导出等流程阶段，不代替星级或选片结论。</small></span>}</span>;
 }
 
 function TagEditor({ detail, saveTags }: {
