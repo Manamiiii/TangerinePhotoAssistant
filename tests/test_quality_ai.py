@@ -240,6 +240,7 @@ class QualityAndAiTests(unittest.TestCase):
                 (run["run_id"],),
             )
             connection.commit()
+            self.assertEqual(backfill_ai_audit_metadata(connection), 1)
             summary = ai_summary(connection, settings.ai_model_path, "int8")
             self.assertEqual(summary["analyzed_capture_count"], 1)
             self.assertAlmostEqual(
@@ -276,7 +277,6 @@ class QualityAndAiTests(unittest.TestCase):
             )
             self.assertFalse(report_payload["photos_mutated"])
             self.assertEqual(report_payload["result_audit"]["latest"]["result_count"], 1)
-            self.assertEqual(backfill_ai_audit_metadata(connection), 1)
             self.assertEqual(backfill_ai_audit_metadata(connection), 0)
             self.assertEqual(ai_results_page(connection, audit="risk")["count"], 0)
             retry = create_ai_failure_retry_run(

@@ -138,7 +138,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <article><span>危险操作提及</span><strong>{numberFormat.format(ai.result_audit.latest.unsafe_action_mentions ?? 0)}</strong><small>只提示人工复核，系统不会执行</small></article>
         <article><span>当前版本均速</span><strong>{ai.result_audit.latest.average_seconds_per_photo == null ? "—" : `${ai.result_audit.latest.average_seconds_per_photo.toFixed(1)} 秒`}</strong><small>{numberFormat.format(ai.result_audit.latest.timed_count)} 张有效计时</small></article>
         <article><span>人工复核</span><strong>{numberFormat.format(ai.result_audit.latest.reviewed)}</strong><small>准确 {ai.result_audit.latest.verdicts.accurate} · 部分 {ai.result_audit.latest.verdicts.partial} · 不准确 {ai.result_audit.latest.verdicts.inaccurate}</small></article>
-        <article><span>风险优先队列</span><strong>{numberFormat.format(ai.result_audit.latest.risk_count)}</strong><small>低置信度、结构异常、危险提及或过度自信</small></article>
+        <article><span>风险优先队列</span><strong>{numberFormat.format(ai.result_audit.latest.risk_count)}</strong><small>低置信度、结构异常、危险提及或过度自信{ai.result_audit.latest.pending_audit_metadata ? ` · ${ai.result_audit.latest.pending_audit_metadata} 条后台分类中` : ""}</small></article>
       </section></details>}
       {analysisTab === "history" && !!ai?.result_audit?.versions?.length && <section className="panel ai-version-panel">
         <div className="panel-heading"><div><span className="section-kicker">版本比较</span><h3>提示词质量与速度</h3></div><span className="batch-count">结构异常只提示人工复核</span></div>

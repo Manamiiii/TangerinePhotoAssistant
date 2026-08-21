@@ -1559,6 +1559,18 @@ def _ensure_capture_histogram(
     return list(histogram)
 
 
+def _backfill_ai_audit_in_background(database_path: Path) -> None:
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = connect(database_path)
+        backfill_ai_audit_metadata(connection)
+    except Exception:
+        pass
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def create_app(config_path: Path, static_directory: Path | None = None) -> FastAPI:
     config_path = config_path.resolve()
     settings = Settings.load(config_path)
@@ -1567,7 +1579,6 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         active_root = active_library_root(bootstrap, settings.originals)
         discover_pre_ai_database_backups(settings, bootstrap)
         recovery = recover_interrupted_ai_runs(bootstrap)
-        backfill_ai_audit_metadata(bootstrap)
     finally:
         bootstrap.close()
     if active_root != settings.originals:
@@ -1579,6 +1590,11 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     if recovery["still_running"]:
         manager.attach_ai_run(recovery["still_running"][0])
     thumbnail_cache = ThumbnailCache(settings)
+    Thread(
+        target=_backfill_ai_audit_in_background,
+        args=(settings.database_path,),
+        daemon=True,
+    ).start()
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
     config_state = {"restart_required": False, "backup_path": None}
 

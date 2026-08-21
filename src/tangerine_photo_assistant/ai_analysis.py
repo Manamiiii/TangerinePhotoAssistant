@@ -589,6 +589,7 @@ def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
             "empty_photoshop_reason": 0,
             "overconfident": 0,
             "risk_count": 0,
+            "pending_audit_metadata": 0,
             "reviewed": 0,
             "verdicts": {"accurate": 0, "partial": 0, "inaccurate": 0},
             "confidence_total": 0.0,
@@ -600,12 +601,9 @@ def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
         bits = row["audit_bits"]
         confidence = row["audit_confidence"]
         if bits is None:
-            try:
-                metadata = model_result_audit_metadata(json.loads(row["result_json"]))
-            except (TypeError, json.JSONDecodeError):
-                metadata = {"bits": AUDIT_PARSE_ERROR, "confidence": None}
-            bits = metadata["bits"]
-            confidence = metadata["confidence"]
+            audit["pending_audit_metadata"] += 1
+            audit["risk_count"] += 1
+            bits = 0
         audit["parse_errors"] += int(bool(bits & AUDIT_PARSE_ERROR))
         audit["schema_errors"] += int(bool(bits & AUDIT_SCHEMA_ERROR))
         audit["unsafe_action_mentions"] += int(bool(bits & AUDIT_UNSAFE_ACTION))
@@ -715,7 +713,9 @@ def ai_results_page(
         filters.append("aa.user_verdict=?")
         parameters.append(verdict)
     if audit == "risk":
-        filters.append(f"(COALESCE(aa.audit_bits, 0) & {AUDIT_RISK_MASK}) != 0")
+        filters.append(
+            f"(aa.audit_bits IS NULL OR (aa.audit_bits & {AUDIT_RISK_MASK}) != 0)"
+        )
     elif audit == "sample":
         filters.append("aa.user_verdict IS NULL AND aa.id % 20 = 0")
     where = " AND ".join(filters)

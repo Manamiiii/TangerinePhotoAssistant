@@ -569,9 +569,6 @@ def connect(path: Path) -> sqlite3.Connection:
             PRIMARY KEY (check_id, status, relative_path)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_archive_check_differences_status
-            ON archive_check_differences(check_id, status, relative_path);
-
         CREATE TABLE IF NOT EXISTS migration_plans (
             id INTEGER PRIMARY KEY,
             created_at TEXT NOT NULL,
