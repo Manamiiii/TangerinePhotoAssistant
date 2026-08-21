@@ -1923,3 +1923,64 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .album-row-actions > span { display: none; }
   .album-row-actions .album-open-action { margin-left: 4px; }
 }
+
+/* Shared interaction and readability baseline. */
+.nav-item { cursor: pointer; }
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+.toolbar-button,
+.collection-scope-tabs button,
+.section-tabs button,
+.album-workspace-header nav button,
+.text-action { font-size: 11px; }
+.panel-heading > span,
+.batch-count,
+.photo-card-copy span,
+.photo-card-copy p,
+.settings-form-grid label > span,
+.library-filter-drawer label,
+.library-filter-drawer legend { font-size: 10px; }
+.settings-form-grid input,
+.settings-form-grid select,
+.library-filter-drawer input,
+.library-filter-drawer select,
+.library-search input { font-size: 12px; }
+.settings-form-grid small,
+.effective-settings span,
+.effective-settings small,
+.settings-actions > span,
+.settings-folder-actions > span { font-size: 10px; }
+
+@media (max-width: 760px) {
+  .sidebar { scrollbar-width: thin; }
+  .sidebar .nav-item {
+    min-width: 72px;
+    padding: 8px 7px;
+    font-size: 10px;
+    text-align: center;
+  }
+  .sidebar .nav-item span {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

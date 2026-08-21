@@ -135,7 +135,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
     <>
       <section className="structure-hero burst-hero">
         <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
-        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%</small></div>
+        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%{groups?.pending_count ? ` · 预计约 ${groups.estimated_review_minutes} 分钟` : ""}</small></div>
       </section>
       <TaskCard task={isVisualTask(task) ? task : null} cancel={cancelTask} />
       {!selectedGroup && !albumId && <div className="workspace-view-nav burst-scope-nav"><CollectionScopeTabs scope={browseMode} setScope={setBrowseMode} allLabel="全部相似组" /></div>}
@@ -149,7 +149,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
           <div className="comparison-note comparison-context"><span>共 {selectedGroup.capture_count} 张 · 点击图片查看完整参数</span><div className="comparison-context-actions"><div className="burst-view-toggle" role="group" aria-label="组内照片排序"><button className={comparisonOrder === "recommended" ? "active" : ""} onClick={() => setComparisonOrder("recommended")}>技术推荐</button><button className={comparisonOrder === "balanced" ? "active" : ""} onClick={() => setComparisonOrder("balanced")}>兼顾差异</button><button className={comparisonOrder === "capture" ? "active" : ""} onClick={() => setComparisonOrder("capture")}>拍摄顺序</button></div><button className="toolbar-button" onClick={() => setEditingGroupId(selectedGroup.id)}>调整这一组</button></div></div>
           <div className="comparison-grid">
             {comparisonItems.map((item) => (
-              <article className={`comparison-card ${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id} onClick={() => openCapture(item.capture_id, comparisonItems.map((member) => member.capture_id))}>
+              <article role="button" tabIndex={0} aria-label={`查看 ${item.stem} 详情`} className={`comparison-card ${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id} onClick={() => openCapture(item.capture_id, comparisonItems.map((member) => member.capture_id))} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openCapture(item.capture_id, comparisonItems.map((member) => member.capture_id)); } }}>
                 <div className="photo-frame">
                   <img src={item.thumbnail_url} loading="lazy" alt={`${item.stem} 缩略图`} />
                   {item.similarity_rank && <span className="photo-rank">#{item.similarity_rank}</span>}

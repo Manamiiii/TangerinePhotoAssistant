@@ -57,6 +57,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [resultLimit, setResultLimit] = useState(40);
   const [resultVersion, setResultVersion] = useState("all");
   const [resultVerdict, setResultVerdict] = useState("all");
+  const [resultAudit, setResultAudit] = useState("risk");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
   const [analysisTab, setAnalysisTab] = useState<"quality" | "model" | "history">("quality");
@@ -73,11 +74,12 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
     const parameters = new URLSearchParams({ limit: String(resultLimit), offset: String(resultOffset) });
     if (resultVersion !== "all") parameters.set("prompt_version", resultVersion);
     if (resultVerdict !== "all") parameters.set("verdict", resultVerdict);
+    if (resultAudit !== "all") parameters.set("audit", resultAudit);
     getJson<AiResultsResponse>(`/api/ai/results?${parameters.toString()}`)
       .then((page) => { if (active) setResultPage(page); })
       .catch(() => { if (active) setResultPage(null); });
     return () => { active = false; };
-  }, [resultLimit, resultOffset, resultVersion, resultVerdict, ai?.completed_analysis_count]);
+  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, ai?.completed_analysis_count]);
   useEffect(() => {
     let active = true;
     const refresh = () => getJson<GpuStatus>("/api/system/gpu")
@@ -124,7 +126,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
       <section className="quality-score-note"><strong>为什么技术分普遍较高？</strong><span>它表示文件在基础曝光、全局细节和手持参数上是否明显异常，不评价构图、表情、时机、主体价值或你的审美。高分只代表“没有检测到明显基础故障”，不代表这是一张好照片；具体画面仍以人工选片和模型复盘为准。</span></section>
       <div className="workspace-view-nav analysis-content-nav">
         <nav className="analysis-tabs" aria-label="质量分析内容">
-          {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
+          {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button role="tab" aria-selected={analysisTab === value} key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
         </nav>
         {analysisTab === "quality" && !qualityAlbumId && <CollectionScopeTabs scope={qualityBrowseMode} setScope={setQualityBrowseMode} allLabel="全部照片" />}
       </div>
@@ -136,6 +138,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <article><span>危险操作提及</span><strong>{numberFormat.format(ai.result_audit.latest.unsafe_action_mentions ?? 0)}</strong><small>只提示人工复核，系统不会执行</small></article>
         <article><span>当前版本均速</span><strong>{ai.result_audit.latest.average_seconds_per_photo == null ? "—" : `${ai.result_audit.latest.average_seconds_per_photo.toFixed(1)} 秒`}</strong><small>{numberFormat.format(ai.result_audit.latest.timed_count)} 张有效计时</small></article>
         <article><span>人工复核</span><strong>{numberFormat.format(ai.result_audit.latest.reviewed)}</strong><small>准确 {ai.result_audit.latest.verdicts.accurate} · 部分 {ai.result_audit.latest.verdicts.partial} · 不准确 {ai.result_audit.latest.verdicts.inaccurate}</small></article>
+        <article><span>风险优先队列</span><strong>{numberFormat.format(ai.result_audit.latest.risk_count)}</strong><small>低置信度、结构异常、危险提及或过度自信{ai.result_audit.latest.pending_audit_metadata ? ` · ${ai.result_audit.latest.pending_audit_metadata} 条后台分类中` : ""}</small></article>
       </section></details>}
       {analysisTab === "history" && !!ai?.result_audit?.versions?.length && <section className="panel ai-version-panel">
         <div className="panel-heading"><div><span className="section-kicker">版本比较</span><h3>提示词质量与速度</h3></div><span className="batch-count">结构异常只提示人工复核</span></div>
@@ -155,6 +158,9 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           </select></label>
           <label>人工复核<select value={resultVerdict} onChange={(event) => { setResultVerdict(event.target.value); setResultOffset(0); }}>
             <option value="all">全部</option><option value="unreviewed">未复核</option><option value="accurate">准确</option><option value="partial">部分准确</option><option value="inaccurate">不准确</option>
+          </select></label>
+          <label>审计队列<select value={resultAudit} onChange={(event) => { setResultAudit(event.target.value); setResultOffset(0); }}>
+            <option value="risk">高风险优先</option><option value="sample">5% 稳定抽样</option><option value="all">全部记录</option>
           </select></label>
         </div>
         {!!resultPage?.items.length && <div className="ai-result-grid">

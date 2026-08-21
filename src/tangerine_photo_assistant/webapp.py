@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -15,8 +16,9 @@ from threading import Event, Lock, Thread
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -28,6 +30,7 @@ from .ai_analysis import (
     ai_run_failures,
     ai_run_history,
     ai_run_status,
+    backfill_ai_audit_metadata,
     create_ai_failure_retry_run,
     create_ai_run,
     recover_interrupted_ai_runs,
@@ -41,12 +44,6 @@ from .ai_safety import (
     discover_pre_ai_database_backups,
     gpu_status,
 )
-from .archive import (
-    create_archive_baseline,
-    recorded_active_library_status,
-    recorded_archive_status,
-    run_integrity_check,
-)
 from .albums import (
     AlbumConflictError,
     AlbumError,
@@ -58,8 +55,21 @@ from .albums import (
     rename_album_type,
     update_album as update_album_record,
 )
+from .archive import (
+    create_archive_baseline,
+    integrity_differences,
+    recorded_active_library_status,
+    recorded_archive_status,
+    run_integrity_check,
+)
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .diagnostics import write_diagnostic_bundle
+from .editing import (
+    EditRecipeError,
+    render_edit_preview,
+    restore_edit_recipe,
+    save_edit_recipe,
+)
 from .equipment import (
     build_equipment_catalog,
     delete_equipment_item,
@@ -68,19 +78,13 @@ from .equipment import (
     save_equipment_ownership,
     set_equipment_visibility,
 )
-from .editing import (
-    EditRecipeError,
-    render_edit_preview,
-    restore_edit_recipe,
-    save_edit_recipe,
-)
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityCaptureNotFoundError,
     SimilarityGroupingError,
     list_similarity_group_revisions,
-    restore_similarity_grouping,
     restore_similarity_group_revision,
+    restore_similarity_grouping,
     save_manual_similarity_grouping,
     set_similarity_override,
 )
@@ -105,38 +109,41 @@ from .quality import (
     measure_luminance_histogram,
     rebuild_group_recommendations,
 )
+from .queries.albums import query_albums
+from .queries.analysis import query_analysis_overview
+from .queries.details import query_capture_detail
+from .queries.library import query_library_captures, query_library_filters
+from .queries.overview import query_inbox, query_overview
+from .queries.quality import query_quality
+from .queries.similarity import query_similarity_group, query_similarity_groups
+from .reporting import build_report, write_report
 from .reviews import (
     CaptureReviewError,
     CaptureReviewNotFoundError,
     begin_selection_session,
     save_capture_review,
 )
+from .settings import Settings, editable_config, save_editable_config
+from .statistics import build_statistics
+from .structure import rebuild_structure
 from .tags import (
-    analysis_subject_tag_status,
-    clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
+    analysis_subject_tag_status,
+    clear_analysis_subject_tags,
     create_tag_definition,
     delete_tag_definition,
     list_tag_definitions,
     replace_manual_capture_tags,
     sync_analysis_subject_tags,
-    update_tag_definition,
     update_manual_tag_for_captures,
+    update_tag_definition,
 )
-from .queries.albums import query_albums
-from .queries.analysis import query_analysis_overview
-from .queries.details import query_capture_detail
-from .queries.quality import query_quality
-from .queries.library import query_library_captures, query_library_filters
-from .queries.overview import query_inbox, query_overview
-from .queries.similarity import query_similarity_group, query_similarity_groups
-from .reporting import build_report, write_report
-from .settings import Settings, editable_config, save_editable_config
-from .statistics import build_statistics
-from .structure import rebuild_structure
 from .thumbnails import ThumbnailCache
 from .visual import analyze_visuals, rebuild_similarity_groups
+
+SESSION_TOKEN_HEADER = "X-Tangerine-Session"
+SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 @dataclass
@@ -1557,6 +1564,18 @@ def _ensure_capture_histogram(
     return list(histogram)
 
 
+def _backfill_ai_audit_in_background(database_path: Path) -> None:
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = connect(database_path)
+        backfill_ai_audit_metadata(connection)
+    except Exception:
+        pass
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def create_app(config_path: Path, static_directory: Path | None = None) -> FastAPI:
     config_path = config_path.resolve()
     settings = Settings.load(config_path)
@@ -1576,8 +1595,36 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     if recovery["still_running"]:
         manager.attach_ai_run(recovery["still_running"][0])
     thumbnail_cache = ThumbnailCache(settings)
+    Thread(
+        target=_backfill_ai_audit_in_background,
+        args=(settings.database_path,),
+        daemon=True,
+    ).start()
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
+    session_token = secrets.token_urlsafe(32)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["127.0.0.1", "localhost", "[::1]"],
+    )
+
+    @app.middleware("http")
+    async def protect_local_writes(request: Request, call_next: Any) -> Response:
+        if request.method not in SAFE_HTTP_METHODS:
+            host = request.headers.get("host", "")
+            expected_origin = f"{request.url.scheme}://{host}"
+            origin = request.headers.get("origin")
+            if origin is not None and origin != expected_origin:
+                return JSONResponse(status_code=403, content={"detail": "Cross-origin write blocked"})
+            supplied_token = request.headers.get(SESSION_TOKEN_HEADER, "")
+            if not secrets.compare_digest(supplied_token, session_token):
+                return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
+        return await call_next(request)
+
     config_state = {"restart_required": False, "backup_path": None}
+
+    @app.get("/api/session")
+    def browser_session() -> dict[str, str]:
+        return {"token": session_token, "header": SESSION_TOKEN_HEADER}
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -1795,11 +1842,12 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         offset: int = Query(default=0, ge=0),
         prompt_version: str | None = Query(default=None, max_length=100),
         verdict: Literal["accurate", "partial", "inaccurate", "unreviewed"] | None = None,
+        audit: Literal["risk", "sample"] | None = None,
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
             return ai_results_page(
-                connection, limit, offset, prompt_version, verdict
+                connection, limit, offset, prompt_version, verdict, audit
             )
         finally:
             connection.close()
@@ -2563,6 +2611,19 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 return run_integrity_check(connection, scope)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/integrity/differences/{scope}")
+    def list_integrity_differences(
+        scope: Literal["archive", "active"],
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+        status: Literal["missing", "changed", "new", "unreadable"] | None = None,
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return integrity_differences(connection, scope, limit, offset, status)
         finally:
             connection.close()
 

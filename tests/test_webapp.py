@@ -1,15 +1,16 @@
 import unittest
-from subprocess import CompletedProcess
 from pathlib import Path
+from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
 from time import sleep
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
 from PIL import Image
 from pydantic import ValidationError
 
-from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.albums import assign_captures_to_album
+from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.lightroom import build_lightroom_rows
 from tangerine_photo_assistant.pairing import rebuild_captures
@@ -25,6 +26,8 @@ from tangerine_photo_assistant.webapp import (
     ScanStartRequest,
     ScanTaskManager,
     SimilarityGroupEditRequest,
+    _open_file,
+    _pick_directory,
     _query_analysis_overview,
     _query_bursts,
     _query_duplicates,
@@ -33,14 +36,12 @@ from tangerine_photo_assistant.webapp import (
     _query_library_captures,
     _query_library_filters,
     _query_overview,
-    _runtime_capabilities,
-    create_app,
     _query_quality,
     _query_similarity_group,
     _query_similarity_groups,
-    _pick_directory,
-    _open_file,
     _reveal_file,
+    _runtime_capabilities,
+    create_app,
 )
 
 
@@ -65,6 +66,44 @@ def settings_for(root: Path) -> Settings:
 
 
 class WebAppQueryTests(unittest.TestCase):
+    def test_browser_writes_require_same_origin_session_token(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            with TestClient(create_app(config_path), base_url="http://localhost") as client:
+                session = client.get("/api/session").json()
+                self.assertEqual(
+                    client.post("/api/tasks/current/cancel").status_code, 403
+                )
+                self.assertEqual(
+                    client.post(
+                        "/api/tasks/current/cancel",
+                        headers={
+                            session["header"]: session["token"],
+                            "Origin": "https://attacker.example",
+                        },
+                    ).status_code,
+                    403,
+                )
+                self.assertEqual(
+                    client.post(
+                        "/api/tasks/current/cancel",
+                        headers={
+                            session["header"]: session["token"],
+                            "Origin": "http://localhost",
+                        },
+                    ).status_code,
+                    409,
+                )
+                self.assertEqual(
+                    client.get("/api/health", headers={"Host": "attacker.example"}).status_code,
+                    400,
+                )
+
     def test_windows_file_actions_only_delegate_to_desktop_shell(self) -> None:
         source = Path(r"D:\Photos\sample.jpg")
         with patch("tangerine_photo_assistant.webapp.os.name", "nt"), patch(

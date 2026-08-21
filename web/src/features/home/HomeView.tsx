@@ -61,7 +61,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
       </div></section>
       <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
         {pendingEvents > 0 && <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>}
-        {pendingSimilarity > 0 && <button onClick={openBursts}><span><strong>{numberFormat.format(pendingSimilarity)}</strong> 组相似照片待挑选</span><b>继续选片</b></button>}
+        {pendingSimilarity > 0 && <button onClick={openBursts}><span><strong>{numberFormat.format(pendingSimilarity)}</strong> 组相似照片待挑选<small>预计约 {similarity?.estimated_review_minutes ?? 0} 分钟</small></span><b>继续选片</b></button>}
         {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
         {archiveIssue && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
         {activeIssue && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
