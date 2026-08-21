@@ -24,6 +24,7 @@ const pageSizes = new Set([20, 40, 80, 120, 200]);
 const sorts = new Set(["newest", "oldest", "name", "rating"]);
 const selections = new Set(["", "picked", "rejected", "unreviewed"]);
 const qualities = new Set(["", "problems", "low", "high", "unanalyzed"]);
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function positiveInteger(value: string | null): number | null {
   if (!value || !/^[1-9]\d*$/.test(value)) return null;
@@ -54,7 +55,6 @@ export function readNavigationState(hash = window.location.hash): NavigationStat
   const pageSize = requestedPageSize && pageSizes.has(requestedPageSize) ? requestedPageSize : 40;
   const albumValue = parameters.get("album");
   const albumId = albumValue === "__unassigned__" || positiveInteger(albumValue) ? albumValue ?? "" : "";
-  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   const dateFrom = text(parameters, "from");
   const dateTo = text(parameters, "to");
   const section = parameters.get("section") === "albums" ? "albums" : "photos";

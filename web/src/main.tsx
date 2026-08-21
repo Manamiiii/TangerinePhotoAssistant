@@ -108,7 +108,7 @@ function App() {
     const hash = navigationHash({ view, librarySection: libraryLandingSection, libraryOffset, libraryQuery, captureId: urlCaptureId });
     if (window.location.hash === hash) return;
     const previous = readNavigationState();
-    if (previous.view !== view || (!previous.captureId && urlCaptureId)) {
+    if (previous.view !== view || (urlCaptureId !== null && previous.captureId !== urlCaptureId)) {
       window.history.pushState(null, "", hash);
     } else {
       window.history.replaceState(null, "", hash);
