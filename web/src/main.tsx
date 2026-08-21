@@ -21,23 +21,18 @@ import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters
 import { LibraryView } from "./features/library/LibraryView";
 import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
+import { defaultLibraryQuery, navigationHash, readNavigationState, type AppView } from "./navigationState";
 import "./styles.css";
 
-type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
+type View = AppView;
 type Theme = "light" | "dark";
-const views: View[] = ["home", "library", "bursts", "analysis", "statistics", "equipment", "lightroom", "archive", "settings"];
-const viewFromHash = (): View => {
-  const candidate = window.location.hash.slice(1) as View;
-  return views.includes(candidate) ? candidate : "home";
-};
-
-
+const initialNavigation = readNavigationState();
 
 type Toast = { id: number; kind: "success" | "error"; message: string; actionLabel?: string; action?: () => void };
 
 
 function App() {
-  const [view, setView] = useState<View>(viewFromHash);
+  const [view, setView] = useState<View>(initialNavigation.view);
   const [lastWorkspaceView, setLastWorkspaceView] = useState<View>(() => {
     const saved = window.localStorage.getItem("tangerine-last-workspace") as View | null;
     return saved && saved !== "home" ? saved : "library";
@@ -48,13 +43,9 @@ function App() {
   });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
-  const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>("photos");
-  const [libraryOffset, setLibraryOffset] = useState(0);
-  const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
-    pageSize: 40, albumId: "", category: "", camera: "", lens: "",
-    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", reviewCondition: "",
-    dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
-  });
+  const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>(initialNavigation.librarySection);
+  const [libraryOffset, setLibraryOffset] = useState(initialNavigation.libraryOffset);
+  const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>(initialNavigation.libraryQuery);
   const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
   const [albumOffset, setAlbumOffset] = useState(0);
   const [albumPageSize, setAlbumPageSize] = useState(40);
@@ -74,6 +65,7 @@ function App() {
   const [groupAlbumId, setGroupAlbumId] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
+  const [urlCaptureId, setUrlCaptureId] = useState<number | null>(initialNavigation.captureId);
   const [detailMode, setDetailMode] = useState<DetailMode>("browse");
   const [detailContext, setDetailContext] = useState<number[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
@@ -113,11 +105,40 @@ function App() {
     window.localStorage.setItem("tangerine-last-workspace", view);
   }, [view]);
   useEffect(() => {
-    const hash = `#${view}`;
-    if (window.location.hash !== hash) window.location.hash = hash;
-  }, [view]);
+    const hash = navigationHash({ view, librarySection: libraryLandingSection, libraryOffset, libraryQuery, captureId: urlCaptureId });
+    if (window.location.hash === hash) return;
+    const previous = readNavigationState();
+    if (previous.view !== view || (!previous.captureId && urlCaptureId)) {
+      window.history.pushState(null, "", hash);
+    } else {
+      window.history.replaceState(null, "", hash);
+    }
+  }, [libraryLandingSection, libraryOffset, libraryQuery, urlCaptureId, view]);
   useEffect(() => {
-    const onHashChange = () => setView(viewFromHash());
+    const applyNavigation = () => {
+      const navigation = readNavigationState();
+      setView(navigation.view);
+      setLibraryLandingSection(navigation.librarySection);
+      setLibraryOffset(navigation.libraryOffset);
+      setLibraryQuery(navigation.libraryQuery);
+      setUrlCaptureId(navigation.captureId);
+      if (!navigation.captureId) {
+        setCaptureDetail(null);
+        return;
+      }
+      void getJson<CaptureDetail>(`/api/captures/${navigation.captureId}`)
+        .then((detail) => {
+          setCaptureDetail(detail);
+          setDetailMode(navigation.view === "bursts" ? "select" : navigation.view === "analysis" ? "analyze" : "browse");
+        })
+        .catch((reason: Error) => {
+          setError(reason.message);
+          setCaptureDetail(null);
+          setUrlCaptureId(null);
+        });
+    };
+    if (initialNavigation.captureId) applyNavigation();
+    const onHashChange = () => applyNavigation();
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
@@ -665,6 +686,7 @@ function App() {
     setError(null);
     try {
       setCaptureDetail(await getJson<CaptureDetail>(`/api/captures/${captureId}`));
+      setUrlCaptureId(captureId);
       setDetailMode(mode ?? (view === "bursts" ? "select" : view === "analysis" ? "analyze" : "browse"));
       if (context) setDetailContext(context);
       else setDetailContext((current) => current.includes(captureId) ? current : []);
@@ -681,6 +703,7 @@ function App() {
     if (nextId == null) return;
     try {
       setCaptureDetail(await getJson<CaptureDetail>(`/api/captures/${nextId}`));
+      setUrlCaptureId(nextId);
     } catch (reason) {
       pushToast("error", (reason as Error).message);
     }
@@ -990,7 +1013,7 @@ function App() {
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} />}
-        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => { setCaptureDetail(null); setUrlCaptureId(null); }} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} role={toast.kind === "error" ? "alert" : "status"} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
