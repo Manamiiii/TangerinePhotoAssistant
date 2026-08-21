@@ -42,6 +42,25 @@ from .ai_safety import (
     discover_pre_ai_database_backups,
     gpu_status,
 )
+from .albums import (
+    AlbumConflictError,
+    AlbumError,
+    AlbumNotFoundError,
+    assign_captures_to_album,
+    rename_album_type,
+)
+from .albums import (
+    create_album as create_album_record,
+)
+from .albums import (
+    create_album_type as create_album_type_record,
+)
+from .albums import (
+    delete_album_type as delete_album_type_record,
+)
+from .albums import (
+    update_album as update_album_record,
+)
 from .archive import (
     create_archive_baseline,
     integrity_differences,
@@ -49,19 +68,14 @@ from .archive import (
     recorded_archive_status,
     run_integrity_check,
 )
-from .albums import (
-    AlbumConflictError,
-    AlbumError,
-    AlbumNotFoundError,
-    assign_captures_to_album,
-    create_album as create_album_record,
-    create_album_type as create_album_type_record,
-    delete_album_type as delete_album_type_record,
-    rename_album_type,
-    update_album as update_album_record,
-)
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .diagnostics import write_diagnostic_bundle
+from .editing import (
+    EditRecipeError,
+    render_edit_preview,
+    restore_edit_recipe,
+    save_edit_recipe,
+)
 from .equipment import (
     build_equipment_catalog,
     delete_equipment_item,
@@ -70,19 +84,13 @@ from .equipment import (
     save_equipment_ownership,
     set_equipment_visibility,
 )
-from .editing import (
-    EditRecipeError,
-    render_edit_preview,
-    restore_edit_recipe,
-    save_edit_recipe,
-)
 from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
 from .grouping import (
     SimilarityCaptureNotFoundError,
     SimilarityGroupingError,
     list_similarity_group_revisions,
-    restore_similarity_grouping,
     restore_similarity_group_revision,
+    restore_similarity_grouping,
     save_manual_similarity_grouping,
     set_similarity_override,
 )
@@ -107,36 +115,36 @@ from .quality import (
     measure_luminance_histogram,
     rebuild_group_recommendations,
 )
+from .queries.albums import query_albums
+from .queries.analysis import query_analysis_overview
+from .queries.details import query_capture_detail
+from .queries.library import query_library_captures, query_library_filters
+from .queries.overview import query_inbox, query_overview
+from .queries.quality import query_quality
+from .queries.similarity import query_similarity_group, query_similarity_groups
+from .reporting import build_report, write_report
 from .reviews import (
     CaptureReviewError,
     CaptureReviewNotFoundError,
     begin_selection_session,
     save_capture_review,
 )
+from .settings import Settings, editable_config, save_editable_config
+from .statistics import build_statistics
+from .structure import rebuild_structure
 from .tags import (
-    analysis_subject_tag_status,
-    clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
+    analysis_subject_tag_status,
+    clear_analysis_subject_tags,
     create_tag_definition,
     delete_tag_definition,
     list_tag_definitions,
     replace_manual_capture_tags,
     sync_analysis_subject_tags,
-    update_tag_definition,
     update_manual_tag_for_captures,
+    update_tag_definition,
 )
-from .queries.albums import query_albums
-from .queries.analysis import query_analysis_overview
-from .queries.details import query_capture_detail
-from .queries.quality import query_quality
-from .queries.library import query_library_captures, query_library_filters
-from .queries.overview import query_inbox, query_overview
-from .queries.similarity import query_similarity_group, query_similarity_groups
-from .reporting import build_report, write_report
-from .settings import Settings, editable_config, save_editable_config
-from .statistics import build_statistics
-from .structure import rebuild_structure
 from .thumbnails import ThumbnailCache
 from .visual import analyze_visuals, rebuild_similarity_groups
 

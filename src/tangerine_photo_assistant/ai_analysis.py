@@ -543,14 +543,14 @@ def backfill_ai_audit_metadata(connection: sqlite3.Connection) -> int:
             metadata["flags_json"], metadata["bits"], metadata["confidence"],
             metadata["visible_problem_count"], row["id"],
         ))
-    connection.executemany(
-        """UPDATE ai_analyses
-           SET audit_flags_json=?, audit_bits=?, audit_confidence=?,
-               audit_visible_problem_count=?
-           WHERE id=?""",
-        updates,
-    )
     if updates:
+        connection.executemany(
+            """UPDATE ai_analyses
+               SET audit_flags_json=?, audit_bits=?, audit_confidence=?,
+                   audit_visible_problem_count=?
+               WHERE id=?""",
+            updates,
+        )
         connection.commit()
     return len(updates)
 

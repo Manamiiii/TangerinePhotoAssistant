@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .database import transaction
@@ -48,7 +48,7 @@ def create_archive_baseline(
             ),
         )
         baseline_id = int(cursor.lastrowid)
-        check_id = connection.execute(
+        connection.execute(
             """
             INSERT INTO archive_baseline_files(
                 baseline_id, relative_path, size_bytes, modified_ns, sha256
@@ -253,7 +253,7 @@ def run_integrity_check(
     if baseline is None:
         raise ValueError("No integrity baseline exists")
     checked_at = utc_now()
-    connection.execute(
+    check_id = connection.execute(
         """
         INSERT INTO archive_checks(
             baseline_id, scan_run_id, checked_at, missing_count,
