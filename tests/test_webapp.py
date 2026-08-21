@@ -6,6 +6,7 @@ from time import sleep
 from unittest.mock import patch
 
 from PIL import Image
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from tangerine_photo_assistant.database import connect
@@ -65,6 +66,44 @@ def settings_for(root: Path) -> Settings:
 
 
 class WebAppQueryTests(unittest.TestCase):
+    def test_browser_writes_require_same_origin_session_token(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            with TestClient(create_app(config_path)) as client:
+                session = client.get("/api/session").json()
+                self.assertEqual(
+                    client.post("/api/tasks/current/cancel").status_code, 403
+                )
+                self.assertEqual(
+                    client.post(
+                        "/api/tasks/current/cancel",
+                        headers={
+                            session["header"]: session["token"],
+                            "Origin": "https://attacker.example",
+                        },
+                    ).status_code,
+                    403,
+                )
+                self.assertEqual(
+                    client.post(
+                        "/api/tasks/current/cancel",
+                        headers={
+                            session["header"]: session["token"],
+                            "Origin": "http://testserver",
+                        },
+                    ).status_code,
+                    409,
+                )
+                self.assertEqual(
+                    client.get("/api/health", headers={"Host": "attacker.example"}).status_code,
+                    400,
+                )
+
     def test_windows_file_actions_only_delegate_to_desktop_shell(self) -> None:
         source = Path(r"D:\Photos\sample.jpg")
         with patch("tangerine_photo_assistant.webapp.os.name", "nt"), patch(

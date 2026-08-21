@@ -3,10 +3,31 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from tangerine_photo_assistant.database import SCHEMA_VERSION, connect
+from tangerine_photo_assistant.database import (
+    SCHEMA_VERSION,
+    SQLITE_BUSY_TIMEOUT_MS,
+    connect,
+    connect_readonly,
+)
 
 
 class DatabaseUpgradeTests(unittest.TestCase):
+    def test_connections_wait_for_short_write_contention(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Path(directory) / "catalog.sqlite3"
+            connection = connect(database)
+            self.assertEqual(
+                connection.execute("PRAGMA busy_timeout").fetchone()[0],
+                SQLITE_BUSY_TIMEOUT_MS,
+            )
+            connection.close()
+            readonly = connect_readonly(database)
+            self.assertEqual(
+                readonly.execute("PRAGMA busy_timeout").fetchone()[0],
+                SQLITE_BUSY_TIMEOUT_MS,
+            )
+            readonly.close()
+
     def test_generated_schema_matrix_upgrades_every_supported_version(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { getJson, similarityGroupsUrl } from "./api";
+import { getJson, libraryCapturesUrl, similarityGroupsUrl } from "./api";
 import { taskForDisplay, taskReceipt, type Task } from "./components/TaskCard";
 import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
 import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
@@ -115,31 +115,9 @@ function App() {
 
   const refreshLibrary = useCallback(async () => {
     const requestSequence = ++refreshSequence.current;
-    const libraryParameters = new URLSearchParams({
-      limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
-    });
-    if (libraryQuery.albumId === "__unassigned__") libraryParameters.set("unassigned", "true");
-    else if (libraryQuery.albumId) libraryParameters.set("album_id", libraryQuery.albumId);
-    if (libraryQuery.category) libraryParameters.set("category", libraryQuery.category);
-    if (libraryQuery.camera) libraryParameters.set("camera_model", libraryQuery.camera);
-    if (libraryQuery.lens) libraryParameters.set("lens_model", libraryQuery.lens);
-    if (libraryQuery.rating) libraryParameters.set("rating", libraryQuery.rating);
-    if (libraryQuery.selection) libraryParameters.set("selection", libraryQuery.selection);
-    if (libraryQuery.quality) libraryParameters.set("quality", libraryQuery.quality);
-    if (libraryQuery.tagSubject) libraryParameters.set("tag_subject", libraryQuery.tagSubject);
-    if (libraryQuery.tagStatus) libraryParameters.set("tag_status", libraryQuery.tagStatus);
-    if (libraryQuery.tagProblem) libraryParameters.set("tag_problem", libraryQuery.tagProblem);
-    if (libraryQuery.tagLocation) libraryParameters.set("tag_location", libraryQuery.tagLocation);
-    if (libraryQuery.selectionReason) libraryParameters.set("selection_reason", libraryQuery.selectionReason);
-    if (libraryQuery.modelProblem) libraryParameters.set("model_problem", libraryQuery.modelProblem);
-    if (libraryQuery.reviewCondition) libraryParameters.set("review_condition", libraryQuery.reviewCondition);
-    if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
-    if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
-    if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
-    if (libraryQuery.albumId && libraryQuery.collapseGroups) libraryParameters.set("collapse_groups", "true");
     const results = await Promise.allSettled([
       getJson<Overview>("/api/overview"),
-      getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
+      getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset)),
       getJson<LibraryFilters>("/api/library/filters"),
       getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`),
       getJson<AnalysisOverview>("/api/analysis/overview"),
@@ -186,29 +164,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      const parameters = new URLSearchParams({
-        limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
-      });
-      if (libraryQuery.albumId === "__unassigned__") parameters.set("unassigned", "true");
-      else if (libraryQuery.albumId) parameters.set("album_id", libraryQuery.albumId);
-      if (libraryQuery.category) parameters.set("category", libraryQuery.category);
-      if (libraryQuery.camera) parameters.set("camera_model", libraryQuery.camera);
-      if (libraryQuery.lens) parameters.set("lens_model", libraryQuery.lens);
-      if (libraryQuery.rating) parameters.set("rating", libraryQuery.rating);
-      if (libraryQuery.selection) parameters.set("selection", libraryQuery.selection);
-      if (libraryQuery.quality) parameters.set("quality", libraryQuery.quality);
-      if (libraryQuery.tagSubject) parameters.set("tag_subject", libraryQuery.tagSubject);
-      if (libraryQuery.tagStatus) parameters.set("tag_status", libraryQuery.tagStatus);
-      if (libraryQuery.tagProblem) parameters.set("tag_problem", libraryQuery.tagProblem);
-      if (libraryQuery.tagLocation) parameters.set("tag_location", libraryQuery.tagLocation);
-      if (libraryQuery.selectionReason) parameters.set("selection_reason", libraryQuery.selectionReason);
-      if (libraryQuery.modelProblem) parameters.set("model_problem", libraryQuery.modelProblem);
-      if (libraryQuery.reviewCondition) parameters.set("review_condition", libraryQuery.reviewCondition);
-      if (libraryQuery.dateFrom) parameters.set("date_from", libraryQuery.dateFrom);
-      if (libraryQuery.dateTo) parameters.set("date_to", libraryQuery.dateTo);
-      if (libraryQuery.search.trim()) parameters.set("search", libraryQuery.search.trim());
-      if (libraryQuery.albumId && libraryQuery.collapseGroups) parameters.set("collapse_groups", "true");
-      getJson<LibraryCapturesResponse>(`/api/library/captures?${parameters}`, { signal: controller.signal })
+      getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset), { signal: controller.signal })
         .then(setLibraryCaptures)
         .catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
     }, libraryQuery.search ? 250 : 0);

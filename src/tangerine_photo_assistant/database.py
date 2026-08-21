@@ -8,6 +8,7 @@ from pathlib import Path
 
 SCHEMA_VERSION = 27
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
+SQLITE_BUSY_TIMEOUT_MS = 30_000
 
 
 def read_schema_version(path: Path) -> int | None:
@@ -83,10 +84,11 @@ def connect(path: Path) -> sqlite3.Connection:
         )
     if existing_version is not None and existing_version < SCHEMA_VERSION:
         backup_before_schema_upgrade(path, existing_version)
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS schema_info (
@@ -756,8 +758,13 @@ def connect(path: Path) -> sqlite3.Connection:
 def connect_readonly(path: Path) -> sqlite3.Connection:
     if not path.is_file():
         raise FileNotFoundError(f"Database does not exist: {path}")
-    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro",
+        uri=True,
+        timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+    )
     connection.row_factory = sqlite3.Row
+    connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     connection.execute("PRAGMA query_only=ON")
     return connection
 

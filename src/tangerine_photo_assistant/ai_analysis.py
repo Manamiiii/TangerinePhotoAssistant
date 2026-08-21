@@ -562,74 +562,57 @@ def backfill_ai_audit_metadata(connection: sqlite3.Connection) -> int:
 
 def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
     rows = connection.execute(
-        """
-        SELECT id, prompt_version, user_verdict, audit_bits, audit_confidence,
-               (julianday(finished_at) - julianday(started_at)) * 86400.0
-                   AS duration_seconds
+        f"""
+        SELECT prompt_version, MAX(id) AS last_analysis_id,
+               COUNT(*) AS result_count,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_PARSE_ERROR}) != 0
+                        THEN 1 ELSE 0 END) AS parse_errors,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_SCHEMA_ERROR}) != 0
+                        THEN 1 ELSE 0 END) AS schema_errors,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_UNSAFE_ACTION}) != 0
+                        THEN 1 ELSE 0 END) AS unsafe_action_mentions,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_VISIBLE_PROBLEMS}) != 0
+                        THEN 1 ELSE 0 END) AS with_visible_problems,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_SHOOTING_ADVICE}) != 0
+                        THEN 1 ELSE 0 END) AS with_shooting_advice,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_LIGHTROOM_SUGGESTIONS}) != 0
+                        THEN 1 ELSE 0 END) AS with_lightroom_suggestions,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_PHOTOSHOP_NEEDED}) != 0
+                        THEN 1 ELSE 0 END) AS photoshop_needed,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_EMPTY_PHOTOSHOP_REASON}) != 0
+                        THEN 1 ELSE 0 END) AS empty_photoshop_reason,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_OVERCONFIDENT}) != 0
+                        THEN 1 ELSE 0 END) AS overconfident,
+               SUM(CASE WHEN audit_bits IS NULL OR (audit_bits & {AUDIT_RISK_MASK}) != 0
+                        THEN 1 ELSE 0 END) AS risk_count,
+               SUM(CASE WHEN audit_bits IS NULL THEN 1 ELSE 0 END)
+                   AS pending_audit_metadata,
+               SUM(CASE WHEN user_verdict IN ('accurate', 'partial', 'inaccurate')
+                        THEN 1 ELSE 0 END) AS reviewed,
+               SUM(CASE WHEN user_verdict='accurate' THEN 1 ELSE 0 END) AS accurate,
+               SUM(CASE WHEN user_verdict='partial' THEN 1 ELSE 0 END) AS partial,
+               SUM(CASE WHEN user_verdict='inaccurate' THEN 1 ELSE 0 END) AS inaccurate,
+               COALESCE(SUM(audit_confidence), 0.0) AS confidence_total,
+               COALESCE(SUM(CASE
+                   WHEN (julianday(finished_at) - julianday(started_at)) >= 0
+                   THEN (julianday(finished_at) - julianday(started_at)) * 86400.0
+                   ELSE 0 END), 0.0) AS duration_total,
+               SUM(CASE WHEN (julianday(finished_at) - julianday(started_at)) >= 0
+                        THEN 1 ELSE 0 END) AS timed_count
         FROM ai_analyses
         WHERE status='complete' AND result_json IS NOT NULL
-        ORDER BY id
+        GROUP BY prompt_version
+        ORDER BY last_analysis_id DESC
         """
     ).fetchall()
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        version = row["prompt_version"]
-        audit = grouped.setdefault(version, {
-            "prompt_version": version,
-            "last_analysis_id": 0,
-            "result_count": 0,
-            "parse_errors": 0,
-            "schema_errors": 0,
-            "unsafe_action_mentions": 0,
-            "with_visible_problems": 0,
-            "with_shooting_advice": 0,
-            "with_lightroom_suggestions": 0,
-            "photoshop_needed": 0,
-            "empty_photoshop_reason": 0,
-            "overconfident": 0,
-            "risk_count": 0,
-            "pending_audit_metadata": 0,
-            "reviewed": 0,
-            "verdicts": {"accurate": 0, "partial": 0, "inaccurate": 0},
-            "confidence_total": 0.0,
-            "duration_total": 0.0,
-            "timed_count": 0,
-        })
-        audit["result_count"] += 1
-        audit["last_analysis_id"] = max(audit["last_analysis_id"], row["id"])
-        bits = row["audit_bits"]
-        confidence = row["audit_confidence"]
-        if bits is None:
-            audit["pending_audit_metadata"] += 1
-            audit["risk_count"] += 1
-            bits = 0
-        audit["parse_errors"] += int(bool(bits & AUDIT_PARSE_ERROR))
-        audit["schema_errors"] += int(bool(bits & AUDIT_SCHEMA_ERROR))
-        audit["unsafe_action_mentions"] += int(bool(bits & AUDIT_UNSAFE_ACTION))
-        audit["with_visible_problems"] += int(bool(bits & AUDIT_VISIBLE_PROBLEMS))
-        audit["with_shooting_advice"] += int(bool(bits & AUDIT_SHOOTING_ADVICE))
-        audit["with_lightroom_suggestions"] += int(
-            bool(bits & AUDIT_LIGHTROOM_SUGGESTIONS)
-        )
-        audit["photoshop_needed"] += int(bool(bits & AUDIT_PHOTOSHOP_NEEDED))
-        audit["empty_photoshop_reason"] += int(
-            bool(bits & AUDIT_EMPTY_PHOTOSHOP_REASON)
-        )
-        audit["overconfident"] += int(bool(bits & AUDIT_OVERCONFIDENT))
-        audit["risk_count"] += int(bool(bits & AUDIT_RISK_MASK))
-        if isinstance(confidence, (int, float)):
-            audit["confidence_total"] += float(confidence)
-        verdict = row["user_verdict"]
-        if verdict in audit["verdicts"]:
-            audit["verdicts"][verdict] += 1
-            audit["reviewed"] += 1
-        duration = row["duration_seconds"]
-        if isinstance(duration, (int, float)) and duration >= 0:
-            audit["duration_total"] += float(duration)
-            audit["timed_count"] += 1
-
     versions: list[dict[str, Any]] = []
-    for audit in grouped.values():
+    for row in rows:
+        audit = dict(row)
+        audit["verdicts"] = {
+            "accurate": audit.pop("accurate"),
+            "partial": audit.pop("partial"),
+            "inaccurate": audit.pop("inaccurate"),
+        }
         valid_count = audit["result_count"] - audit["parse_errors"]
         audit["average_confidence"] = (
             round(audit.pop("confidence_total") / valid_count, 3)
@@ -640,7 +623,6 @@ def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
             if audit["timed_count"] else None
         )
         versions.append(audit)
-    versions.sort(key=lambda item: item["last_analysis_id"], reverse=True)
     return {"versions": versions, "latest": versions[0] if versions else None}
 
 

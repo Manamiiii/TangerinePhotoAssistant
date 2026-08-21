@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -15,10 +16,14 @@ from threading import Event, Lock, Thread
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+SESSION_TOKEN_HEADER = "X-Tangerine-Session"
+SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 from .ai_analysis import (
     PROMPT_VERSION,
@@ -1596,7 +1601,30 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         daemon=True,
     ).start()
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
+    session_token = secrets.token_urlsafe(32)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
+    )
+
+    @app.middleware("http")
+    async def protect_local_writes(request: Request, call_next: Any) -> Response:
+        if request.method not in SAFE_HTTP_METHODS:
+            host = request.headers.get("host", "")
+            expected_origin = f"{request.url.scheme}://{host}"
+            origin = request.headers.get("origin")
+            if origin is not None and origin != expected_origin:
+                return JSONResponse(status_code=403, content={"detail": "Cross-origin write blocked"})
+            supplied_token = request.headers.get(SESSION_TOKEN_HEADER, "")
+            if not secrets.compare_digest(supplied_token, session_token):
+                return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
+        return await call_next(request)
+
     config_state = {"restart_required": False, "backup_path": None}
+
+    @app.get("/api/session")
+    def browser_session() -> dict[str, str]:
+        return {"token": session_token, "header": SESSION_TOKEN_HEADER}
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
