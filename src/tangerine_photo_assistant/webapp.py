@@ -28,6 +28,7 @@ from .ai_analysis import (
     ai_run_failures,
     ai_run_history,
     ai_run_status,
+    backfill_ai_audit_metadata,
     create_ai_failure_retry_run,
     create_ai_run,
     recover_interrupted_ai_runs,
@@ -1565,6 +1566,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         active_root = active_library_root(bootstrap, settings.originals)
         discover_pre_ai_database_backups(settings, bootstrap)
         recovery = recover_interrupted_ai_runs(bootstrap)
+        backfill_ai_audit_metadata(bootstrap)
     finally:
         bootstrap.close()
     if active_root != settings.originals:
@@ -1795,11 +1797,12 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         offset: int = Query(default=0, ge=0),
         prompt_version: str | None = Query(default=None, max_length=100),
         verdict: Literal["accurate", "partial", "inaccurate", "unreviewed"] | None = None,
+        audit: Literal["risk", "sample"] | None = None,
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
             return ai_results_page(
-                connection, limit, offset, prompt_version, verdict
+                connection, limit, offset, prompt_version, verdict, audit
             )
         finally:
             connection.close()

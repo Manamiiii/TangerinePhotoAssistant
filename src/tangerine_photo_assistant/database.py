@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 
 
@@ -508,7 +508,6 @@ def connect(path: Path) -> sqlite3.Connection:
             ON ai_analyses(capture_id, finished_at);
         CREATE INDEX IF NOT EXISTS idx_ai_analyses_capture_model_prompt_status
             ON ai_analyses(capture_id, model_id, prompt_version, status);
-
         CREATE TABLE IF NOT EXISTS edit_recipe_revisions (
             id INTEGER PRIMARY KEY,
             capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
@@ -673,6 +672,16 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(connection, "ai_analyses", "user_verdict", "TEXT")
     _ensure_column(connection, "ai_analyses", "user_note", "TEXT")
     _ensure_column(connection, "ai_analyses", "reviewed_at", "TEXT")
+    _ensure_column(connection, "ai_analyses", "audit_flags_json", "TEXT")
+    _ensure_column(connection, "ai_analyses", "audit_bits", "INTEGER")
+    _ensure_column(connection, "ai_analyses", "audit_confidence", "REAL")
+    _ensure_column(
+        connection, "ai_analyses", "audit_visible_problem_count", "INTEGER"
+    )
+    connection.execute(
+        """CREATE INDEX IF NOT EXISTS idx_ai_analyses_audit_review
+           ON ai_analyses(status, user_verdict, prompt_version, id DESC)"""
+    )
     _ensure_column(connection, "ai_runs", "worker_pid", "INTEGER")
     _ensure_column(connection, "ai_runs", "heartbeat_at", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_batch_key", "TEXT")
