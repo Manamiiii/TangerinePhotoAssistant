@@ -21,7 +21,7 @@ import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters
 import { LibraryView } from "./features/library/LibraryView";
 import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
-import { defaultLibraryQuery, navigationHash, readNavigationState, type AppView } from "./navigationState";
+import { navigationHash, readNavigationState, type AppView } from "./navigationState";
 import "./styles.css";
 
 type View = AppView;

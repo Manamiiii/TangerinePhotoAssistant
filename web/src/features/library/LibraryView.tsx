@@ -352,6 +352,8 @@ export function LibraryView({ overview, library, albums, filters, equipment, que
   useEffect(() => {
     if (query.albumId && query.albumId !== "__unassigned__") {
       setActiveAlbumId(Number(query.albumId));
+    } else {
+      setActiveAlbumId(null);
     }
   }, [query.albumId]);
   const showAlbum = (albumId: number) => {
