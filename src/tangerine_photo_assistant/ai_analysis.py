@@ -563,8 +563,7 @@ def backfill_ai_audit_metadata(connection: sqlite3.Connection) -> int:
 def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
     rows = connection.execute(
         """
-        SELECT id, prompt_version, result_json, user_verdict, reviewed_at,
-               audit_bits, audit_confidence,
+        SELECT id, prompt_version, user_verdict, audit_bits, audit_confidence,
                (julianday(finished_at) - julianday(started_at)) * 86400.0
                    AS duration_seconds
         FROM ai_analyses
