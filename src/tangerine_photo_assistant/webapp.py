@@ -47,18 +47,10 @@ from .albums import (
     AlbumError,
     AlbumNotFoundError,
     assign_captures_to_album,
-    rename_album_type,
-)
-from .albums import (
     create_album as create_album_record,
-)
-from .albums import (
     create_album_type as create_album_type_record,
-)
-from .albums import (
     delete_album_type as delete_album_type_record,
-)
-from .albums import (
+    rename_album_type,
     update_album as update_album_record,
 )
 from .archive import (

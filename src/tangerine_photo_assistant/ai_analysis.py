@@ -524,26 +524,31 @@ def model_result_audit_metadata(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def backfill_ai_audit_metadata(connection: sqlite3.Connection) -> int:
-    rows = connection.execute(
-        """SELECT id, result_json FROM ai_analyses
-           WHERE status='complete' AND result_json IS NOT NULL AND audit_bits IS NULL"""
-    ).fetchall()
-    updates = []
-    for row in rows:
-        try:
-            metadata = model_result_audit_metadata(json.loads(row["result_json"]))
-        except (TypeError, json.JSONDecodeError):
-            metadata = {
-                "bits": AUDIT_PARSE_ERROR,
-                "flags_json": '["parse_error"]',
-                "confidence": None,
-                "visible_problem_count": 0,
-            }
-        updates.append((
-            metadata["flags_json"], metadata["bits"], metadata["confidence"],
-            metadata["visible_problem_count"], row["id"],
-        ))
-    if updates:
+    total = 0
+    while True:
+        rows = connection.execute(
+            """SELECT id, result_json FROM ai_analyses
+               WHERE status='complete' AND result_json IS NOT NULL
+                 AND audit_bits IS NULL
+               ORDER BY id LIMIT 500"""
+        ).fetchall()
+        if not rows:
+            return total
+        updates = []
+        for row in rows:
+            try:
+                metadata = model_result_audit_metadata(json.loads(row["result_json"]))
+            except (TypeError, json.JSONDecodeError):
+                metadata = {
+                    "bits": AUDIT_PARSE_ERROR,
+                    "flags_json": '["parse_error"]',
+                    "confidence": None,
+                    "visible_problem_count": 0,
+                }
+            updates.append((
+                metadata["flags_json"], metadata["bits"], metadata["confidence"],
+                metadata["visible_problem_count"], row["id"],
+            ))
         connection.executemany(
             """UPDATE ai_analyses
                SET audit_flags_json=?, audit_bits=?, audit_confidence=?,
@@ -552,7 +557,7 @@ def backfill_ai_audit_metadata(connection: sqlite3.Connection) -> int:
             updates,
         )
         connection.commit()
-    return len(updates)
+        total += len(updates)
 
 
 def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
