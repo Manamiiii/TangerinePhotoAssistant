@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -161,7 +162,7 @@ def query_library_captures(
             "name": "c.stem COLLATE NOCASE ASC, c.id ASC",
             "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC",
         }.get(sort, "c.captured_at IS NULL, c.captured_at DESC, c.id DESC")
-        row_sql = f"""
+        select_sql = f"""
             SELECT c.id, c.stem, c.captured_at, c.pairing_status,
                    f.camera_model, f.lens_model, e.id AS album_id,
                    e.proposed_name AS album_name, e.category,
@@ -182,64 +183,86 @@ def query_library_captures(
             {from_sql}
             WHERE {where_sql}
             GROUP BY c.id
-            ORDER BY {ordering}
             """
         if collapse_groups:
-            rows = connection.execute(row_sql, parameters).fetchall()
+            outer_ordering = {
+                "oldest": "captured_at IS NULL, captured_at ASC, id ASC",
+                "name": "stem COLLATE NOCASE ASC, id ASC",
+                "rating": "user_rating IS NULL, user_rating DESC, captured_at DESC",
+            }.get(sort, "captured_at IS NULL, captured_at DESC, id DESC")
+            collapsed_sql = f"""
+                WITH matched AS ({select_sql}),
+                summaries AS (
+                    SELECT COALESCE(similarity_group_id, -id) AS item_key,
+                           COUNT(*) AS member_count,
+                           SUM(size_bytes) AS folded_size_bytes,
+                           json_group_array(id) AS selection_capture_ids
+                    FROM matched
+                    GROUP BY item_key
+                ),
+                ranked AS (
+                    SELECT matched.*,
+                           COALESCE(similarity_group_id, -id) AS item_key,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY COALESCE(similarity_group_id, -id)
+                               ORDER BY COALESCE(user_pick, 0) DESC,
+                                        COALESCE(user_rating, 0) DESC,
+                                        COALESCE(auto_pick, 0) DESC,
+                                        COALESCE(technical_score, -1) DESC,
+                                        id
+                           ) AS representative_rank
+                    FROM matched
+                )
+                SELECT ranked.*, summaries.member_count,
+                       summaries.folded_size_bytes,
+                       summaries.selection_capture_ids
+                FROM ranked
+                JOIN summaries USING (item_key)
+                WHERE representative_rank=1
+                ORDER BY {outer_ordering}
+                LIMIT ? OFFSET ?
+            """
+            rows = connection.execute(
+                collapsed_sql, (*parameters, limit, offset)
+            ).fetchall()
         else:
             rows = connection.execute(
-                f"{row_sql} LIMIT ? OFFSET ?", (*parameters, limit, offset)
+                f"{select_sql} ORDER BY {ordering} LIMIT ? OFFSET ?",
+                (*parameters, limit, offset),
             ).fetchall()
         items = []
         for row in rows:
             item = dict(row)
             item["thumbnail_url"] = f"/api/thumbnails/{item['id']}?size=640"
-            item["item_type"] = "photo"
-            item["selection_capture_ids"] = [item["id"]]
+            if collapse_groups:
+                item["item_type"] = (
+                    "group" if item["similarity_group_id"] is not None else "photo"
+                )
+                item["selection_capture_ids"] = json.loads(
+                    item.pop("selection_capture_ids")
+                )
+                item["size_bytes"] = item.pop("folded_size_bytes")
+                item.pop("item_key")
+                item.pop("representative_rank")
+                item.pop("member_count")
+            else:
+                item["item_type"] = "photo"
+                item["selection_capture_ids"] = [item["id"]]
             items.append(item)
         if collapse_groups:
-            folded: list[dict[str, Any]] = []
-            positions: dict[int, int] = {}
-            members: dict[int, list[dict[str, Any]]] = {}
-            for item in items:
-                group_id = item["similarity_group_id"]
-                if group_id is None:
-                    folded.append(item)
-                    continue
-                members.setdefault(group_id, []).append(item)
-                if group_id not in positions:
-                    positions[group_id] = len(folded)
-                    group_item = dict(item)
-                    group_item["item_type"] = "group"
-                    folded.append(group_item)
-                    continue
-                current = folded[positions[group_id]]
-                candidate_rank = (
-                    int(bool(item["user_pick"])), item["user_rating"] or 0,
-                    int(bool(item["auto_pick"])), item["technical_score"] or -1,
-                )
-                current_rank = (
-                    int(bool(current["user_pick"])), current["user_rating"] or 0,
-                    int(bool(current["auto_pick"])), current["technical_score"] or -1,
-                )
-                if candidate_rank > current_rank:
-                    replacement = dict(item)
-                    replacement["item_type"] = "group"
-                    folded[positions[group_id]] = replacement
-            for group_id, group_members in members.items():
-                group_item = folded[positions[group_id]]
-                group_item["selection_capture_ids"] = [
-                    item["id"] for item in group_members
-                ]
-                group_item["size_bytes"] = sum(
-                    item["size_bytes"] for item in group_members
-                )
-            total = len(folded)
+            total = connection.execute(
+                f"""WITH matched AS ({select_sql})
+                    SELECT COUNT(*) FROM (
+                        SELECT COALESCE(similarity_group_id, -id)
+                        FROM matched GROUP BY COALESCE(similarity_group_id, -id)
+                    )""",
+                parameters,
+            ).fetchone()[0]
             return {
                 "count": total,
                 "limit": limit,
                 "offset": offset,
-                "items": folded[offset:offset + limit],
+                "items": items,
                 "collapsed": True,
             }
         total = connection.execute(
