@@ -25,6 +25,11 @@ import "./styles.css";
 
 type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
 type Theme = "light" | "dark";
+const views: View[] = ["home", "library", "bursts", "analysis", "statistics", "equipment", "lightroom", "archive", "settings"];
+const viewFromHash = (): View => {
+  const candidate = window.location.hash.slice(1) as View;
+  return views.includes(candidate) ? candidate : "home";
+};
 
 
 
@@ -32,7 +37,7 @@ type Toast = { id: number; kind: "success" | "error"; message: string; actionLab
 
 
 function App() {
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(viewFromHash);
   const [lastWorkspaceView, setLastWorkspaceView] = useState<View>(() => {
     const saved = window.localStorage.getItem("tangerine-last-workspace") as View | null;
     return saved && saved !== "home" ? saved : "library";
@@ -107,6 +112,15 @@ function App() {
     setLastWorkspaceView(view);
     window.localStorage.setItem("tangerine-last-workspace", view);
   }, [view]);
+  useEffect(() => {
+    const hash = `#${view}`;
+    if (window.location.hash !== hash) window.location.hash = hash;
+  }, [view]);
+  useEffect(() => {
+    const onHashChange = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   useEffect(() => {
     if (view === "bursts") return;
     setSelectedGroup(null);
@@ -927,18 +941,18 @@ function App() {
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
           <span className="nav-group-label">照片管理</span>
-          <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
-          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { setLibraryLandingSection("photos"); setView("library"); }}><span>图</span>照片图库</button>
-          <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>连拍选片</button>
+          <button aria-current={view === "home" ? "page" : undefined} title="首页概览" className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
+          <button aria-current={view === "library" ? "page" : undefined} title="照片图库" className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { setLibraryLandingSection("photos"); setView("library"); }}><span>图</span>照片图库</button>
+          <button aria-current={view === "bursts" ? "page" : undefined} title="相似组选片" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>相似组选片</button>
           <span className="nav-group-label system-label">分析学习</span>
-          <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
-          <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>统</span>摄影统计</button>
+          <button aria-current={view === "analysis" ? "page" : undefined} title="质量分析" className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
+          <button aria-current={view === "statistics" ? "page" : undefined} title="摄影统计" className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>统</span>摄影统计</button>
           <span className="nav-group-label system-label">工具</span>
-          <button className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
-          <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
+          <button aria-current={view === "equipment" ? "page" : undefined} title="设备管理" className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
+          <button aria-current={view === "lightroom" ? "page" : undefined} title="后期输出" className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
-          <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>维</span>系统维护</button>
-          <button className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>设</span>应用设置</button>
+          <button aria-current={view === "archive" ? "page" : undefined} title="系统维护" className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>维</span>系统维护</button>
+          <button aria-current={view === "settings" ? "page" : undefined} title="应用设置" className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>设</span>应用设置</button>
         </nav>
         <div className="privacy-note"><span className="status-dot" /><div><strong>本地离线</strong><small>照片与人脸数据不离开电脑</small></div></div>
       </aside>
@@ -978,7 +992,7 @@ function App() {
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
-          {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
+          {toasts.map((toast) => <div key={toast.id} role={toast.kind === "error" ? "alert" : "status"} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
       </main>
     </div>

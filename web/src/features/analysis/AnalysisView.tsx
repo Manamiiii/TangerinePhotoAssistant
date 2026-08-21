@@ -126,7 +126,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
       <section className="quality-score-note"><strong>为什么技术分普遍较高？</strong><span>它表示文件在基础曝光、全局细节和手持参数上是否明显异常，不评价构图、表情、时机、主体价值或你的审美。高分只代表“没有检测到明显基础故障”，不代表这是一张好照片；具体画面仍以人工选片和模型复盘为准。</span></section>
       <div className="workspace-view-nav analysis-content-nav">
         <nav className="analysis-tabs" aria-label="质量分析内容">
-          {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
+          {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button role="tab" aria-selected={analysisTab === value} key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
         </nav>
         {analysisTab === "quality" && !qualityAlbumId && <CollectionScopeTabs scope={qualityBrowseMode} setScope={setQualityBrowseMode} allLabel="全部照片" />}
       </div>
