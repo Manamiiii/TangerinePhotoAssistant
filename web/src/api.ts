@@ -16,7 +16,7 @@ async function writeOptions(options: RequestInit): Promise<RequestInit> {
 }
 
 export async function getJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options ? await writeOptions(options) : options);
+  const response = await fetch(url, await writeOptions(options ?? {}));
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.detail ?? `请求失败：${response.status}`);

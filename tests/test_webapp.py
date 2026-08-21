@@ -74,7 +74,7 @@ class WebAppQueryTests(unittest.TestCase):
             write_safe_config(
                 config_path, settings.originals, settings.workspace, settings.cache_root
             )
-            with TestClient(create_app(config_path)) as client:
+            with TestClient(create_app(config_path), base_url="http://localhost") as client:
                 session = client.get("/api/session").json()
                 self.assertEqual(
                     client.post("/api/tasks/current/cancel").status_code, 403
@@ -94,7 +94,7 @@ class WebAppQueryTests(unittest.TestCase):
                         "/api/tasks/current/cancel",
                         headers={
                             session["header"]: session["token"],
-                            "Origin": "http://testserver",
+                            "Origin": "http://localhost",
                         },
                     ).status_code,
                     409,

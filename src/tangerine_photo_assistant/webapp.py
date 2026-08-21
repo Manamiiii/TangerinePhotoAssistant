@@ -1604,7 +1604,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     session_token = secrets.token_urlsafe(32)
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
+        allowed_hosts=["127.0.0.1", "localhost", "[::1]"],
     )
 
     @app.middleware("http")
