@@ -135,7 +135,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
     <>
       <section className="structure-hero burst-hero">
         <div><span className="section-kicker">照片挑选</span><h2>相似照片分组</h2><button className="primary-action" onClick={startVisual} disabled={task?.status === "running"}><span>{task?.status === "running" ? "分析进行中" : "更新相似分组"}</span><b aria-hidden="true">→</b></button></div>
-        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%</small></div>
+        <div className="structure-stat"><strong>{groups ? numberFormat.format(groups.pending_count) : "—"}</strong><span>组待选 / 共 {groups ? numberFormat.format(groups.total_count) : "—"} 组</span><small>已完成 {completionPercent}%{groups?.pending_count ? ` · 预计约 ${groups.estimated_review_minutes} 分钟` : ""}</small></div>
       </section>
       <TaskCard task={isVisualTask(task) ? task : null} cancel={cancelTask} />
       {!selectedGroup && !albumId && <div className="workspace-view-nav burst-scope-nav"><CollectionScopeTabs scope={browseMode} setScope={setBrowseMode} allLabel="全部相似组" /></div>}

@@ -44,6 +44,7 @@ from .ai_safety import (
 )
 from .archive import (
     create_archive_baseline,
+    integrity_differences,
     recorded_active_library_status,
     recorded_archive_status,
     run_integrity_check,
@@ -2566,6 +2567,19 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 return run_integrity_check(connection, scope)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/integrity/differences/{scope}")
+    def list_integrity_differences(
+        scope: Literal["archive", "active"],
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+        status: Literal["missing", "changed", "new", "unreadable"] | None = None,
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return integrity_differences(connection, scope, limit, offset, status)
         finally:
             connection.close()
 
