@@ -14,8 +14,10 @@ from tangerine_photo_assistant.ai_analysis import (
     ai_result_audit,
     ai_results_page,
     ai_summary,
+    backfill_ai_audit_metadata,
     create_ai_failure_retry_run,
     create_ai_run,
+    model_result_audit_metadata,
     parse_model_json,
     quality_summary,
     recover_interrupted_ai_runs,
@@ -28,6 +30,7 @@ from tangerine_photo_assistant.ai_worker import _apply_control_request
 from tangerine_photo_assistant.archive import (
     compare_archive_baseline,
     create_archive_baseline,
+    integrity_differences,
     recorded_archive_status,
     run_integrity_check,
 )
@@ -210,6 +213,11 @@ class QualityAndAiTests(unittest.TestCase):
                 }], "photoshop_needed": False,
                 "photoshop_reason": "不需要", "overall_confidence": 0.8,
             }
+            low_confidence_result = {**model_result, "overall_confidence": 0.2}
+            self.assertIn(
+                "low_confidence",
+                json.loads(model_result_audit_metadata(low_confidence_result)["flags_json"]),
+            )
             connection.execute(
                 "UPDATE ai_analyses SET status='complete', result_json=?, started_at=?, finished_at=? WHERE id=?",
                 (
@@ -268,6 +276,9 @@ class QualityAndAiTests(unittest.TestCase):
             )
             self.assertFalse(report_payload["photos_mutated"])
             self.assertEqual(report_payload["result_audit"]["latest"]["result_count"], 1)
+            self.assertEqual(backfill_ai_audit_metadata(connection), 1)
+            self.assertEqual(backfill_ai_audit_metadata(connection), 0)
+            self.assertEqual(ai_results_page(connection, audit="risk")["count"], 0)
             retry = create_ai_failure_retry_run(
                 connection, run["run_id"], settings.ai_model_path, "int8"
             )
@@ -393,6 +404,10 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(cached["comparison"]["missing"], 0)
             recorded = run_integrity_check(connection, "archive")
             self.assertEqual(recorded["comparison"]["missing"], 1)
+            differences = integrity_differences(connection, "archive", limit=1)
+            self.assertEqual(differences["count"], 1)
+            self.assertEqual(differences["items"][0]["status"], "missing")
+            self.assertEqual(differences["items"][0]["relative_path"], "MyPhoto/宝贝/2026.8.6_测试/DSCF0003.JPG")
             connection.close()
 
     def test_image_measurement_and_model_json_parser(self) -> None:
