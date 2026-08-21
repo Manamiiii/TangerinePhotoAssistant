@@ -1,16 +1,16 @@
 import unittest
-from subprocess import CompletedProcess
 from pathlib import Path
+from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
 from time import sleep
 from unittest.mock import patch
 
-from PIL import Image
 from fastapi.testclient import TestClient
+from PIL import Image
 from pydantic import ValidationError
 
-from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.albums import assign_captures_to_album
+from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.lightroom import build_lightroom_rows
 from tangerine_photo_assistant.pairing import rebuild_captures
@@ -26,6 +26,8 @@ from tangerine_photo_assistant.webapp import (
     ScanStartRequest,
     ScanTaskManager,
     SimilarityGroupEditRequest,
+    _open_file,
+    _pick_directory,
     _query_analysis_overview,
     _query_bursts,
     _query_duplicates,
@@ -34,14 +36,12 @@ from tangerine_photo_assistant.webapp import (
     _query_library_captures,
     _query_library_filters,
     _query_overview,
-    _runtime_capabilities,
-    create_app,
     _query_quality,
     _query_similarity_group,
     _query_similarity_groups,
-    _pick_directory,
-    _open_file,
     _reveal_file,
+    _runtime_capabilities,
+    create_app,
 )
 
 

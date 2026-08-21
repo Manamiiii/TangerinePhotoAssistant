@@ -22,9 +22,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-SESSION_TOKEN_HEADER = "X-Tangerine-Session"
-SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
 from .ai_analysis import (
     PROMPT_VERSION,
     _decorate_ai_run,
@@ -144,6 +141,9 @@ from .tags import (
 )
 from .thumbnails import ThumbnailCache
 from .visual import analyze_visuals, rebuild_similarity_groups
+
+SESSION_TOKEN_HEADER = "X-Tangerine-Session"
+SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 @dataclass
