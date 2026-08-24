@@ -45,6 +45,8 @@ export type AiResultAudit = {
   photoshop_needed: number;
   empty_photoshop_reason: number;
   overconfident: number;
+  risk_count: number;
+  pending_audit_metadata: number;
   reviewed: number;
   timed_count: number;
   verdicts: { accurate: number; partial: number; inaccurate: number };

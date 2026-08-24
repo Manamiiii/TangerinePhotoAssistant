@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { getJson, similarityGroupsUrl } from "./api";
+import { getJson, libraryCapturesUrl, similarityGroupsUrl } from "./api";
 import { taskForDisplay, taskReceipt, type Task } from "./components/TaskCard";
 import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
 import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
@@ -21,18 +21,18 @@ import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters
 import { LibraryView } from "./features/library/LibraryView";
 import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
+import { navigationHash, readNavigationState, type AppView } from "./navigationState";
 import "./styles.css";
 
-type View = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
+type View = AppView;
 type Theme = "light" | "dark";
-
-
+const initialNavigation = readNavigationState();
 
 type Toast = { id: number; kind: "success" | "error"; message: string; actionLabel?: string; action?: () => void };
 
 
 function App() {
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(initialNavigation.view);
   const [lastWorkspaceView, setLastWorkspaceView] = useState<View>(() => {
     const saved = window.localStorage.getItem("tangerine-last-workspace") as View | null;
     return saved && saved !== "home" ? saved : "library";
@@ -43,13 +43,9 @@ function App() {
   });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
-  const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>("photos");
-  const [libraryOffset, setLibraryOffset] = useState(0);
-  const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>({
-    pageSize: 40, albumId: "", category: "", camera: "", lens: "",
-    rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", reviewCondition: "",
-    dateFrom: "", dateTo: "", search: "", sort: "newest", collapseGroups: false,
-  });
+  const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>(initialNavigation.librarySection);
+  const [libraryOffset, setLibraryOffset] = useState(initialNavigation.libraryOffset);
+  const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>(initialNavigation.libraryQuery);
   const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
   const [albumOffset, setAlbumOffset] = useState(0);
   const [albumPageSize, setAlbumPageSize] = useState(40);
@@ -69,6 +65,7 @@ function App() {
   const [groupAlbumId, setGroupAlbumId] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
+  const [urlCaptureId, setUrlCaptureId] = useState<number | null>(initialNavigation.captureId);
   const [detailMode, setDetailMode] = useState<DetailMode>("browse");
   const [detailContext, setDetailContext] = useState<number[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
@@ -79,10 +76,12 @@ function App() {
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const refreshSequence = useRef(0);
+  const captureRequestSequence = useRef(0);
   const toastSequence = useRef(0);
   const reviewQueues = useRef(new Map<number, Promise<void>>());
   const reviewVersions = useRef(new Map<number, number>());
@@ -108,38 +107,87 @@ function App() {
     window.localStorage.setItem("tangerine-last-workspace", view);
   }, [view]);
   useEffect(() => {
+    const hash = navigationHash({ view, librarySection: libraryLandingSection, libraryOffset, libraryQuery, captureId: urlCaptureId });
+    if (window.location.hash === hash) return;
+    const previous = readNavigationState();
+    if (previous.view !== view || (urlCaptureId !== null && previous.captureId !== urlCaptureId)) {
+      window.history.pushState(null, "", hash);
+    } else {
+      window.history.replaceState(null, "", hash);
+    }
+  }, [libraryLandingSection, libraryOffset, libraryQuery, urlCaptureId, view]);
+  useEffect(() => {
+    const applyNavigation = () => {
+      const navigation = readNavigationState();
+      const requestSequence = ++captureRequestSequence.current;
+      setView(navigation.view);
+      setLibraryLandingSection(navigation.librarySection);
+      setLibraryOffset(navigation.libraryOffset);
+      setLibraryQuery(navigation.libraryQuery);
+      setUrlCaptureId(navigation.captureId);
+      if (!navigation.captureId) {
+        setCaptureDetail(null);
+        return;
+      }
+      void getJson<CaptureDetail>(`/api/captures/${navigation.captureId}`)
+        .then((detail) => {
+          if (requestSequence !== captureRequestSequence.current) return;
+          setCaptureDetail(detail);
+          setDetailMode(navigation.view === "bursts" ? "select" : navigation.view === "analysis" ? "analyze" : "browse");
+        })
+        .catch((reason: Error) => {
+          if (requestSequence !== captureRequestSequence.current) return;
+          setError(reason.message);
+          setCaptureDetail(null);
+          setUrlCaptureId(null);
+        });
+    };
+    if (initialNavigation.captureId) applyNavigation();
+    const onHashChange = () => applyNavigation();
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+  useEffect(() => {
     if (view === "bursts") return;
     setSelectedGroup(null);
     setGroupAlbumId("");
   }, [view]);
 
-  const refreshLibrary = useCallback(async () => {
-    const requestSequence = ++refreshSequence.current;
-    const libraryParameters = new URLSearchParams({
-      limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
-    });
-    if (libraryQuery.albumId === "__unassigned__") libraryParameters.set("unassigned", "true");
-    else if (libraryQuery.albumId) libraryParameters.set("album_id", libraryQuery.albumId);
-    if (libraryQuery.category) libraryParameters.set("category", libraryQuery.category);
-    if (libraryQuery.camera) libraryParameters.set("camera_model", libraryQuery.camera);
-    if (libraryQuery.lens) libraryParameters.set("lens_model", libraryQuery.lens);
-    if (libraryQuery.rating) libraryParameters.set("rating", libraryQuery.rating);
-    if (libraryQuery.selection) libraryParameters.set("selection", libraryQuery.selection);
-    if (libraryQuery.quality) libraryParameters.set("quality", libraryQuery.quality);
-    if (libraryQuery.tagSubject) libraryParameters.set("tag_subject", libraryQuery.tagSubject);
-    if (libraryQuery.tagStatus) libraryParameters.set("tag_status", libraryQuery.tagStatus);
-    if (libraryQuery.tagProblem) libraryParameters.set("tag_problem", libraryQuery.tagProblem);
-    if (libraryQuery.tagLocation) libraryParameters.set("tag_location", libraryQuery.tagLocation);
-    if (libraryQuery.selectionReason) libraryParameters.set("selection_reason", libraryQuery.selectionReason);
-    if (libraryQuery.modelProblem) libraryParameters.set("model_problem", libraryQuery.modelProblem);
-    if (libraryQuery.reviewCondition) libraryParameters.set("review_condition", libraryQuery.reviewCondition);
-    if (libraryQuery.dateFrom) libraryParameters.set("date_from", libraryQuery.dateFrom);
-    if (libraryQuery.dateTo) libraryParameters.set("date_to", libraryQuery.dateTo);
-    if (libraryQuery.search.trim()) libraryParameters.set("search", libraryQuery.search.trim());
-    if (libraryQuery.albumId && libraryQuery.collapseGroups) libraryParameters.set("collapse_groups", "true");
+  const refreshInitialSnapshot = useCallback(async () => {
     const results = await Promise.allSettled([
       getJson<Overview>("/api/overview"),
-      getJson<LibraryCapturesResponse>(`/api/library/captures?${libraryParameters.toString()}`),
+      getJson<LibraryFilters>("/api/library/filters"),
+      getJson<AnalysisOverview>("/api/analysis/overview"),
+      getJson<AiPreflight>("/api/ai/preflight"),
+      getJson<Statistics>("/api/statistics"),
+      getJson<EquipmentCatalog>("/api/equipment"),
+      getJson<ArchiveStatus>("/api/archive/status"),
+      getJson<ArchiveStatus>("/api/active-library/baseline/status"),
+      getJson<LightroomStatus>("/api/lightroom/status"),
+      getJson<SystemCapabilities>("/api/system/capabilities"),
+      getJson<SettingsStatus>("/api/settings"),
+    ] as const);
+    const [overviewData, filterData, analysisData, preflightData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData, settingsData] = results;
+    if (overviewData.status === "fulfilled") setOverview(overviewData.value);
+    if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
+    if (analysisData.status === "fulfilled") setAnalysis(analysisData.value);
+    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
+    if (statisticsData.status === "fulfilled") setStatistics(statisticsData.value);
+    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
+    if (archiveData.status === "fulfilled") setArchive(archiveData.value);
+    if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
+    if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
+    if (capabilitiesData.status === "fulfilled") setCapabilities(capabilitiesData.value);
+    if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
+  }, []);
+
+  const refreshLibrary = useCallback(async () => {
+    const requestSequence = ++refreshSequence.current;
+    const results = await Promise.allSettled([
+      getJson<Overview>("/api/overview"),
+      getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset)),
       getJson<LibraryFilters>("/api/library/filters"),
       getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`),
       getJson<AnalysisOverview>("/api/analysis/overview"),
@@ -176,39 +224,15 @@ function App() {
   }, [albumOffset, albumPageSize, groupAlbumId, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
 
   useEffect(() => {
-    Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
+    Promise.all([refreshInitialSnapshot(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
       (reason: Error) => setError(reason.message),
     );
-    // Initial full snapshot only. Page filters have scoped effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshInitialSnapshot]);
 
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      const parameters = new URLSearchParams({
-        limit: String(libraryQuery.pageSize), offset: String(libraryOffset), sort: libraryQuery.sort,
-      });
-      if (libraryQuery.albumId === "__unassigned__") parameters.set("unassigned", "true");
-      else if (libraryQuery.albumId) parameters.set("album_id", libraryQuery.albumId);
-      if (libraryQuery.category) parameters.set("category", libraryQuery.category);
-      if (libraryQuery.camera) parameters.set("camera_model", libraryQuery.camera);
-      if (libraryQuery.lens) parameters.set("lens_model", libraryQuery.lens);
-      if (libraryQuery.rating) parameters.set("rating", libraryQuery.rating);
-      if (libraryQuery.selection) parameters.set("selection", libraryQuery.selection);
-      if (libraryQuery.quality) parameters.set("quality", libraryQuery.quality);
-      if (libraryQuery.tagSubject) parameters.set("tag_subject", libraryQuery.tagSubject);
-      if (libraryQuery.tagStatus) parameters.set("tag_status", libraryQuery.tagStatus);
-      if (libraryQuery.tagProblem) parameters.set("tag_problem", libraryQuery.tagProblem);
-      if (libraryQuery.tagLocation) parameters.set("tag_location", libraryQuery.tagLocation);
-      if (libraryQuery.selectionReason) parameters.set("selection_reason", libraryQuery.selectionReason);
-      if (libraryQuery.modelProblem) parameters.set("model_problem", libraryQuery.modelProblem);
-      if (libraryQuery.reviewCondition) parameters.set("review_condition", libraryQuery.reviewCondition);
-      if (libraryQuery.dateFrom) parameters.set("date_from", libraryQuery.dateFrom);
-      if (libraryQuery.dateTo) parameters.set("date_to", libraryQuery.dateTo);
-      if (libraryQuery.search.trim()) parameters.set("search", libraryQuery.search.trim());
-      if (libraryQuery.albumId && libraryQuery.collapseGroups) parameters.set("collapse_groups", "true");
-      getJson<LibraryCapturesResponse>(`/api/library/captures?${parameters}`, { signal: controller.signal })
+      getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset), { signal: controller.signal })
         .then(setLibraryCaptures)
         .catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
     }, libraryQuery.search ? 250 : 0);
@@ -692,13 +716,18 @@ function App() {
   };
 
   const openCapture = async (captureId: number, context?: number[], mode?: DetailMode) => {
+    const requestSequence = ++captureRequestSequence.current;
     setError(null);
     try {
-      setCaptureDetail(await getJson<CaptureDetail>(`/api/captures/${captureId}`));
+      const detail = await getJson<CaptureDetail>(`/api/captures/${captureId}`);
+      if (requestSequence !== captureRequestSequence.current) return;
+      setCaptureDetail(detail);
+      setUrlCaptureId(captureId);
       setDetailMode(mode ?? (view === "bursts" ? "select" : view === "analysis" ? "analyze" : "browse"));
       if (context) setDetailContext(context);
       else setDetailContext((current) => current.includes(captureId) ? current : []);
     } catch (reason) {
+      if (requestSequence !== captureRequestSequence.current) return;
       setError((reason as Error).message);
     }
   };
@@ -709,9 +738,14 @@ function App() {
     if (index < 0) return;
     const nextId = detailContext[index + direction];
     if (nextId == null) return;
+    const requestSequence = ++captureRequestSequence.current;
     try {
-      setCaptureDetail(await getJson<CaptureDetail>(`/api/captures/${nextId}`));
+      const detail = await getJson<CaptureDetail>(`/api/captures/${nextId}`);
+      if (requestSequence !== captureRequestSequence.current) return;
+      setCaptureDetail(detail);
+      setUrlCaptureId(nextId);
     } catch (reason) {
+      if (requestSequence !== captureRequestSequence.current) return;
       pushToast("error", (reason as Error).message);
     }
   };
@@ -953,6 +987,15 @@ function App() {
     }
   };
 
+  const requestView = (nextView: View) => {
+    if (view === "settings" && nextView !== "settings" && settingsDirty) {
+      if (!window.confirm("应用设置还有未保存的修改，确定放弃并离开吗？")) return false;
+      setSettingsDirty(false);
+    }
+    setView(nextView);
+    return true;
+  };
+
   const pageMeta = {
     home: ["OVERVIEW", "首页概览", ""],
     library: ["LIBRARY", "照片图库", "浏览、整理并管理全部拍摄单元"],
@@ -971,18 +1014,18 @@ function App() {
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
           <span className="nav-group-label">照片管理</span>
-          <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
-          <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { setLibraryLandingSection("photos"); setView("library"); }}><span>图</span>照片图库</button>
-          <button className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>连拍选片</button>
+          <button aria-current={view === "home" ? "page" : undefined} title="首页概览" className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => requestView("home")}><span>首</span>首页概览</button>
+          <button aria-current={view === "library" ? "page" : undefined} title="照片图库" className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { if (requestView("library")) setLibraryLandingSection("photos"); }}><span>图</span>照片图库</button>
+          <button aria-current={view === "bursts" ? "page" : undefined} title="相似组选片" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => requestView("bursts")}><span>选</span>相似组选片</button>
           <span className="nav-group-label system-label">分析学习</span>
-          <button className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
-          <button className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>统</span>摄影统计</button>
+          <button aria-current={view === "analysis" ? "page" : undefined} title="质量分析" className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => requestView("analysis")}><span>析</span>质量分析</button>
+          <button aria-current={view === "statistics" ? "page" : undefined} title="摄影统计" className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => requestView("statistics")}><span>统</span>摄影统计</button>
           <span className="nav-group-label system-label">工具</span>
-          <button className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
-          <button className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
+          <button aria-current={view === "equipment" ? "page" : undefined} title="设备管理" className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => requestView("equipment")}><span>器</span>设备管理</button>
+          <button aria-current={view === "lightroom" ? "page" : undefined} title="后期输出" className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => requestView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
-          <button className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>维</span>系统维护</button>
-          <button className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>设</span>应用设置</button>
+          <button aria-current={view === "archive" ? "page" : undefined} title="系统维护" className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => requestView("archive")}><span>维</span>系统维护</button>
+          <button aria-current={view === "settings" ? "page" : undefined} title="应用设置" className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => requestView("settings")}><span>设</span>应用设置</button>
         </nav>
         <div className="privacy-note"><span className="status-dot" /><div><strong>本地离线</strong><small>照片与人脸数据不离开电脑</small></div></div>
       </aside>
@@ -1019,10 +1062,10 @@ function App() {
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
-        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} />}
-        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => setCaptureDetail(null)} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} onDirtyChange={setSettingsDirty} />}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => { captureRequestSequence.current += 1; setCaptureDetail(null); setUrlCaptureId(null); }} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
-          {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
+          {toasts.map((toast) => <div key={toast.id} role={toast.kind === "error" ? "alert" : "status"} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
       </main>
     </div>

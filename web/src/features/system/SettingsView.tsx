@@ -5,11 +5,12 @@ import type { DirectoryPickerResult, EditableSettings, SettingsStatus } from "./
 
 type StorageField = ["library", "originals"] | ["library", "workspace"] | ["cache", "root"];
 
-export function SettingsView({ status, task, save, firstRun = false }: {
+export function SettingsView({ status, task, save, firstRun = false, onDirtyChange }: {
   status: SettingsStatus | null;
   task: Task | null;
   save: (settings: EditableSettings) => Promise<SettingsStatus>;
   firstRun?: boolean;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<EditableSettings | null>(status?.configured ?? null);
   const [saving, setSaving] = useState(false);
@@ -19,6 +20,20 @@ export function SettingsView({ status, task, save, firstRun = false }: {
   const [step, setStep] = useState(1);
   useEffect(() => setDraft(status?.configured ?? null), [status?.configured]);
   useEffect(() => { if (firstRun) setGuided(true); }, [firstRun]);
+  const dirty = Boolean(draft && status?.configured && JSON.stringify(draft) !== JSON.stringify(status.configured));
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [dirty]);
   if (!draft) return <div className="empty-state">正在读取配置…</div>;
 
   const update = <S extends keyof EditableSettings, K extends keyof EditableSettings[S]>(section: S, key: K, value: EditableSettings[S][K]) => setDraft((current) => current ? { ...current, [section]: { ...current[section], [key]: value } } : current);
@@ -80,6 +95,6 @@ export function SettingsView({ status, task, save, firstRun = false }: {
     <section className="panel settings-section"><div className="panel-heading"><div><span className="section-kicker">分析参数</span><h3>元数据、RAW 与连拍</h3></div></div><div className="settings-form-grid"><label className="wide"><span>ExifTool 路径（可留空自动发现）</span><input value={draft.tools.exiftool} onChange={(event) => update("tools", "exiftool", event.target.value)} /></label><label className="wide"><span>RAW 扩展名</span><input value={draft.analysis.raw_extensions.join(", ")} onChange={(event) => update("analysis", "raw_extensions", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /><small>使用英文逗号分隔，例如 .raf, .dng, .cr3。</small></label><label><span>连拍间隔秒</span><input type="number" min="0.1" max="60" step="0.1" value={draft.analysis.burst_time_gap_seconds} onChange={(event) => update("analysis", "burst_time_gap_seconds", Number(event.target.value))} /></label><label><span>元数据批量大小</span><input type="number" min="1" max="1000" value={draft.analysis.metadata_batch_size} onChange={(event) => update("analysis", "metadata_batch_size", Number(event.target.value))} /></label></div></section>
     <section className="panel settings-section"><div className="panel-heading"><div><span className="section-kicker">只读衔接</span><h3>Lightroom Classic</h3></div></div><div className="settings-form-grid"><label className="wide"><span>Lightroom 目录所在文件夹</span><input value={draft.lightroom.catalog_root} onChange={(event) => update("lightroom", "catalog_root", event.target.value)} placeholder="例如 C:\\Users\\用户名\\Pictures\\Lightroom" /><small>用于发现 .lrcat、.lrcat-data 和目录锁；应用不会打开或写入目录数据库。</small></label><label className="wide"><span>Lightroom 目录备份文件夹</span><input value={draft.lightroom.catalog_backup_root} onChange={(event) => update("lightroom", "catalog_backup_root", event.target.value)} placeholder="建议位于不同磁盘" /><small>当前仅检查配置与目录是否存在，不会自动创建或复制备份。</small></label></div></section>
     <section className="panel settings-section"><div className="panel-heading"><div><span className="section-kicker">可选能力</span><h3>本地模型</h3></div></div><div className="settings-form-grid"><label className="wide"><span>模型 Python</span><input value={draft.models.python} onChange={(event) => update("models", "python", event.target.value)} placeholder="留空则关闭本地模型" /></label><label className="wide"><span>模型目录</span><input value={draft.models.vision_language_model} onChange={(event) => update("models", "vision_language_model", event.target.value)} placeholder="留空则关闭本地模型" /></label><label><span>量化方式</span><select value={draft.models.quantization} onChange={(event) => update("models", "quantization", event.target.value as "none" | "int8")}><option value="none">不量化</option><option value="int8">INT8</option></select></label><label><span>显存上限 GB</span><input type="number" min="1" value={draft.models.gpu_memory_limit_gb} onChange={(event) => update("models", "gpu_memory_limit_gb", Number(event.target.value))} /></label><label><span>最大输出 Tokens</span><input type="number" min="1" value={draft.models.max_new_tokens} onChange={(event) => update("models", "max_new_tokens", Number(event.target.value))} /></label><label><span>图像最长边</span><input type="number" min="512" max="2048" value={draft.models.image_max_edge} onChange={(event) => update("models", "image_max_edge", Number(event.target.value))} /></label></div></section>
-    <section className="panel settings-section safety-settings"><div><span className="section-kicker">固定安全边界</span><h3>这些开关不会因设置编辑而放宽</h3><p>本地离线、图库只读、禁止移动删除、禁止写入原片元数据与 XMP。</p></div><div className="settings-actions"><span>{notice ?? (busy ? "后台任务运行或暂停期间不能保存配置。" : "保存时会备份旧配置，并在完整校验后原子替换。")}</span><button className="toolbar-button" onClick={() => setDraft(status?.configured ?? draft)} disabled={saving}>撤销修改</button><button className="toolbar-button primary" onClick={() => void submit()} disabled={saving || busy}>{saving ? "正在校验…" : "保存配置"}</button></div></section>
+    <section className="panel settings-section safety-settings"><div><span className="section-kicker">固定安全边界</span><h3>这些开关不会因设置编辑而放宽</h3><p>本地离线、图库只读、禁止移动删除、禁止写入原片元数据与 XMP。</p></div><div className="settings-actions"><span>{notice ?? (dirty ? "有尚未保存的修改。" : busy ? "后台任务运行或暂停期间不能保存配置。" : "保存时会备份旧配置，并在完整校验后原子替换。")}</span><button className="toolbar-button" onClick={() => setDraft(status?.configured ?? draft)} disabled={saving || !dirty}>撤销修改</button><button className="toolbar-button primary" onClick={() => void submit()} disabled={saving || busy || !dirty}>{saving ? "正在校验…" : dirty ? "保存配置" : "已保存"}</button></div></section>
   </div>;
 }

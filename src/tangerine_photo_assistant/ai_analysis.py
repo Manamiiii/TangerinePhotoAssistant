@@ -463,79 +463,156 @@ def ai_run_failures(
     )]
 
 
+AUDIT_VISIBLE_PROBLEMS = 1
+AUDIT_SHOOTING_ADVICE = 2
+AUDIT_LIGHTROOM_SUGGESTIONS = 4
+AUDIT_PHOTOSHOP_NEEDED = 8
+AUDIT_EMPTY_PHOTOSHOP_REASON = 16
+AUDIT_PARSE_ERROR = 32
+AUDIT_SCHEMA_ERROR = 64
+AUDIT_UNSAFE_ACTION = 128
+AUDIT_OVERCONFIDENT = 256
+AUDIT_LOW_CONFIDENCE = 512
+AUDIT_RISK_MASK = (
+    AUDIT_PARSE_ERROR | AUDIT_SCHEMA_ERROR | AUDIT_UNSAFE_ACTION
+    | AUDIT_OVERCONFIDENT | AUDIT_LOW_CONFIDENCE
+)
+
+
+def model_result_audit_metadata(result: dict[str, Any]) -> dict[str, Any]:
+    bits = 0
+    flags: list[str] = []
+    try:
+        validate_model_result(result)
+    except ValueError:
+        bits |= AUDIT_SCHEMA_ERROR
+        flags.append("structure_or_parameter_logic")
+    result_text = json.dumps(result, ensure_ascii=False)
+    if any(
+        phrase in result_text
+        for phrase in ("删除原片", "写入XMP", "修改EXIF", "上传到云", "上传云端", "覆盖原片")
+    ):
+        bits |= AUDIT_UNSAFE_ACTION
+        flags.append("unsafe_action_mention")
+    if result.get("visible_problems"):
+        bits |= AUDIT_VISIBLE_PROBLEMS
+    if result.get("shooting_advice"):
+        bits |= AUDIT_SHOOTING_ADVICE
+    if result.get("lightroom_suggestions"):
+        bits |= AUDIT_LIGHTROOM_SUGGESTIONS
+    if result.get("photoshop_needed") is True:
+        bits |= AUDIT_PHOTOSHOP_NEEDED
+    if not str(result.get("photoshop_reason") or "").strip():
+        bits |= AUDIT_EMPTY_PHOTOSHOP_REASON
+    confidence = result.get("overall_confidence")
+    if isinstance(confidence, (int, float)):
+        confidence = float(confidence)
+        if confidence >= 0.99:
+            bits |= AUDIT_OVERCONFIDENT
+            flags.append("overconfident")
+        elif confidence < 0.5:
+            bits |= AUDIT_LOW_CONFIDENCE
+            flags.append("low_confidence")
+    else:
+        confidence = None
+    return {
+        "bits": bits,
+        "flags_json": json.dumps(flags, ensure_ascii=False),
+        "confidence": confidence,
+        "visible_problem_count": len(result.get("visible_problems") or []),
+    }
+
+
+def backfill_ai_audit_metadata(connection: sqlite3.Connection) -> int:
+    total = 0
+    while True:
+        rows = connection.execute(
+            """SELECT id, result_json FROM ai_analyses
+               WHERE status='complete' AND result_json IS NOT NULL
+                 AND audit_bits IS NULL
+               ORDER BY id LIMIT 500"""
+        ).fetchall()
+        if not rows:
+            return total
+        updates = []
+        for row in rows:
+            try:
+                metadata = model_result_audit_metadata(json.loads(row["result_json"]))
+            except (TypeError, json.JSONDecodeError):
+                metadata = {
+                    "bits": AUDIT_PARSE_ERROR,
+                    "flags_json": '["parse_error"]',
+                    "confidence": None,
+                    "visible_problem_count": 0,
+                }
+            updates.append((
+                metadata["flags_json"], metadata["bits"], metadata["confidence"],
+                metadata["visible_problem_count"], row["id"],
+            ))
+        connection.executemany(
+            """UPDATE ai_analyses
+               SET audit_flags_json=?, audit_bits=?, audit_confidence=?,
+                   audit_visible_problem_count=?
+               WHERE id=?""",
+            updates,
+        )
+        connection.commit()
+        total += len(updates)
+
+
 def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
     rows = connection.execute(
-        """
-        SELECT id, prompt_version, result_json, user_verdict, reviewed_at,
-               (julianday(finished_at) - julianday(started_at)) * 86400.0
-                   AS duration_seconds
+        f"""
+        SELECT prompt_version, MAX(id) AS last_analysis_id,
+               COUNT(*) AS result_count,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_PARSE_ERROR}) != 0
+                        THEN 1 ELSE 0 END) AS parse_errors,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_SCHEMA_ERROR}) != 0
+                        THEN 1 ELSE 0 END) AS schema_errors,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_UNSAFE_ACTION}) != 0
+                        THEN 1 ELSE 0 END) AS unsafe_action_mentions,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_VISIBLE_PROBLEMS}) != 0
+                        THEN 1 ELSE 0 END) AS with_visible_problems,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_SHOOTING_ADVICE}) != 0
+                        THEN 1 ELSE 0 END) AS with_shooting_advice,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_LIGHTROOM_SUGGESTIONS}) != 0
+                        THEN 1 ELSE 0 END) AS with_lightroom_suggestions,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_PHOTOSHOP_NEEDED}) != 0
+                        THEN 1 ELSE 0 END) AS photoshop_needed,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_EMPTY_PHOTOSHOP_REASON}) != 0
+                        THEN 1 ELSE 0 END) AS empty_photoshop_reason,
+               SUM(CASE WHEN (COALESCE(audit_bits, 0) & {AUDIT_OVERCONFIDENT}) != 0
+                        THEN 1 ELSE 0 END) AS overconfident,
+               SUM(CASE WHEN audit_bits IS NULL OR (audit_bits & {AUDIT_RISK_MASK}) != 0
+                        THEN 1 ELSE 0 END) AS risk_count,
+               SUM(CASE WHEN audit_bits IS NULL THEN 1 ELSE 0 END)
+                   AS pending_audit_metadata,
+               SUM(CASE WHEN user_verdict IN ('accurate', 'partial', 'inaccurate')
+                        THEN 1 ELSE 0 END) AS reviewed,
+               SUM(CASE WHEN user_verdict='accurate' THEN 1 ELSE 0 END) AS accurate,
+               SUM(CASE WHEN user_verdict='partial' THEN 1 ELSE 0 END) AS partial,
+               SUM(CASE WHEN user_verdict='inaccurate' THEN 1 ELSE 0 END) AS inaccurate,
+               COALESCE(SUM(audit_confidence), 0.0) AS confidence_total,
+               COALESCE(SUM(CASE
+                   WHEN (julianday(finished_at) - julianday(started_at)) >= 0
+                   THEN (julianday(finished_at) - julianday(started_at)) * 86400.0
+                   ELSE 0 END), 0.0) AS duration_total,
+               SUM(CASE WHEN (julianday(finished_at) - julianday(started_at)) >= 0
+                        THEN 1 ELSE 0 END) AS timed_count
         FROM ai_analyses
         WHERE status='complete' AND result_json IS NOT NULL
-        ORDER BY id
+        GROUP BY prompt_version
+        ORDER BY last_analysis_id DESC
         """
     ).fetchall()
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        version = row["prompt_version"]
-        audit = grouped.setdefault(version, {
-            "prompt_version": version,
-            "last_analysis_id": 0,
-            "result_count": 0,
-            "parse_errors": 0,
-            "schema_errors": 0,
-            "unsafe_action_mentions": 0,
-            "with_visible_problems": 0,
-            "with_shooting_advice": 0,
-            "with_lightroom_suggestions": 0,
-            "photoshop_needed": 0,
-            "empty_photoshop_reason": 0,
-            "overconfident": 0,
-            "reviewed": 0,
-            "verdicts": {"accurate": 0, "partial": 0, "inaccurate": 0},
-            "confidence_total": 0.0,
-            "duration_total": 0.0,
-            "timed_count": 0,
-        })
-        audit["result_count"] += 1
-        audit["last_analysis_id"] = max(audit["last_analysis_id"], row["id"])
-        try:
-            result = json.loads(row["result_json"])
-        except (TypeError, json.JSONDecodeError):
-            audit["parse_errors"] += 1
-            continue
-        try:
-            validate_model_result(result)
-        except ValueError:
-            audit["schema_errors"] += 1
-        result_text = json.dumps(result, ensure_ascii=False)
-        audit["unsafe_action_mentions"] += int(any(
-            phrase in result_text
-            for phrase in ("删除原片", "写入XMP", "修改EXIF", "上传到云", "上传云端", "覆盖原片")
-        ))
-        audit["with_visible_problems"] += int(bool(result.get("visible_problems")))
-        audit["with_shooting_advice"] += int(bool(result.get("shooting_advice")))
-        audit["with_lightroom_suggestions"] += int(
-            bool(result.get("lightroom_suggestions"))
-        )
-        audit["photoshop_needed"] += int(result.get("photoshop_needed") is True)
-        audit["empty_photoshop_reason"] += int(
-            not str(result.get("photoshop_reason") or "").strip()
-        )
-        confidence = result.get("overall_confidence")
-        if isinstance(confidence, (int, float)):
-            audit["confidence_total"] += float(confidence)
-            audit["overconfident"] += int(float(confidence) >= 0.99)
-        verdict = row["user_verdict"]
-        if verdict in audit["verdicts"]:
-            audit["verdicts"][verdict] += 1
-            audit["reviewed"] += 1
-        duration = row["duration_seconds"]
-        if isinstance(duration, (int, float)) and duration >= 0:
-            audit["duration_total"] += float(duration)
-            audit["timed_count"] += 1
-
     versions: list[dict[str, Any]] = []
-    for audit in grouped.values():
+    for row in rows:
+        audit = dict(row)
+        audit["verdicts"] = {
+            "accurate": audit.pop("accurate"),
+            "partial": audit.pop("partial"),
+            "inaccurate": audit.pop("inaccurate"),
+        }
         valid_count = audit["result_count"] - audit["parse_errors"]
         audit["average_confidence"] = (
             round(audit.pop("confidence_total") / valid_count, 3)
@@ -546,23 +623,11 @@ def ai_result_audit(connection: sqlite3.Connection) -> dict[str, Any]:
             if audit["timed_count"] else None
         )
         versions.append(audit)
-    versions.sort(key=lambda item: item["last_analysis_id"], reverse=True)
     return {"versions": versions, "latest": versions[0] if versions else None}
 
 
 def _model_result_review_flags(result: dict[str, Any]) -> list[str]:
-    flags: list[str] = []
-    try:
-        validate_model_result(result)
-    except ValueError:
-        flags.append("structure_or_parameter_logic")
-    result_text = json.dumps(result, ensure_ascii=False)
-    if any(
-        phrase in result_text
-        for phrase in ("删除原片", "写入XMP", "修改EXIF", "上传到云", "上传云端", "覆盖原片")
-    ):
-        flags.append("unsafe_action_mention")
-    return flags
+    return json.loads(model_result_audit_metadata(result)["flags_json"])
 
 
 def ai_recent_results(
@@ -610,11 +675,14 @@ def ai_results_page(
     offset: int = 0,
     prompt_version: str | None = None,
     verdict: str | None = None,
+    audit: str | None = None,
 ) -> dict[str, Any]:
     if limit <= 0 or limit > 200 or offset < 0:
         raise ValueError("AI result page bounds are invalid")
     if verdict not in {None, "accurate", "partial", "inaccurate", "unreviewed"}:
         raise ValueError("AI result verdict filter is invalid")
+    if audit not in {None, "risk", "sample"}:
+        raise ValueError("AI result audit filter is invalid")
     filters = ["aa.status='complete'", "aa.result_json IS NOT NULL"]
     parameters: list[Any] = []
     if prompt_version:
@@ -625,6 +693,12 @@ def ai_results_page(
     elif verdict:
         filters.append("aa.user_verdict=?")
         parameters.append(verdict)
+    if audit == "risk":
+        filters.append(
+            f"(aa.audit_bits IS NULL OR (aa.audit_bits & {AUDIT_RISK_MASK}) != 0)"
+        )
+    elif audit == "sample":
+        filters.append("aa.user_verdict IS NULL AND aa.id % 20 = 0")
     where = " AND ".join(filters)
     total = connection.execute(
         f"SELECT COUNT(*) FROM ai_analyses aa WHERE {where}", parameters
@@ -633,6 +707,7 @@ def ai_results_page(
         f"""
         SELECT aa.id, aa.capture_id, aa.model_id, aa.prompt_version,
                aa.finished_at, aa.user_verdict, aa.user_note,
+               aa.audit_flags_json, aa.audit_confidence,
                c.stem, e.proposed_name AS event_name, e.category,
                qm.technical_score, aa.result_json
         FROM ai_analyses aa
@@ -652,13 +727,21 @@ def ai_results_page(
             result = json.loads(item.pop("result_json"))
         except (TypeError, json.JSONDecodeError):
             continue
+        audit_confidence = item.pop("audit_confidence")
+        raw_audit_flags = item.pop("audit_flags_json")
         item.update({
             "subject_type": result.get("subject_type"),
             "quality_summary": result.get("quality_summary"),
             "visible_problem_count": len(result.get("visible_problems") or []),
-            "overall_confidence": result.get("overall_confidence"),
+            "overall_confidence": (
+                audit_confidence
+                if audit_confidence is not None else result.get("overall_confidence")
+            ),
             "photoshop_needed": result.get("photoshop_needed") is True,
-            "review_flags": _model_result_review_flags(result),
+            "review_flags": (
+                json.loads(raw_audit_flags)
+                if raw_audit_flags else _model_result_review_flags(result)
+            ),
             "thumbnail_url": f"/api/thumbnails/{item['capture_id']}?size=320",
         })
         items.append(item)

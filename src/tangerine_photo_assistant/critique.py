@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 LIMITED_REPAIR_TERMS = ("闭眼", "失焦", "运动模糊", "抖动", "遮挡", "表情", "姿势")
 PARTIAL_REPAIR_TERMS = (
     "曝光", "高光", "阴影", "暗部", "噪点", "白平衡", "色偏",

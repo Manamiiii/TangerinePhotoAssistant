@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -142,7 +143,10 @@ def compare_archive_baseline(
 
 
 def compare_archive_baseline_on_disk(
-    connection: sqlite3.Connection, baseline_id: int, sample_limit: int = 20
+    connection: sqlite3.Connection,
+    baseline_id: int,
+    sample_limit: int = 20,
+    on_difference: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
     baseline = connection.execute(
         """SELECT b.*, COALESCE(b.root_path, s.root_path) AS effective_root
@@ -176,18 +180,27 @@ def compare_archive_baseline_on_disk(
                 stat = path.stat()
             except OSError:
                 changed += 1
+                if on_difference:
+                    on_difference(relative, "unreadable")
                 if len(samples) < sample_limit:
                     samples.append({"relative_path": relative, "status": "unreadable"})
                 continue
             if item is None:
                 new += 1
+                if on_difference:
+                    on_difference(relative, "new")
                 if len(samples) < sample_limit:
                     samples.append({"relative_path": relative, "status": "new"})
             elif stat.st_size != item["size_bytes"] or stat.st_mtime_ns != item["modified_ns"]:
                 changed += 1
+                if on_difference:
+                    on_difference(relative, "changed")
                 if len(samples) < sample_limit:
                     samples.append({"relative_path": relative, "status": "changed"})
     missing_paths = [row["relative_path"] for key, row in expected.items() if key not in seen]
+    if on_difference:
+        for relative in missing_paths:
+            on_difference(relative, "missing")
     for relative in missing_paths[: max(0, sample_limit - len(samples))]:
         samples.append({"relative_path": relative, "status": "missing"})
     return {
@@ -239,32 +252,102 @@ def run_integrity_check(
     baseline = latest_baseline(connection, scope)
     if baseline is None:
         raise ValueError("No integrity baseline exists")
-    result = compare_archive_baseline_on_disk(connection, baseline["id"])
     checked_at = utc_now()
-    connection.execute(
+    check_id = connection.execute(
         """
         INSERT INTO archive_checks(
             baseline_id, scan_run_id, checked_at, missing_count,
             changed_count, new_count, healthy, sample_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, 0, 0, 0, 0, '[]')
         ON CONFLICT(baseline_id, scan_run_id) DO UPDATE SET
-            checked_at=excluded.checked_at,
-            missing_count=excluded.missing_count,
-            changed_count=excluded.changed_count,
-            new_count=excluded.new_count,
-            healthy=excluded.healthy,
-            sample_json=excluded.sample_json
+            checked_at=excluded.checked_at
+        RETURNING id
         """,
+        (baseline["id"], baseline["scan_run_id"], checked_at),
+    ).fetchone()[0]
+    connection.execute(
+        "DELETE FROM archive_check_differences WHERE check_id=?", (check_id,)
+    )
+    pending: list[tuple[int, str, str]] = []
+
+    def record_difference(relative_path: str, status: str) -> None:
+        pending.append((check_id, relative_path, status))
+        if len(pending) >= 500:
+            connection.executemany(
+                """INSERT OR IGNORE INTO archive_check_differences(
+                       check_id, relative_path, status
+                   ) VALUES (?, ?, ?)""",
+                pending,
+            )
+            pending.clear()
+
+    result = compare_archive_baseline_on_disk(
+        connection, baseline["id"], on_difference=record_difference
+    )
+    if pending:
+        connection.executemany(
+            """INSERT OR IGNORE INTO archive_check_differences(
+                   check_id, relative_path, status
+               ) VALUES (?, ?, ?)""",
+            pending,
+        )
+    connection.execute(
+        """UPDATE archive_checks
+           SET checked_at=?, missing_count=?, changed_count=?, new_count=?,
+               healthy=?, sample_json=?
+           WHERE id=?""",
         (
-            baseline["id"], baseline["scan_run_id"], checked_at,
-            result["missing"], result["changed"], result["new"],
-            int(result["healthy"]),
-            json.dumps(result["samples"], ensure_ascii=False),
+            checked_at, result["missing"], result["changed"], result["new"],
+            int(result["healthy"]), json.dumps(result["samples"], ensure_ascii=False),
+            check_id,
         ),
     )
     connection.commit()
     result["checked_at"] = checked_at
     return {"baseline": baseline, "comparison": result}
+
+
+def integrity_differences(
+    connection: sqlite3.Connection,
+    scope: str,
+    limit: int = 100,
+    offset: int = 0,
+    status: str | None = None,
+) -> dict[str, Any]:
+    if scope not in {"archive", "active"}:
+        raise ValueError("Integrity scope must be archive or active")
+    if status not in {None, "missing", "changed", "new", "unreadable"}:
+        raise ValueError("Integrity difference status is invalid")
+    check = connection.execute(
+        """SELECT ac.id, ac.checked_at
+           FROM archive_checks ac
+           JOIN archive_baselines ab ON ab.id=ac.baseline_id
+           WHERE ab.scope=? ORDER BY ac.id DESC LIMIT 1""",
+        (scope,),
+    ).fetchone()
+    if check is None:
+        return {"check_id": None, "count": 0, "limit": limit, "offset": offset, "items": []}
+    where = "check_id=?"
+    parameters: list[Any] = [check["id"]]
+    if status:
+        where += " AND status=?"
+        parameters.append(status)
+    count = connection.execute(
+        f"SELECT COUNT(*) FROM archive_check_differences WHERE {where}", parameters
+    ).fetchone()[0]
+    rows = connection.execute(
+        f"""SELECT relative_path, status FROM archive_check_differences
+            WHERE {where} ORDER BY status, relative_path LIMIT ? OFFSET ?""",
+        (*parameters, limit, offset),
+    ).fetchall()
+    return {
+        "check_id": check["id"],
+        "checked_at": check["checked_at"],
+        "count": count,
+        "limit": limit,
+        "offset": offset,
+        "items": [dict(row) for row in rows],
+    }
 
 
 def recorded_archive_status(connection: sqlite3.Connection) -> dict[str, Any]:

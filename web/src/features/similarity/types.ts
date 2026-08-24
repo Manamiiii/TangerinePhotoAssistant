@@ -17,7 +17,7 @@ export type SimilarityGroupItem = {
   thumbnail_url: string;
 };
 export type SimilarityAlbumSummary = { id: number; name: string; category: string; total_count: number; pending_count: number };
-export type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; albums: SimilarityAlbumSummary[] };
+export type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; estimated_review_minutes: number; estimate_basis: string; albums: SimilarityAlbumSummary[] };
 export type SimilarityReviewFilter = "all" | "pending" | "completed" | "adjusted";
 
 export type GroupCapture = {

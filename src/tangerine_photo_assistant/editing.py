@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from io import BytesIO
 from collections.abc import Mapping
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 

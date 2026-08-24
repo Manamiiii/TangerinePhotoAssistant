@@ -6,8 +6,9 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
+SQLITE_BUSY_TIMEOUT_MS = 30_000
 
 
 def read_schema_version(path: Path) -> int | None:
@@ -83,10 +84,11 @@ def connect(path: Path) -> sqlite3.Connection:
         )
     if existing_version is not None and existing_version < SCHEMA_VERSION:
         backup_before_schema_upgrade(path, existing_version)
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS schema_info (
@@ -508,7 +510,6 @@ def connect(path: Path) -> sqlite3.Connection:
             ON ai_analyses(capture_id, finished_at);
         CREATE INDEX IF NOT EXISTS idx_ai_analyses_capture_model_prompt_status
             ON ai_analyses(capture_id, model_id, prompt_version, status);
-
         CREATE TABLE IF NOT EXISTS edit_recipe_revisions (
             id INTEGER PRIMARY KEY,
             capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
@@ -562,6 +563,13 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_archive_checks_baseline_scan
             ON archive_checks(baseline_id, scan_run_id);
+
+        CREATE TABLE IF NOT EXISTS archive_check_differences (
+            check_id INTEGER NOT NULL REFERENCES archive_checks(id) ON DELETE CASCADE,
+            relative_path TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('missing', 'changed', 'new', 'unreadable')),
+            PRIMARY KEY (check_id, status, relative_path)
+        );
 
         CREATE TABLE IF NOT EXISTS migration_plans (
             id INTEGER PRIMARY KEY,
@@ -673,6 +681,16 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(connection, "ai_analyses", "user_verdict", "TEXT")
     _ensure_column(connection, "ai_analyses", "user_note", "TEXT")
     _ensure_column(connection, "ai_analyses", "reviewed_at", "TEXT")
+    _ensure_column(connection, "ai_analyses", "audit_flags_json", "TEXT")
+    _ensure_column(connection, "ai_analyses", "audit_bits", "INTEGER")
+    _ensure_column(connection, "ai_analyses", "audit_confidence", "REAL")
+    _ensure_column(
+        connection, "ai_analyses", "audit_visible_problem_count", "INTEGER"
+    )
+    connection.execute(
+        """CREATE INDEX IF NOT EXISTS idx_ai_analyses_audit_review
+           ON ai_analyses(status, user_verdict, prompt_version, id DESC)"""
+    )
     _ensure_column(connection, "ai_runs", "worker_pid", "INTEGER")
     _ensure_column(connection, "ai_runs", "heartbeat_at", "TEXT")
     _ensure_column(connection, "similarity_group_overrides", "manual_batch_key", "TEXT")
@@ -740,8 +758,13 @@ def connect(path: Path) -> sqlite3.Connection:
 def connect_readonly(path: Path) -> sqlite3.Connection:
     if not path.is_file():
         raise FileNotFoundError(f"Database does not exist: {path}")
-    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro",
+        uri=True,
+        timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+    )
     connection.row_factory = sqlite3.Row
+    connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     connection.execute("PRAGMA query_only=ON")
     return connection
 

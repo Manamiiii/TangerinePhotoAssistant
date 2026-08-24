@@ -5,12 +5,11 @@ import sqlite3
 from collections import Counter, defaultdict
 from typing import Any
 
-
 MIN_CONDITION_SAMPLE = 3
 MIN_PROBLEM_SAMPLE = 2
 
 
-def _bucket(value: float | int | None, boundaries: list[tuple[float, str]], fallback: str) -> str:
+def _bucket(value: float | None, boundaries: list[tuple[float, str]], fallback: str) -> str:
     if value is None:
         return fallback
     numeric = float(value)

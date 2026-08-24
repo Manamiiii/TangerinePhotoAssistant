@@ -3,13 +3,13 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from tangerine_photo_assistant.lightroom import lightroom_preflight
 from tangerine_photo_assistant.settings import (
     Settings,
     editable_config,
     save_editable_config,
     write_safe_config,
 )
-from tangerine_photo_assistant.lightroom import lightroom_preflight
 
 
 class SettingsTests(unittest.TestCase):

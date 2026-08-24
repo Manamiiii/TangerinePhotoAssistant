@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 from .ai_analysis import (
     ai_run_status,
     build_prompt,
+    model_result_audit_metadata,
     parse_model_json,
     validate_model_result,
 )
@@ -207,15 +208,21 @@ def run_worker(config_path: Path, run_id: int) -> int:
                         f"Model JSON remained invalid after {len(raw_responses)} attempts: "
                         f"{last_parse_error}"
                     )
+                audit = model_result_audit_metadata(result)
                 connection.execute(
                     """
                     UPDATE ai_analyses SET status='complete', result_json=?,
-                        raw_response=?, error=NULL, finished_at=? WHERE id=?
+                        raw_response=?, error=NULL, finished_at=?,
+                        audit_flags_json=?, audit_bits=?, audit_confidence=?,
+                        audit_visible_problem_count=?
+                    WHERE id=?
                     """,
                     (
                         json.dumps(result, ensure_ascii=False),
                         "\n\n--- retry ---\n\n".join(raw_responses),
-                        utc_now(), row["analysis_id"],
+                        utc_now(), audit["flags_json"], audit["bits"],
+                        audit["confidence"], audit["visible_problem_count"],
+                        row["analysis_id"],
                     ),
                 )
                 connection.execute("SAVEPOINT analysis_subject_tags")

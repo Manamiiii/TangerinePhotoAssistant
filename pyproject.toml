@@ -16,6 +16,12 @@ dependencies = [
     "uvicorn>=0.35,<1",
 ]
 
+[project.optional-dependencies]
+test = [
+    "httpx2>=2,<3",
+    "ruff>=0.12,<1",
+]
+
 [project.scripts]
 tangerine-photo = "tangerine_photo_assistant.cli:main"
 
@@ -38,6 +44,9 @@ ignore = ["BLE001"]
 [tool.ruff.lint.per-file-ignores]
 # Model-output validators intentionally raise ValueError; tests assert it.
 "src/tangerine_photo_assistant/ai_analysis.py" = ["TRY004"]
+"src/tangerine_photo_assistant/portable_data.py" = ["TRY004"]
+"src/tangerine_photo_assistant/tags.py" = ["SIM118"]
+"src/tangerine_photo_assistant/webapp.py" = ["I001"]
 # Demo EXIF capture times are naive by design (EXIF stores no timezone).
 "src/tangerine_photo_assistant/sample_data.py" = ["DTZ001"]
 # Controller scripts log local wall-clock timestamps on purpose.

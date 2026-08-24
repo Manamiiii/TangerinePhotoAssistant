@@ -7,7 +7,6 @@ import sqlite3
 import zipfile
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
 from typing import Any
 
 from .database import SCHEMA_VERSION

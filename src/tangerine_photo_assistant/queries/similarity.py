@@ -56,6 +56,12 @@ def query_similarity_groups(
             """,
             count_parameters,
         ).fetchone()[0]
+        review_timing = connection.execute(
+            """SELECT AVG(active_seconds)
+               FROM selection_sessions
+               WHERE status='completed' AND active_seconds > 0"""
+        ).fetchone()[0]
+        seconds_per_group = max(15.0, min(float(review_timing or 30.0), 300.0))
         album_rows = connection.execute(
             """
             SELECT e.id, e.proposed_name AS name, e.category,
@@ -121,6 +127,10 @@ def query_similarity_groups(
             "items": items,
             "total_count": total,
             "pending_count": pending_count,
+            "estimated_review_minutes": round(pending_count * seconds_per_group / 60),
+            "estimate_basis": (
+                "completed_sessions" if review_timing is not None else "default_30_seconds"
+            ),
             "albums": [dict(row) for row in album_rows],
         }
     finally:

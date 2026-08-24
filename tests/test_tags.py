@@ -7,17 +7,17 @@ from tangerine_photo_assistant.ai_analysis import update_ai_review
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.queries.details import query_capture_detail
 from tangerine_photo_assistant.tags import (
-    analysis_subject_tag_status,
-    clear_analysis_subject_tags,
     CaptureTagError,
     CaptureTagNotFoundError,
+    analysis_subject_tag_status,
+    clear_analysis_subject_tags,
     create_tag_definition,
     delete_tag_definition,
     list_tag_definitions,
     replace_manual_capture_tags,
     sync_analysis_subject_tags,
-    update_tag_definition,
     update_manual_tag_for_captures,
+    update_tag_definition,
 )
 
 
