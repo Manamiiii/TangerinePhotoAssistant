@@ -57,9 +57,9 @@ integrations as capabilities, not assumptions.
   versions, capability and safety switches, database integrity and aggregate counts,
   while excluding images, names and paths, GPS, serials, user-authored text, model
   payloads, and raw error messages. Its archive contains one inspectable JSON file.
-- Persistent worker and long-running controller logs record exception categories and
-  aggregate states, not raw exception text, task error bodies, runtime path messages,
-  or external process command lines. A regression test guards those log boundaries.
+- Persistent worker and deadline-guard logs record exception categories and aggregate
+  states, not raw exception text, task error bodies, or runtime path messages. A
+  regression test guards those log boundaries.
 
 ## Release work still required
 
