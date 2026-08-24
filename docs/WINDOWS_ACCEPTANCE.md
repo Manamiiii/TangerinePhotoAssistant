@@ -5,6 +5,66 @@
 > 状态：2026-08-14 已按本清单完成本轮正式数据验收。以下步骤保留为后续版本回归基线；
 > 再次执行写数据库的项目时仍应使用可恢复的测试内容，不得修改真实照片文件。
 
+## 0. 2026-08-24 schema 27 精简验收
+
+今晚优先完成本节即可；后面的长清单不需要全部重跑。开始前先拉取 `main`，确认提交为
+`284ef41` 或更新，并检查当前服务任务：
+
+```powershell
+git switch main
+git pull --ff-only origin main
+git status --short --branch
+try { Invoke-RestMethod http://127.0.0.1:8765/api/tasks/current } catch { $_.Exception.Message }
+```
+
+若任务接口显示 `running` 或 `paused`，不要重启服务。若返回 404，说明当前是没有该接口的旧服务；
+先从旧页面或原终端确认没有扫描、质量、详情补全或模型任务，再按正常方式关闭旧服务，不要直接
+结束未知 Python、ComfyUI 或 GPU 进程。
+
+1. 启动前记录 `D:\PhotoLibrary\AnalysisDatabase\catalog.sqlite3` 的修改时间，并查看
+   `D:\PhotoLibrary\Backups\AnalysisDatabase` 当前最新备份；不要手工复制、移动或改名数据库。
+2. 通过 `start-photo-assistant.cmd` 正常启动。首次打开 schema 26 正式库时，应新增且只新增一份
+   `catalog-pre-schema27-from26-*.sqlite3`，然后正式库升级为 schema 27。
+3. 用下面的只读命令同时核对正式库与最新升级前备份。正式库应为 schema 27、备份应为 schema
+   26，两者 `PRAGMA integrity_check` 都必须为 `ok`：
+
+```powershell
+@'
+import sqlite3
+from pathlib import Path
+
+catalog = Path(r"D:\PhotoLibrary\AnalysisDatabase\catalog.sqlite3")
+backup_root = Path(r"D:\PhotoLibrary\Backups\AnalysisDatabase")
+backup = max(backup_root.glob("catalog-pre-schema27-from26-*.sqlite3"), key=lambda p: p.stat().st_mtime)
+for path in (catalog, backup):
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        version = connection.execute("SELECT version FROM schema_info").fetchone()[0]
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+        print(path, "schema", version, "integrity", integrity)
+    finally:
+        connection.close()
+'@ | .\.venv\Scripts\python.exe -
+```
+
+4. 打开 `http://127.0.0.1:8765/api/health`，确认 `status=ok`、`schema_version=27`、
+   `mode=local-only`。`ai_audit_backfill.status` 最终应为 `complete`；若短暂显示 `running`，等待后
+   刷新，不要因此启动模型分析。
+5. 打开 `/api/system/ai-audit-backfill`，确认没有 `failed`。若失败，先记录错误类型，不要连续点击
+   重试；保留数据库和日志后再排查。
+6. 在质量分析的模型结果中依次切换“高风险优先 / 5% 稳定抽样 / 全部记录”，标题和数量应随
+   当前队列改变；旧模型结果不需要重跑。
+7. 在图库设置一个相册、筛选、排序、分页并打开照片，复制当前 Hash 到新标签页，确认恢复相同
+   范围和详情；非法日期或 ID 应回退安全默认值。
+8. 在应用设置修改一个字段但不保存，点击左侧其他主功能，应出现放弃修改确认；选择取消必须留在
+   设置页，选择离开不得写配置。
+9. 浏览图库首页、深页、一个大相册折叠页和摄影统计。正式库约 13.8k Capture，不应出现秒级
+   卡死或内存持续增长；无需在正式库运行合成基准工具。
+10. 全程不要运行新的全量质量/模型分析，不写 XMP，不操作 Lightroom 目录，不修改照片文件。
+
+上述 10 项通过后，schema 27 可以视为完成 Windows 正式库验收，再开始 schema 28 的人工工作
+队列迁移。Mac 可以提前验收 UI、深链接和隔离样例，但不能替代第 1–5 项的正式数据库检查。
+
 ## 1. 启动与只读状态
 
 1. 双击 `start-photo-assistant.cmd`。
