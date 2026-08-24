@@ -1885,8 +1885,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .filter-drawer-heading button { padding: 5px 8px; border: 0; border-radius: 7px; color: var(--orange-soft); background: transparent; font-size: 11px; cursor: pointer; }
 .filter-drawer-heading button:hover { background: rgba(255,122,26,.08); }
 
-.event-row.album-row { grid-template-columns: 72px minmax(220px, 1.8fr) 82px 104px 250px; }
-.album-row-actions { display: grid; grid-template-columns: 44px 58px 44px 82px; justify-content: end; gap: 7px; }
+.event-row.album-row { grid-template-columns: 72px minmax(220px, 1.8fr) 82px 104px 286px; }
+.album-row-actions { display: grid; grid-template-columns: 48px 76px 48px 86px; justify-content: end; gap: 7px; }
 .album-row-actions > span { display: block; }
 .album-row-actions .album-open-action { margin-left: 3px; }
 
@@ -1909,7 +1909,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .similarity-picker-photo span { color: #fff; background: #9b430d; box-shadow: 0 2px 7px rgba(0,0,0,.45); font-size: 11px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
 
 @media (max-width: 1180px) {
-  .event-row.album-row { grid-template-columns: 64px minmax(180px, 1fr) 70px 92px 236px; gap: 10px; }
+  .event-row.album-row { grid-template-columns: 64px minmax(180px, 1fr) 70px 92px 276px; gap: 10px; }
 }
 @media (max-width: 760px) {
   .event-row.album-row { grid-template-columns: 58px minmax(0, 1fr); gap: 9px; }
@@ -1941,6 +1941,57 @@ textarea:focus-visible { outline: 1px solid var(--orange-soft); outline-offset: 
 .section-tabs button,
 .album-workspace-header nav button,
 .text-action { font-size: 11px; }
+
+/* Controls are atomic labels: only explanatory copy should wrap naturally. */
+.toolbar-button,
+.text-action,
+.primary-action,
+.secondary-action,
+.collection-scope-tabs button,
+.section-tabs button,
+.analysis-tabs button,
+.album-workspace-header nav button,
+.photo-layout-toggle button,
+.burst-view-toggle button,
+.analysis-action-card > button,
+.task-actions button,
+.group-export-tools button,
+.photo-quick-review button,
+.album-row-actions button,
+.equipment-row-actions button,
+.equipment-hidden-list button,
+.editor-footer button,
+.type-manager-row button,
+.grouping-editor-footer button,
+.similarity-grouping-actions button,
+.grouping-editor-note button,
+.grouping-bucket > header button,
+.review-controls button,
+.review-controls select,
+.photo-review button,
+.photo-review select,
+.similarity-picker-actions button,
+.similarity-picker-actions select,
+.detail-context-bar button,
+.detail-review-bar button,
+.detail-selection-reasons button,
+.selection-reason-summary button,
+.detail-file-section button,
+.tag-dimension button,
+.ai-review-controls button,
+.tag-custom button,
+.tag-custom select,
+.tag-manager-list button,
+.event-actions button,
+.event-actions select,
+.filter-drawer-heading button,
+.home-continue-card > div button,
+.toast button,
+.edit-recipe-actions button,
+.pagination-controls button,
+.pagination-controls select,
+.selection-toolbar button,
+.selection-toolbar select { white-space: nowrap; }
 .panel-heading > span,
 .batch-count,
 .photo-card-copy span,
