@@ -47,7 +47,8 @@ function TagEditor({ detail, saveTags }: {
   };
   const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
     JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
-  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存"}</button></div>
+  const save = async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } };
+  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><p className="tag-editor-intro">题材和问题可多选，工作状态只保留一个；标签不会写入照片。</p>
     {!!analysisTags.length && <div className="analysis-tag-readonly"><strong>模型分析</strong><div>{analysisTags.map((tag) => <span key={`${tag.dimension}:${tag.name}`}>{tag.name}{tag.confidence == null ? "" : ` · ${Math.round(tag.confidence * 100)}%`}</span>)}</div><small>只读来源；人工标签独立保存，不会被同步覆盖。</small></div>}
     {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
       const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
@@ -55,6 +56,7 @@ function TagEditor({ detail, saveTags }: {
       return <div className="tag-dimension" key={dimension}><strong>{tagDimensionLabels[dimension]}</strong><div>{[...catalog, ...selectedCustom.map((tag, index) => ({ ...tag, id: -index - 1, built_in: 0 }))].map((tag) => <button key={`${dimension}:${tag.name}`} className={selectedKeys.has(selectedKey(dimension, tag.name)) ? "selected" : ""} onClick={() => toggle(dimension, tag.name)}>{tag.name}</button>)}{!catalog.length && !selectedCustom.length && <small>尚无标签，可在下方添加</small>}</div></div>;
     })}
     <div className="tag-custom"><select value={customDimension} onChange={(event) => setCustomDimension(event.target.value as CaptureTagDimension)}>{(Object.entries(tagDimensionLabels) as Array<[CaptureTagDimension, string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input value={customName} maxLength={40} placeholder="添加自定义标签" onChange={(event) => setCustomName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustom(); } }} /><button disabled={!customName.trim()} onClick={addCustom}>添加</button></div>
+    <div className="tag-editor-footer"><span>{dirty ? "有未保存的更改" : "标签已保存"}</span><button disabled={!dirty || saving} onClick={() => void save()}>{saving ? "保存中…" : "保存更改"}</button></div>
   </div></details>;
 }
 
@@ -251,12 +253,12 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
       if (event.key === "ArrowRight") { event.preventDefault(); navigate(1); return; }
       if (event.key >= "1" && event.key <= "5") { review({ user_rating: Number(event.key) }); return; }
       if (event.key === "0") { review({ user_rating: null }); return; }
-      if (event.key === "p" || event.key === "P") { review({ user_pick: !detail.user_pick, user_reject: false }); return; }
-      if (event.key === "x" || event.key === "X") { review({ user_pick: false, user_reject: !detail.user_reject }); }
+      if (mode === "select" && (event.key === "p" || event.key === "P")) { review({ user_pick: !detail.user_pick, user_reject: false }); return; }
+      if (mode === "select" && (event.key === "x" || event.key === "X")) { review({ user_pick: false, user_reject: !detail.user_reject }); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [detail, close, immersive, navigate, saveReview]);
+  }, [detail, close, immersive, mode, navigate, saveReview]);
   return (
     <div ref={backdropRef} className={`detail-backdrop ${immersive ? "immersive" : ""}`} role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
       {hasPrev && <button className="detail-nav prev" aria-label="上一张" onClick={(event) => { event.stopPropagation(); navigate(-1); }}>‹</button>}
@@ -280,15 +282,14 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <div className="detail-rating-control"><div className="detail-stars" role="radiogroup" aria-label="人工星级">
               {[1, 2, 3, 4, 5].map((star) => <button key={star} className={detail.user_rating != null && detail.user_rating >= star ? "filled" : ""} aria-label={`${star} 星`} onClick={() => review({ user_rating: detail.user_rating === star ? null : star })}>★</button>)}
             </div><small>1–5 打星 · 0 清除</small></div>
-            <div className="detail-selection-control">
-              <button className={`detail-pick ${detail.user_pick ? "selected" : ""}`} onClick={() => review({ user_pick: !detail.user_pick, user_reject: false })}>入选</button>
-              <button className={`detail-reject ${detail.user_reject ? "rejected" : ""}`} onClick={() => review({ user_pick: false, user_reject: !detail.user_reject })}>排除</button>
-              <small>P 入选 · X 排除</small>
-            </div>
-            <small className="detail-selection-purpose">普通单张可不设置；仅控制整理范围，不改动文件</small>
+            {mode === "select" && <><div className="detail-selection-control">
+              <button className={`detail-pick ${detail.user_pick ? "selected" : ""}`} onClick={() => review({ user_pick: !detail.user_pick, user_reject: false })}>保留此张</button>
+              <button className={`detail-reject ${detail.user_reject ? "rejected" : ""}`} onClick={() => review({ user_pick: false, user_reject: !detail.user_reject })}>排除此张</button>
+              <small>P 保留 · X 排除</small>
+            </div><small className="detail-selection-purpose">仅用于相似组内选优，不会删除或改动文件</small></>}
             <small className="detail-shortcut-hint">← → 切换照片 · Esc 关闭</small>
           </div>
-          {detail.user_pick ? <div className="detail-selection-reasons"><span title="记录这张照片被人工入选的原因，用于复盘选片偏好和统计">保留依据</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
+          {mode === "select" && detail.user_pick ? <div className="detail-selection-reasons"><span title="记录这张照片被人工入选的原因，用于复盘选片偏好和统计">保留依据</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
           <div className="exif-strip">
             <div><strong>{formatExposure(exif?.exposure_time)}</strong><span>快门 <ParameterHelp kind="shutter" /></span></div>
             <div><strong>{exif?.f_number ? `f/${exif.f_number}` : "—"}</strong><span>光圈 <ParameterHelp kind="aperture" /></span></div>
@@ -296,7 +297,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""} <ParameterHelp kind="focal" /></span></div>
           </div>
           <div className="detail-context-bar">
-            <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断入选、排除与保留理由" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
+            <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断组内保留、排除与保留依据" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
             <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "完整详情与后期建议"}</button>
           </div>
           <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
