@@ -68,7 +68,7 @@ D:\PhotoLibrary\Photos
 
 人物、题材、状态和问题使用标签表示，例如：`女朋友`、`父亲`、`母亲`、`宠物`、`风景`、`星空`、`待选`、`闭眼`、`失焦`。一张照片可以同时拥有多个标签。
 
-完整实施方案见 [docs/PRODUCT_PLAN.md](docs/PRODUCT_PLAN.md)，按当前状态整理后的实施顺序见 [docs/ROADMAP.md](docs/ROADMAP.md)，模型分工与本地部署策略见 [docs/MODEL_STRATEGY.md](docs/MODEL_STRATEGY.md)，当前器材与相关分析规则见 [docs/EQUIPMENT_PROFILE.md](docs/EQUIPMENT_PROFILE.md)。当前开发快照与新会话交接见 [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)，Windows 实机检查见 [docs/WINDOWS_ACCEPTANCE.md](docs/WINDOWS_ACCEPTANCE.md)。
+完整实施方案见 [docs/PRODUCT_PLAN.md](docs/PRODUCT_PLAN.md)，按当前状态整理后的实施顺序见 [docs/ROADMAP.md](docs/ROADMAP.md)，大图库脱敏查询基线见 [docs/PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md)，模型分工与本地部署策略见 [docs/MODEL_STRATEGY.md](docs/MODEL_STRATEGY.md)，当前器材与相关分析规则见 [docs/EQUIPMENT_PROFILE.md](docs/EQUIPMENT_PROFILE.md)。当前开发快照与新会话交接见 [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)，Windows 实机检查见 [docs/WINDOWS_ACCEPTANCE.md](docs/WINDOWS_ACCEPTANCE.md)。
 内置开放授权器材照片的作者、来源、许可证和修改说明见 [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md)；应用运行时只读取仓库内文件，不热链外部图片。
 下周末的长任务候选、实际数据基线和执行停止条件见 [docs/NEXT_LONG_RUN.md](docs/NEXT_LONG_RUN.md)。
 
