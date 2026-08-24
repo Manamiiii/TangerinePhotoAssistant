@@ -20,6 +20,71 @@ class CaptureReviewNotFoundError(CaptureReviewError):
 SELECTION_REASONS = frozenset({"动作差异", "表情差异", "构图差异", "关键瞬间", "叙事补充"})
 
 
+def batch_update_capture_reviews(
+    connection: sqlite3.Connection,
+    capture_ids: Sequence[int],
+    *,
+    rating: int | None = None,
+    selection: str | None = None,
+) -> int:
+    unique_ids = list(dict.fromkeys(int(capture_id) for capture_id in capture_ids))
+    if not unique_ids or len(unique_ids) > 500:
+        raise CaptureReviewError("每次必须选择 1 到 500 张照片")
+    if rating is not None and not 0 <= rating <= 5:
+        raise CaptureReviewError("批量星级必须在 0 到 5 之间")
+    if selection not in {None, "picked", "rejected", "clear"}:
+        raise CaptureReviewError("批量选片结论无效")
+    if rating is None and selection is None:
+        raise CaptureReviewError("没有需要应用的批量评价")
+    placeholders = ",".join("?" for _ in unique_ids)
+    existing_ids = {
+        int(row[0])
+        for row in connection.execute(
+            f"SELECT id FROM captures WHERE id IN ({placeholders})", unique_ids
+        )
+    }
+    missing = [capture_id for capture_id in unique_ids if capture_id not in existing_ids]
+    if missing:
+        raise CaptureReviewNotFoundError(f"拍摄单元不存在：{missing[:5]}")
+
+    update_rating = rating is not None
+    stored_rating = None if rating == 0 else rating
+    update_selection = selection is not None
+    stored_pick = 1 if selection == "picked" else 0
+    stored_reject = 1 if selection == "rejected" else 0
+    clear_reasons = selection in {"rejected", "clear"}
+    now = utc_now()
+    with transaction(connection):
+        connection.executemany(
+            """INSERT INTO capture_reviews(
+                   capture_id, user_rating, user_pick, user_reject, user_note,
+                   selection_reason_json, updated_at
+               ) VALUES (?, ?, ?, ?, NULL, ?, ?)
+               ON CONFLICT(capture_id) DO UPDATE SET
+                   user_rating=CASE WHEN ? THEN excluded.user_rating ELSE capture_reviews.user_rating END,
+                   user_pick=CASE WHEN ? THEN excluded.user_pick ELSE capture_reviews.user_pick END,
+                   user_reject=CASE WHEN ? THEN excluded.user_reject ELSE capture_reviews.user_reject END,
+                   selection_reason_json=CASE WHEN ? THEN '[]' ELSE capture_reviews.selection_reason_json END,
+                   updated_at=excluded.updated_at""",
+            [
+                (
+                    capture_id,
+                    stored_rating,
+                    stored_pick if update_selection else None,
+                    stored_reject,
+                    "[]" if clear_reasons else None,
+                    now,
+                    update_rating,
+                    update_selection,
+                    update_selection,
+                    clear_reasons,
+                )
+                for capture_id in unique_ids
+            ],
+        )
+    return len(unique_ids)
+
+
 def begin_selection_session(
     connection: sqlite3.Connection, group_id: int
 ) -> dict[str, object]:

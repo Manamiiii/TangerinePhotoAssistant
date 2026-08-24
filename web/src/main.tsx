@@ -17,7 +17,7 @@ import type { CaptureDetail, DetailMode, EditParameters, EditRecipe } from "./fe
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
 import type { CaptureTagDimension } from "./features/details/types";
 import type { Overview } from "./features/overview/types";
-import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport } from "./features/library/types";
+import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport, PhotoExportOptions } from "./features/library/types";
 import { LibraryView } from "./features/library/LibraryView";
 import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
@@ -649,6 +649,26 @@ function App() {
     }
   };
 
+  const batchReviewCaptures = async (
+    captureIds: number[],
+    rating: number | null,
+    selection: "picked" | "rejected" | "clear" | null,
+  ) => {
+    setError(null);
+    try {
+      const saved = await getJson<{ affected_count: number }>("/api/reviews/batch", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capture_ids: captureIds, rating, selection }),
+      });
+      await refreshLibrary();
+      pushToast("success", `已更新 ${saved.affected_count} 张照片的评价`);
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const restoreGroupingRevision = async (revisionId: number, useBefore = false) => {
     setError(null);
     try {
@@ -973,13 +993,20 @@ function App() {
     }
   };
 
-  const exportPhoneShare = async (captureIds: number[], maxEdge: number) => {
+  const exportPhoneShare = async (captureIds: number[], options: PhotoExportOptions) => {
     setError(null);
     try {
-      return await getJson<PhoneShareExport>("/api/exports/phone-share", {
+      return await getJson<PhoneShareExport>("/api/exports/photos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ capture_ids: captureIds, max_edge: maxEdge, quality: 90 }),
+        body: JSON.stringify({
+          capture_ids: captureIds,
+          max_edge: options.maxEdge,
+          quality: 90,
+          include_jpeg: options.includeJpeg,
+          include_raw: options.includeRaw,
+          original_jpeg: options.originalJpeg,
+        }),
       });
     } catch (reason) {
       setError((reason as Error).message);
@@ -1048,7 +1075,7 @@ function App() {
           requestedSection={libraryLandingSection}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
-          createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures}
+          createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures} batchReview={batchReviewCaptures}
           openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}

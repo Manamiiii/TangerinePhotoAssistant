@@ -66,11 +66,22 @@ export type LibraryQuery = {
 export type PhoneShareExport = {
   filename: string;
   photo_count: number;
+  file_count: number;
+  jpeg_count: number;
+  raw_count: number;
+  missing_raw_count: number;
   size_bytes: number;
-  max_edge: number;
+  max_edge: number | null;
   quality: number;
   metadata_removed: boolean;
   download_url: string;
+};
+
+export type PhotoExportOptions = {
+  includeJpeg: boolean;
+  includeRaw: boolean;
+  originalJpeg: boolean;
+  maxEdge: number;
 };
 
 export type EventItem = {

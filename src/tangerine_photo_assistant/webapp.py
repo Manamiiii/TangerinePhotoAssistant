@@ -118,6 +118,7 @@ from .reporting import build_report, write_report
 from .reviews import (
     CaptureReviewError,
     CaptureReviewNotFoundError,
+    batch_update_capture_reviews,
     begin_selection_session,
     save_capture_review,
 )
@@ -176,6 +177,12 @@ class ReviewUpdateRequest(BaseModel):
     selection_session_id: int | None = Field(default=None, ge=1)
 
 
+class BatchReviewUpdateRequest(BaseModel):
+    capture_ids: list[int] = Field(min_length=1, max_length=500)
+    rating: int | None = Field(default=None, ge=0, le=5)
+    selection: Literal["picked", "rejected", "clear"] | None = None
+
+
 class CaptureTagInput(BaseModel):
     dimension: Literal["subject", "status", "problem", "location"]
     name: str = Field(min_length=1, max_length=40)
@@ -229,6 +236,9 @@ class PhoneShareExportRequest(BaseModel):
     capture_ids: list[int] = Field(min_length=1, max_length=100)
     max_edge: int = 2048
     quality: int = Field(default=90, ge=70, le=95)
+    include_jpeg: bool = True
+    include_raw: bool = False
+    original_jpeg: bool = False
 
 
 class LightroomManifestRequest(BaseModel):
@@ -2542,9 +2552,10 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         thumbnail_cache = ThumbnailCache(settings)
         return result
 
-    @app.post("/api/exports/phone-share", status_code=201)
+    @app.post("/api/exports/photos", status_code=201)
+    @app.post("/api/exports/phone-share", status_code=201, deprecated=True)
     def create_phone_share_export(request: PhoneShareExportRequest) -> dict[str, Any]:
-        if request.max_edge not in ALLOWED_SHARE_EDGES:
+        if request.include_jpeg and not request.original_jpeg and request.max_edge not in ALLOWED_SHARE_EDGES:
             raise HTTPException(status_code=422, detail="不支持的导出尺寸")
         connection = connect_readonly(settings.database_path)
         try:
@@ -2556,6 +2567,9 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                     request.capture_ids,
                     request.max_edge,
                     request.quality,
+                    include_jpeg=request.include_jpeg,
+                    include_raw=request.include_raw,
+                    original_jpeg=request.original_jpeg,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2613,7 +2627,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             re.fullmatch(r"migration-(?:plan|failures)-\d+\.(csv|json)", filename)
         )
         is_phone_share = bool(
-            re.fullmatch(r"phone-share-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
+            re.fullmatch(r"(?:phone-share|photo-export)-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
         )
         is_human_data = bool(re.fullmatch(r"tangerine-human-data-\d{8}-\d{6}-\d{6}\.json", filename))
         is_diagnostics = bool(re.fullmatch(r"tangerine-diagnostics-\d{8}-\d{6}-\d{6}\.zip", filename))
@@ -2887,6 +2901,24 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             return manager.retry_ai_failures(run_id, config_path)
         except (RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.put("/api/reviews/batch")
+    def update_reviews_batch(request: BatchReviewUpdateRequest) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            affected = batch_update_capture_reviews(
+                connection,
+                request.capture_ids,
+                rating=request.rating,
+                selection=request.selection,
+            )
+            return {"affected_count": affected, "status": "saved"}
+        except CaptureReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CaptureReviewError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
 
     @app.put("/api/reviews/{capture_id}")
     def update_review(capture_id: int, request: ReviewUpdateRequest) -> dict[str, Any]:

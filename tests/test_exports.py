@@ -47,6 +47,7 @@ class PhoneShareExportTests(unittest.TestCase):
                     settings.originals / f"PHOTO_{index:04d}.JPG",
                     exif=exif,
                 )
+            (settings.originals / "PHOTO_0001.RAF").write_bytes(b"synthetic-raw-payload")
             connection = connect(settings.database_path)
             try:
                 scan_library(connection, settings, PillowMetadataReader())
@@ -71,6 +72,24 @@ class PhoneShareExportTests(unittest.TestCase):
                     with Image.open(BytesIO(archive.read(jpeg_names[0]))) as exported:
                         self.assertEqual(max(exported.size), 1080)
                         self.assertIsNone(exported.getexif().get(271))
+
+                originals_result = write_phone_share_export(
+                    connection,
+                    settings.originals,
+                    settings.reports_path,
+                    capture_ids,
+                    include_raw=True,
+                    original_jpeg=True,
+                )
+                self.assertEqual(originals_result["jpeg_count"], 2)
+                self.assertEqual(originals_result["raw_count"], 1)
+                self.assertEqual(originals_result["missing_raw_count"], 1)
+                with ZipFile(settings.reports_path / originals_result["filename"]) as archive:
+                    raw_name = next(name for name in archive.namelist() if name.lower().endswith(".raf"))
+                    jpeg_name = next(name for name in archive.namelist() if name.lower().endswith(".jpg"))
+                    self.assertEqual(archive.read(raw_name), b"synthetic-raw-payload")
+                    with Image.open(BytesIO(archive.read(jpeg_name))) as exported:
+                        self.assertEqual(exported.getexif().get(271), "TEST CAMERA")
             finally:
                 connection.close()
 

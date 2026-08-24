@@ -429,13 +429,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .album-equipment-field > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .album-equipment-field label { padding: 8px; border-radius: 8px; background: var(--surface-raised); flex-direction: row; align-items: center; }
 .album-equipment-field input { width: auto; }
-.review-help { position: relative; }
-.review-help > button { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: transparent; cursor: pointer; }
-.review-help-popover { position: absolute; z-index: 30; top: 30px; right: 0; width: min(330px, 80vw); padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); box-shadow: 0 14px 36px rgba(0,0,0,.28); display: grid; gap: 6px; }
-.review-help-popover > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.review-help-popover > span button { border: 0; color: var(--muted); background: transparent; cursor: pointer; }
-.review-help-popover b { margin-top: 5px; font-size: 9px; }
-.review-help-popover small { color: var(--muted); font-size: 9px; line-height: 1.5; }
 .comparison-context-actions { display: flex; align-items: center; gap: 10px; }
 .comparison-context-actions .burst-view-toggle { margin: 0; }
 .photo-rank { position: absolute; top: 8px; left: 8px; padding: 3px 6px; border-radius: 999px; color: #fff; background: rgba(20,18,16,.76); font-size: 9px; font-weight: 800; }
@@ -1984,3 +1977,244 @@ textarea:focus-visible,
     transition-duration: .01ms !important;
   }
 }
+
+/* 2026-08-24 library and detail typography pass. */
+.library-filter-toolbar,
+.photo-view-toolbar,
+.selection-toolbar,
+.photo-library-grid { font-size: 12px; }
+.library-filter-toolbar .toolbar-button,
+.library-filter-toolbar select,
+.photo-layout-toggle button,
+.burst-view-toggle button,
+.photo-view-actions .selection-entry { font-size: 11px; }
+.library-search input { min-height: 38px; }
+.sort-control { min-width: 132px; }
+
+.selection-toolbar {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: 10px;
+  background: var(--surface);
+}
+.selection-toolbar.visible { max-height: 260px; padding: 14px 16px; }
+.selection-toolbar > div { width: 100%; }
+.selection-toolbar .batch-selection-summary {
+  justify-content: flex-start;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+}
+.selection-toolbar .batch-selection-summary strong { margin-right: auto; font-size: 12px; }
+.selection-toolbar .selection-actions { justify-content: flex-start; gap: 8px; }
+.selection-toolbar button:not(.primary-action),
+.selection-toolbar label,
+.selection-toolbar select { font-size: 11px; }
+.selection-toolbar button:not(.primary-action) {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-soft);
+}
+.selection-toolbar button:disabled { opacity: .42; cursor: default; }
+.batch-album-action,
+.batch-export-options,
+.batch-review-action { display: flex; align-items: center; gap: 6px; }
+.batch-album-action select,
+.batch-export-options select,
+.batch-review-action select { min-height: 34px; }
+.batch-export-options {
+  padding-left: 9px;
+  border-left: 1px solid var(--line);
+}
+.batch-export-options label { color: var(--text); gap: 4px; }
+.batch-export-options input { accent-color: var(--orange); }
+.selection-toolbar .export-share-button { margin-left: auto; }
+
+.photo-list-header,
+.layout-list .photo-list-copy {
+  grid-template-columns: minmax(230px, 1.35fr) 142px minmax(190px, 1fr) 84px minmax(160px, auto);
+}
+.photo-list-header { font-size: 11px; }
+.photo-list-identity { gap: 5px; }
+.photo-list-identity strong { font-size: 11px; }
+.photo-list-identity small,
+.photo-list-copy time,
+.photo-list-size { font-size: 10px; }
+.photo-list-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+}
+.photo-list-context > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.similarity-inline {
+  min-height: 24px;
+  padding: 0 7px !important;
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.photo-list-review {
+  display: flex;
+  align-items: center;
+  justify-items: normal;
+  gap: 7px;
+  white-space: nowrap;
+}
+.photo-list-review span,
+.photo-list-review b,
+.photo-list-review small { font-size: 10px; }
+.rating-stars { color: var(--orange) !important; letter-spacing: 1px; }
+.rating-empty { color: var(--muted) !important; }
+
+.photo-card-copy { gap: 7px; padding: 12px; }
+.photo-card-copy .photo-card-heading { align-items: baseline; }
+.photo-card-copy .photo-card-heading strong { font-size: 11px; }
+.photo-card-copy .photo-card-heading span,
+.photo-card-copy .photo-card-context,
+.photo-card-equipment,
+.photo-card-status > span { font-size: 10px; }
+.photo-card-copy .photo-card-context {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.photo-card-copy .photo-card-context > span { flex: 0 0 auto; font-size: inherit; }
+.photo-card-status { min-height: 26px; gap: 8px; }
+.photo-card-status > div { min-width: 0; justify-content: flex-end; }
+.photo-card-status b { font-size: 9px; }
+
+@media (max-width: 980px) {
+  .selection-toolbar.visible { max-height: 560px; }
+  .selection-toolbar .selection-actions { align-items: stretch; flex-direction: column; }
+  .batch-export-options { padding: 8px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+  .selection-toolbar .export-share-button { margin-left: 0; }
+}
+
+.detail-review-bar {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  gap: 10px 16px;
+}
+.detail-rating-control,
+.detail-selection-control { display: flex; align-items: center; gap: 7px; }
+.detail-selection-control { flex-wrap: wrap; }
+.detail-rating-control { padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+.detail-rating-control > small,
+.detail-selection-control > small,
+.detail-selection-purpose,
+.detail-shortcut-hint { color: var(--muted); font-size: 10px; letter-spacing: 0; white-space: nowrap; }
+.detail-selection-purpose { white-space: normal; }
+.detail-shortcut-hint { flex-basis: auto; text-align: left; }
+.parameter-help > button {
+  width: 12px;
+  height: 12px;
+  font-size: 8px;
+  line-height: 10px;
+}
+.detail-tags .detail-section-heading > button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 10px;
+}
+
+.ai-review-controls { padding: 11px 0 0; }
+.ai-review-verdict > span,
+.ai-review-controls .ai-review-verdict button { font-size: 10px; }
+.ai-review-note { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+.ai-review-note p {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.ai-review-controls .ai-review-note textarea { min-height: 58px; font-size: 10px; }
+.ai-review-controls .ai-review-note button { min-height: 30px; height: auto; font-size: 10px; }
+
+.edit-recipe-details { padding: 12px 14px; }
+.edit-recipe-details[open] > summary { margin-bottom: 12px; padding-bottom: 10px; }
+.edit-recipe-summary {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: var(--surface);
+}
+.edit-recipe-summary strong { font-size: 10px; }
+.edit-recipe-summary span { color: var(--muted); font-size: 10px; }
+.edit-recipe-actions button,
+.edit-recipe-history button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+.edit-safety-details { margin-top: 0; }
+.edit-safety-details ul { margin: 9px 0 0; padding-left: 18px; color: var(--muted); font-size: 10px; line-height: 1.65; }
+
+@media (max-width: 760px) {
+  .detail-review-bar { grid-template-columns: 1fr; }
+  .detail-rating-control { padding-right: 0; }
+  .detail-shortcut-hint { text-align: left; }
+}
+
+.layout-list .photo-list-copy > .photo-list-identity {
+  display: grid;
+  align-items: center;
+  justify-content: normal;
+  gap: 4px;
+}
+.home-continue-card { min-height: 0; align-self: start; }
+
+/* Keep operational text readable on large desktop displays without inflating cards. */
+.photo-list-header { font-size: 12px; }
+.photo-list-identity strong { font-size: 12px; }
+.photo-list-identity small,
+.photo-list-context,
+.photo-list-copy time,
+.photo-list-size,
+.photo-list-review span,
+.photo-list-review b,
+.photo-list-review small { font-size: 11px; }
+.photo-card-copy .photo-card-heading strong { font-size: 12px; }
+.photo-card-copy .photo-card-heading span,
+.photo-card-copy .photo-card-context,
+.photo-card-equipment,
+.photo-card-status > span { font-size: 11px; }
+.detail-review-bar .detail-pick,
+.detail-review-bar .detail-reject,
+.detail-rating-control > small,
+.detail-selection-control > small,
+.detail-selection-purpose,
+.detail-shortcut-hint { font-size: 11px; }
+.detail-section h3 { font-size: 13px; }
+.exif-grid dt { font-size: 10px; }
+.exif-grid dd { font-size: 11px; }
+.detail-section-heading label,
+.detail-section-heading select,
+.metadata-details summary,
+.detail-context-bar small,
+.detail-glance-summary p { font-size: 10px; }
+.edit-parameter-grid label > span,
+.edit-recipe-note,
+.edit-recipe-actions button,
+.edit-recipe-history button,
+.edit-safety-details ul { font-size: 11px; }

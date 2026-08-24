@@ -6,12 +6,40 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.reviews import (
     CaptureReviewError,
     CaptureReviewNotFoundError,
+    batch_update_capture_reviews,
     begin_selection_session,
     save_capture_review,
 )
 
 
 class CaptureReviewTests(unittest.TestCase):
+    def test_batch_review_updates_only_requested_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            connection = connect(Path(temporary) / "catalog.sqlite3")
+            connection.executemany(
+                """INSERT INTO captures(capture_key, stem, parent_relative, pairing_status)
+                   VALUES (?, ?, '', 'jpeg_only')""",
+                [("A", "A"), ("B", "B")],
+            )
+            connection.commit()
+            save_capture_review(
+                connection, 1, user_rating=2, user_pick=True, user_reject=False,
+                user_note="保留备注", selection_reasons=["关键瞬间"],
+            )
+
+            self.assertEqual(
+                batch_update_capture_reviews(connection, [1, 2], rating=4), 2
+            )
+            batch_update_capture_reviews(connection, [1, 2], selection="rejected")
+            rows = connection.execute(
+                """SELECT user_rating, user_pick, user_reject, user_note,
+                          selection_reason_json
+                   FROM capture_reviews ORDER BY capture_id"""
+            ).fetchall()
+            self.assertEqual(tuple(rows[0]), (4, 0, 1, "保留备注", "[]"))
+            self.assertEqual(tuple(rows[1]), (4, 0, 1, None, "[]"))
+            connection.close()
+
     def test_selection_session_completes_with_first_explicit_pick(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             connection = connect(Path(temporary) / "catalog.sqlite3")

@@ -68,22 +68,23 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
   }, [detail.id, previewParameters]);
   const sourceAnalysisId = suggested ? detail.ai_analyses[0]?.id ?? null : null;
   return <div className="edit-recipe-panel">
+    <div className="edit-recipe-summary"><strong>缩略图近似预览</strong><span>调整滑杆只改变当前预览；保存方案只记录参数，不修改照片。</span></div>
     <div className="edit-preview">
       <img src={showOriginal ? detail.thumbnail_url : previewUrl} alt={`${detail.stem} 参数预览`} onLoad={() => setPreviewLoading(false)} />
       {!showOriginal && previewLoading && <span className="edit-preview-loading">正在更新预览…</span>}
       <button className="preview-original-toggle" aria-label="按住对比原图" title="按住对比原图" onPointerDown={() => setShowOriginal(true)} onPointerUp={() => setShowOriginal(false)} onPointerCancel={() => setShowOriginal(false)} onPointerLeave={() => setShowOriginal(false)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
     </div>
     <div className="edit-parameter-grid">{controls.slice(0, 8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
-    <details className="edit-advanced-controls"><summary>几何与细节调整</summary><div className="edit-parameter-grid">{controls.slice(8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div><small>裁剪为居中预览；水平校正会自动裁去旋转边缘。正式裁剪仍建议在 Lightroom 中完成。</small></details>
+    <details className="edit-advanced-controls"><summary>几何与细节调整</summary><div className="edit-parameter-grid">{controls.slice(8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div></details>
     <label className="edit-recipe-note"><span>方案备注 / 暂不采用原因（可选）</span><textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="例如：肤色偏暖，暂时不采用；或记录本次调整意图" /></label>
     <div className="edit-recipe-actions">
-      <button onClick={() => setParameters(suggested ?? emptyParameters)} disabled={!suggested}>载入模型起点</button>
+      <button onClick={() => setParameters(suggested ?? emptyParameters)} disabled={!suggested}>载入模型建议</button>
       <button onClick={() => setParameters(emptyParameters)}>全部归零</button>
       <button onClick={() => void saveRecipe(detail.id, parameters, "dismissed", sourceAnalysisId, note || null)}>暂不采用</button>
       <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "draft", sourceAnalysisId, note || null)}>保存草稿</button>
-      <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "accepted", sourceAnalysisId, note || null)}>标记采用</button>
+      <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "accepted", sourceAnalysisId, note || null)}>记录为采用</button>
     </div>
-    <small>低分辨率预览会渲染 11 个通用参数，但不等同于 Lightroom 的处理算法和数值。只读取缓存缩略图，不会写入照片或 XMP。</small>
+    <details className="edit-safety-details"><summary>预览与应用说明</summary><ul><li>模型建议可以直接载入滑杆作为调整起点。</li><li>预览算法与 Lightroom 不同，裁剪和水平校正只展示近似效果。</li><li>“记录为采用”只保存决定，不会写入照片、XMP 或 Lightroom。</li></ul></details>
     {detail.edit_recipes.length > 0 && <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}><summary>方案历史 · {detail.edit_recipes.length} 个最近版本</summary><div className="edit-recipe-history">{detail.edit_recipes.map((recipe) => <button key={recipe.id} disabled={recipe.id === latest?.id} onClick={() => void restoreRecipe(detail.id, recipe.id)}><span>版本 {recipe.id} · {{ draft: "草稿", accepted: "已采用", dismissed: "暂不采用" }[recipe.status]}</span><small>{recipe.created_at.replace("T", " ")}{recipe.note ? ` · ${recipe.note}` : ""}</small></button>)}</div></details>}
   </div>;
 }

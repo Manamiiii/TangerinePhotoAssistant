@@ -52,7 +52,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
       <div className="welcome-capabilities"><span><b>图库</b>{capabilities?.library_root ?? "正在读取配置"}</span><span><b>元数据</b>{capabilities?.metadata.message ?? "正在检测"}</span><button className="toolbar-button primary" onClick={firstRun ? openSetup : openPhotos}>{firstRun ? "开始设置" : "打开照片图库"}</button></div>
     </section>}
     {overview && overview.capture_total > 0 && <section className="home-workspace-grid">
-      <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button><div><button onClick={openPhotos}>照片图库</button><button onClick={openBursts}>相似组选片</button><button onClick={openStatistics}>摄影统计</button></div></section>
+      <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button></section>
       <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>
     </section>}
     <section className="home-management-grid">

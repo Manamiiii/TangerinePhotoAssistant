@@ -14,31 +14,6 @@ const tagDimensionLabels: Record<CaptureTagDimension, string> = {
 
 const selectionReasonOptions = ["动作差异", "表情差异", "构图差异", "关键瞬间", "叙事补充"];
 
-function ReviewHelp() {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLSpanElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        setOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeEscape);
-    };
-  }, [open]);
-  return <span ref={rootRef} className="review-help"><button type="button" aria-label="解释评价规则" aria-expanded={open} onClick={() => setOpen((current) => !current)}>?</button>{open && <span className="review-help-popover" role="note"><span><strong>人工评价怎么分工</strong><button type="button" aria-label="关闭评价说明" onClick={() => setOpen(false)}>×</button></span><b>星级</b><small>表示你对照片长期价值的判断：1 星明显较弱，2 星有记录价值，3 星合格，4 星优秀，5 星代表作。</small><b>入选 / 排除</b><small>表示是否进入最终保留集合：相似组用来选优，普通单张也可以明确取舍；导出分享包和 Lightroom 准备清单可只使用人工入选照片。它与星级独立，排除只做标记，不删除照片。</small><b>工作状态</b><small>只表示待复核、待修、已修、待导出等流程阶段，不代替星级或选片结论。</small></span>}</span>;
-}
-
 function TagEditor({ detail, saveTags }: {
   detail: CaptureDetail;
   saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
@@ -72,7 +47,7 @@ function TagEditor({ detail, saveTags }: {
   };
   const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
     JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
-  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存标签"}</button></div>
+  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><div className="detail-section-heading"><p>题材和问题可以多选；工作状态只保留一个，并且不代替星级或选片结论。标签附着在 JPG+RAW 拍摄单元上，不写入照片。</p><button disabled={!dirty || saving} onClick={async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存"}</button></div>
     {!!analysisTags.length && <div className="analysis-tag-readonly"><strong>模型分析</strong><div>{analysisTags.map((tag) => <span key={`${tag.dimension}:${tag.name}`}>{tag.name}{tag.confidence == null ? "" : ` · ${Math.round(tag.confidence * 100)}%`}</span>)}</div><small>只读来源；人工标签独立保存，不会被同步覆盖。</small></div>}
     {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
       const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
@@ -225,6 +200,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
   const latestAnalysis = detail.ai_analyses[0];
   const shootingReview = detail.shooting_review;
   const [aiNote, setAiNote] = useState(latestAnalysis?.user_note ?? "");
+  const [aiNoteEditing, setAiNoteEditing] = useState(false);
   const [immersive, setImmersive] = useState(false);
   const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
   const [zoom, setZoom] = useState(0);
@@ -234,7 +210,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
     const saved = window.localStorage.getItem("tangerine-detail-information");
     return saved === "compact" || saved === "full" ? saved : "standard";
   });
-  useEffect(() => setAiNote(latestAnalysis?.user_note ?? ""), [latestAnalysis?.id, latestAnalysis?.user_note]);
+  useEffect(() => { setAiNote(latestAnalysis?.user_note ?? ""); setAiNoteEditing(false); }, [latestAnalysis?.id, latestAnalysis?.user_note]);
   useEffect(() => setShowAll(false), [mode]);
   useEffect(() => window.localStorage.setItem("tangerine-detail-information", informationLevel), [informationLevel]);
   useEffect(() => {
@@ -301,13 +277,16 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
           <h2>{detail.stem}</h2>
           <p>{detail.event_name ?? detail.parent_relative}</p>
           <div className="detail-review-bar">
-            <div className="detail-stars" role="radiogroup" aria-label="人工星级">
+            <div className="detail-rating-control"><div className="detail-stars" role="radiogroup" aria-label="人工星级">
               {[1, 2, 3, 4, 5].map((star) => <button key={star} className={detail.user_rating != null && detail.user_rating >= star ? "filled" : ""} aria-label={`${star} 星`} onClick={() => review({ user_rating: detail.user_rating === star ? null : star })}>★</button>)}
+            </div><small>1–5 打星 · 0 清除</small></div>
+            <div className="detail-selection-control">
+              <button className={`detail-pick ${detail.user_pick ? "selected" : ""}`} onClick={() => review({ user_pick: !detail.user_pick, user_reject: false })}>入选</button>
+              <button className={`detail-reject ${detail.user_reject ? "rejected" : ""}`} onClick={() => review({ user_pick: false, user_reject: !detail.user_reject })}>排除</button>
+              <small>P 入选 · X 排除</small>
             </div>
-            <button className={`detail-pick ${detail.user_pick ? "selected" : ""}`} onClick={() => review({ user_pick: !detail.user_pick, user_reject: false })}>入选</button>
-            <button className={`detail-reject ${detail.user_reject ? "rejected" : ""}`} onClick={() => review({ user_pick: false, user_reject: !detail.user_reject })}>排除</button>
-            <ReviewHelp />
-            <small className="detail-shortcut-hint">快捷键：← → 切换 · 1–5 打星 · 0 清除 · P 入选 · X 排除 · Esc 关闭</small>
+            <small className="detail-selection-purpose">普通单张可不设置；仅控制整理范围，不改动文件</small>
+            <small className="detail-shortcut-hint">← → 切换照片 · Esc 关闭</small>
           </div>
           {detail.user_pick ? <div className="detail-selection-reasons"><span title="记录这张照片被人工入选的原因，用于复盘选片偏好和统计">保留依据</span>{selectionReasonOptions.map((reason) => <button key={reason} className={detail.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => review({ selection_reasons: detail.selection_reasons.includes(reason) ? detail.selection_reasons.filter((itemReason) => itemReason !== reason) : [...detail.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
           <div className="exif-strip">
@@ -381,14 +360,14 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
                 <button className={latestAnalysis.user_verdict === "partial" ? "selected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "partial", aiNote)}>部分准确</button>
                 <button className={latestAnalysis.user_verdict === "inaccurate" ? "rejected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "inaccurate", aiNote)}>不准确</button>
               </div>
-              <div className="ai-review-note"><textarea value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="可选：记录误判、漏判或参数建议问题" maxLength={2000} /><button onClick={() => saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote)}>保存</button></div>
+              <div className="ai-review-note">{aiNoteEditing ? <><textarea autoFocus value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="记录误判、漏判或参数建议问题（可选）" maxLength={2000} /><button onClick={() => { saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote); setAiNoteEditing(false); }}>保存备注</button><button onClick={() => { setAiNote(latestAnalysis.user_note ?? ""); setAiNoteEditing(false); }}>取消</button></> : <><p>{latestAnalysis.user_note || "尚未添加复核备注"}</p><button onClick={() => setAiNoteEditing(true)}>{latestAnalysis.user_note ? "编辑备注" : "添加备注"}</button></>}</div>
             </div>}
           </div>
           <div className={`detail-section editing-review-section ${sectionClass(["analyze"])}`}><h3>后期建议</h3>
             {shootingReview.editing.length ? <div className="editing-suggestion-list">{shootingReview.editing.map((advice, index) => <article key={`${advice.adjustment}-${index}`}><span>{advice.tool}</span><strong>{advice.adjustment}{advice.direction ? ` · ${advice.direction}` : ""}</strong>{advice.reason && <p>{advice.reason}</p>}</article>)}</div> : <p>{shootingReview.has_model_result ? "当前结果没有建议基础调整。" : "运行本地模型复盘后才会生成后期建议。"}</p>}
             {shootingReview.photoshop && <div className="photoshop-decision"><span>Photoshop</span><strong>{shootingReview.photoshop.needed ? "建议列入精修待办" : "当前不需要"}</strong><p>{shootingReview.photoshop.reason ?? "模型未说明原因"}</p></div>}
             <small className="advice-safety-note">建议仅供预览和人工判断，不会自动写入 XMP 或修改照片。</small>
-            <details className="edit-recipe-details"><summary>参数化方案与预览</summary><EditRecipePanel detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>
+            <details className="edit-recipe-details"><summary>参数预览与方案记录</summary><EditRecipePanel detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>
           </div>
           <div className={`detail-section detail-file-section ${sectionClass([])}`}><h3>文件</h3><p>{detail.files.map((file) => `${file.file_name} · ${formatFileSize(file.size_bytes)}`).join(" / ")}</p><div><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>在资源管理器中显示</button></div></div>
         </div>
