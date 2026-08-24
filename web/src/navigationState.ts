@@ -26,6 +26,12 @@ const selections = new Set(["", "picked", "rejected", "unreviewed"]);
 const qualities = new Set(["", "problems", "low", "high", "unanalyzed"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
+function validDate(value: string): boolean {
+  if (!datePattern.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function positiveInteger(value: string | null): number | null {
   if (!value || !/^[1-9]\d*$/.test(value)) return null;
   const parsed = Number(value);
@@ -79,8 +85,8 @@ export function readNavigationState(hash = window.location.hash): NavigationStat
       selectionReason: text(parameters, "reason"),
       modelProblem: text(parameters, "model"),
       reviewCondition: text(parameters, "condition"),
-      dateFrom: datePattern.test(dateFrom) ? dateFrom : "",
-      dateTo: datePattern.test(dateTo) ? dateTo : "",
+      dateFrom: validDate(dateFrom) ? dateFrom : "",
+      dateTo: validDate(dateTo) ? dateTo : "",
       search: text(parameters, "search"),
       sort: choice(parameters, "sort", sorts, "newest"),
       collapseGroups: albumId !== "" && parameters.get("collapsed") === "1",

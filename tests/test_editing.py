@@ -9,8 +9,8 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.editing import (
     EditRecipeError,
     edit_recipe_history,
-    restore_edit_recipe,
     render_edit_preview,
+    restore_edit_recipe,
     save_edit_recipe,
 )
 

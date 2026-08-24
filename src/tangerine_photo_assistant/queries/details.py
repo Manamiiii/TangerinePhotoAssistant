@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..database import connect_readonly
 from ..critique import build_structured_critique
+from ..database import connect_readonly
 from ..editing import edit_recipe_history
 
 METERING_MODE_LABELS = {

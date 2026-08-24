@@ -150,7 +150,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         </div>
       </section>}
       {analysisTab === "model" && <section className="panel ai-results-panel">
-        <div className="panel-heading"><div><span className="section-kicker">分页复核</span><h3>全部模型结果</h3></div><span className="batch-count">{resultPage ? `${numberFormat.format(resultPage.count)} 条` : "正在读取"}</span></div>
+        <div className="panel-heading"><div><span className="section-kicker">分页复核</span><h3>{resultAudit === "risk" ? "高风险复核队列" : resultAudit === "sample" ? "5% 稳定抽样队列" : "全部模型结果"}</h3></div><span className="batch-count">{resultPage ? `${numberFormat.format(resultPage.count)} 条` : "正在读取"}</span></div>
         <div className="ai-results-toolbar">
           <label>提示词版本<select value={resultVersion} onChange={(event) => { setResultVersion(event.target.value); setResultOffset(0); }}>
             <option value="all">全部版本</option>

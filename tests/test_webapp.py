@@ -75,7 +75,20 @@ class WebAppQueryTests(unittest.TestCase):
                 config_path, settings.originals, settings.workspace, settings.cache_root
             )
             with TestClient(create_app(config_path), base_url="http://localhost") as client:
-                session = client.get("/api/session").json()
+                session_response = client.get("/api/session")
+                self.assertEqual(session_response.headers["cache-control"], "no-store")
+                session = session_response.json()
+                self.assertEqual(
+                    client.get("/api/system/ai-audit-backfill").json()["status"],
+                    "complete",
+                )
+                self.assertEqual(
+                    client.post(
+                        "/api/system/ai-audit-backfill/retry",
+                        headers={session["header"]: session["token"]},
+                    ).status_code,
+                    202,
+                )
                 self.assertEqual(
                     client.post("/api/tasks/current/cancel").status_code, 403
                 )

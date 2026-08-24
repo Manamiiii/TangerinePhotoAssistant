@@ -407,7 +407,10 @@ class QualityAndAiTests(unittest.TestCase):
             differences = integrity_differences(connection, "archive", limit=1)
             self.assertEqual(differences["count"], 1)
             self.assertEqual(differences["items"][0]["status"], "missing")
-            self.assertEqual(differences["items"][0]["relative_path"], "MyPhoto/宝贝/2026.8.6_测试/DSCF0003.JPG")
+            self.assertEqual(
+                Path(differences["items"][0]["relative_path"]).parts,
+                ("MyPhoto", "宝贝", "2026.8.6_测试", "DSCF0003.JPG"),
+            )
             connection.close()
 
     def test_image_measurement_and_model_json_parser(self) -> None:

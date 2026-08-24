@@ -76,6 +76,7 @@ function App() {
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -152,6 +153,36 @@ function App() {
     setGroupAlbumId("");
   }, [view]);
 
+  const refreshInitialSnapshot = useCallback(async () => {
+    const results = await Promise.allSettled([
+      getJson<Overview>("/api/overview"),
+      getJson<LibraryFilters>("/api/library/filters"),
+      getJson<AnalysisOverview>("/api/analysis/overview"),
+      getJson<AiPreflight>("/api/ai/preflight"),
+      getJson<Statistics>("/api/statistics"),
+      getJson<EquipmentCatalog>("/api/equipment"),
+      getJson<ArchiveStatus>("/api/archive/status"),
+      getJson<ArchiveStatus>("/api/active-library/baseline/status"),
+      getJson<LightroomStatus>("/api/lightroom/status"),
+      getJson<SystemCapabilities>("/api/system/capabilities"),
+      getJson<SettingsStatus>("/api/settings"),
+    ] as const);
+    const [overviewData, filterData, analysisData, preflightData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData, settingsData] = results;
+    if (overviewData.status === "fulfilled") setOverview(overviewData.value);
+    if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
+    if (analysisData.status === "fulfilled") setAnalysis(analysisData.value);
+    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
+    if (statisticsData.status === "fulfilled") setStatistics(statisticsData.value);
+    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
+    if (archiveData.status === "fulfilled") setArchive(archiveData.value);
+    if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
+    if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
+    if (capabilitiesData.status === "fulfilled") setCapabilities(capabilitiesData.value);
+    if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
+  }, []);
+
   const refreshLibrary = useCallback(async () => {
     const requestSequence = ++refreshSequence.current;
     const results = await Promise.allSettled([
@@ -193,12 +224,10 @@ function App() {
   }, [albumOffset, albumPageSize, groupAlbumId, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch]);
 
   useEffect(() => {
-    Promise.all([refreshLibrary(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
+    Promise.all([refreshInitialSnapshot(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
       (reason: Error) => setError(reason.message),
     );
-    // Initial full snapshot only. Page filters have scoped effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshInitialSnapshot]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -958,6 +987,15 @@ function App() {
     }
   };
 
+  const requestView = (nextView: View) => {
+    if (view === "settings" && nextView !== "settings" && settingsDirty) {
+      if (!window.confirm("应用设置还有未保存的修改，确定放弃并离开吗？")) return false;
+      setSettingsDirty(false);
+    }
+    setView(nextView);
+    return true;
+  };
+
   const pageMeta = {
     home: ["OVERVIEW", "首页概览", ""],
     library: ["LIBRARY", "照片图库", "浏览、整理并管理全部拍摄单元"],
@@ -976,18 +1014,18 @@ function App() {
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
           <span className="nav-group-label">照片管理</span>
-          <button aria-current={view === "home" ? "page" : undefined} title="首页概览" className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><span>首</span>首页概览</button>
-          <button aria-current={view === "library" ? "page" : undefined} title="照片图库" className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { setLibraryLandingSection("photos"); setView("library"); }}><span>图</span>照片图库</button>
-          <button aria-current={view === "bursts" ? "page" : undefined} title="相似组选片" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => setView("bursts")}><span>选</span>相似组选片</button>
+          <button aria-current={view === "home" ? "page" : undefined} title="首页概览" className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => requestView("home")}><span>首</span>首页概览</button>
+          <button aria-current={view === "library" ? "page" : undefined} title="照片图库" className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { if (requestView("library")) setLibraryLandingSection("photos"); }}><span>图</span>照片图库</button>
+          <button aria-current={view === "bursts" ? "page" : undefined} title="相似组选片" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => requestView("bursts")}><span>选</span>相似组选片</button>
           <span className="nav-group-label system-label">分析学习</span>
-          <button aria-current={view === "analysis" ? "page" : undefined} title="质量分析" className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => setView("analysis")}><span>析</span>质量分析</button>
-          <button aria-current={view === "statistics" ? "page" : undefined} title="摄影统计" className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => setView("statistics")}><span>统</span>摄影统计</button>
+          <button aria-current={view === "analysis" ? "page" : undefined} title="质量分析" className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => requestView("analysis")}><span>析</span>质量分析</button>
+          <button aria-current={view === "statistics" ? "page" : undefined} title="摄影统计" className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => requestView("statistics")}><span>统</span>摄影统计</button>
           <span className="nav-group-label system-label">工具</span>
-          <button aria-current={view === "equipment" ? "page" : undefined} title="设备管理" className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => setView("equipment")}><span>器</span>设备管理</button>
-          <button aria-current={view === "lightroom" ? "page" : undefined} title="后期输出" className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => setView("lightroom")}><span>出</span>后期输出</button>
+          <button aria-current={view === "equipment" ? "page" : undefined} title="设备管理" className={`nav-item ${view === "equipment" ? "active" : ""}`} onClick={() => requestView("equipment")}><span>器</span>设备管理</button>
+          <button aria-current={view === "lightroom" ? "page" : undefined} title="后期输出" className={`nav-item ${view === "lightroom" ? "active" : ""}`} onClick={() => requestView("lightroom")}><span>出</span>后期输出</button>
           <span className="nav-group-label system-label">系统</span>
-          <button aria-current={view === "archive" ? "page" : undefined} title="系统维护" className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => setView("archive")}><span>维</span>系统维护</button>
-          <button aria-current={view === "settings" ? "page" : undefined} title="应用设置" className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>设</span>应用设置</button>
+          <button aria-current={view === "archive" ? "page" : undefined} title="系统维护" className={`nav-item ${view === "archive" ? "active" : ""}`} onClick={() => requestView("archive")}><span>维</span>系统维护</button>
+          <button aria-current={view === "settings" ? "page" : undefined} title="应用设置" className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => requestView("settings")}><span>设</span>应用设置</button>
         </nav>
         <div className="privacy-note"><span className="status-dot" /><div><strong>本地离线</strong><small>照片与人脸数据不离开电脑</small></div></div>
       </aside>
@@ -1024,7 +1062,7 @@ function App() {
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
-        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} />}
+        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} onDirtyChange={setSettingsDirty} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => { captureRequestSequence.current += 1; setCaptureDetail(null); setUrlCaptureId(null); }} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} role={toast.kind === "error" ? "alert" : "status"} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}

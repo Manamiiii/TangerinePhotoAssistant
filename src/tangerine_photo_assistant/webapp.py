@@ -105,9 +105,7 @@ from .portable_data import preflight_restore, restore_portable_backup, write_por
 from .quality import (
     analyze_quality,
     backfill_histograms,
-    measure_image,
     measure_luminance_histogram,
-    rebuild_group_recommendations,
 )
 from .queries.albums import query_albums
 from .queries.analysis import query_analysis_overview
@@ -129,7 +127,6 @@ from .structure import rebuild_structure
 from .tags import (
     CaptureTagError,
     CaptureTagNotFoundError,
-    analysis_subject_tag_status,
     clear_analysis_subject_tags,
     create_tag_definition,
     delete_tag_definition,
@@ -140,7 +137,7 @@ from .tags import (
     update_tag_definition,
 )
 from .thumbnails import ThumbnailCache
-from .visual import analyze_visuals, rebuild_similarity_groups
+from .visual import analyze_visuals
 
 SESSION_TOKEN_HEADER = "X-Tangerine-Session"
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -1564,13 +1561,19 @@ def _ensure_capture_histogram(
     return list(histogram)
 
 
-def _backfill_ai_audit_in_background(database_path: Path) -> None:
+def _backfill_ai_audit_in_background(
+    database_path: Path, state: dict[str, Any], state_lock: Lock
+) -> None:
     connection: sqlite3.Connection | None = None
     try:
         connection = connect(database_path)
-        backfill_ai_audit_metadata(connection)
-    except Exception:
-        pass
+        processed = backfill_ai_audit_metadata(connection)
+    except Exception as exc:
+        with state_lock:
+            state.update(status="failed", error=type(exc).__name__)
+    else:
+        with state_lock:
+            state.update(status="complete", processed=processed, error=None)
     finally:
         if connection is not None:
             connection.close()
@@ -1595,11 +1598,47 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     if recovery["still_running"]:
         manager.attach_ai_run(recovery["still_running"][0])
     thumbnail_cache = ThumbnailCache(settings)
-    Thread(
-        target=_backfill_ai_audit_in_background,
-        args=(settings.database_path,),
-        daemon=True,
-    ).start()
+    audit_backfill_state: dict[str, Any] = {
+        "status": "idle", "processed": 0, "error": None,
+    }
+    audit_backfill_lock = Lock()
+
+    def start_audit_backfill() -> bool:
+        with audit_backfill_lock:
+            if audit_backfill_state["status"] == "running":
+                return False
+            audit_backfill_state.update(status="running", processed=0, error=None)
+        probe: sqlite3.Connection | None = None
+        try:
+            probe = connect_readonly(settings.database_path)
+            pending = probe.execute(
+                """SELECT COUNT(*) FROM ai_analyses
+                   WHERE status='complete' AND result_json IS NOT NULL
+                     AND audit_bits IS NULL"""
+            ).fetchone()[0]
+        except Exception as exc:
+            with audit_backfill_lock:
+                audit_backfill_state.update(status="failed", error=type(exc).__name__)
+            return True
+        finally:
+            if probe is not None:
+                probe.close()
+        if not pending:
+            with audit_backfill_lock:
+                audit_backfill_state["status"] = "complete"
+            return True
+        Thread(
+            target=_backfill_ai_audit_in_background,
+            args=(settings.database_path, audit_backfill_state, audit_backfill_lock),
+            daemon=True,
+        ).start()
+        return True
+
+    def audit_backfill_snapshot() -> dict[str, Any]:
+        with audit_backfill_lock:
+            return dict(audit_backfill_state)
+
+    start_audit_backfill()
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
     session_token = secrets.token_urlsafe(32)
     app.add_middleware(
@@ -1623,8 +1662,11 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     config_state = {"restart_required": False, "backup_path": None}
 
     @app.get("/api/session")
-    def browser_session() -> dict[str, str]:
-        return {"token": session_token, "header": SESSION_TOKEN_HEADER}
+    def browser_session() -> JSONResponse:
+        return JSONResponse(
+            {"token": session_token, "header": SESSION_TOKEN_HEADER},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -1634,7 +1676,18 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             "offline_only": settings.offline_only,
             "schema_version": SCHEMA_VERSION,
             "prompt_version": PROMPT_VERSION,
+            "ai_audit_backfill": audit_backfill_snapshot(),
         }
+
+    @app.get("/api/system/ai-audit-backfill")
+    def ai_audit_backfill_status() -> dict[str, Any]:
+        return audit_backfill_snapshot()
+
+    @app.post("/api/system/ai-audit-backfill/retry", status_code=202)
+    def retry_ai_audit_backfill() -> dict[str, Any]:
+        if not start_audit_backfill():
+            raise HTTPException(status_code=409, detail="AI audit backfill is already running")
+        return audit_backfill_snapshot()
 
     @app.get("/api/system/capabilities")
     def system_capabilities() -> dict[str, Any]:

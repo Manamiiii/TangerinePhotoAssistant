@@ -5,7 +5,9 @@ from tempfile import TemporaryDirectory
 
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.portable_data import (
-    RESTORE_CONFIRMATION, build_portable_backup, preflight_restore,
+    RESTORE_CONFIRMATION,
+    build_portable_backup,
+    preflight_restore,
     restore_portable_backup,
 )
 

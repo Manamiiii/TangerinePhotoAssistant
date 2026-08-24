@@ -5,7 +5,7 @@ import re
 import subprocess
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
@@ -355,6 +355,7 @@ def normalize_datetime(value: Any, offset: Any = None) -> str | None:
         datetime(
             int(parts["year"]), int(parts["month"]), int(parts["day"]),
             int(parts["hour"]), int(parts["minute"]), int(parts["second"]),
+            tzinfo=UTC,
         )
     except ValueError:
         return None

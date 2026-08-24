@@ -5,11 +5,12 @@ import type { DirectoryPickerResult, EditableSettings, SettingsStatus } from "./
 
 type StorageField = ["library", "originals"] | ["library", "workspace"] | ["cache", "root"];
 
-export function SettingsView({ status, task, save, firstRun = false }: {
+export function SettingsView({ status, task, save, firstRun = false, onDirtyChange }: {
   status: SettingsStatus | null;
   task: Task | null;
   save: (settings: EditableSettings) => Promise<SettingsStatus>;
   firstRun?: boolean;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<EditableSettings | null>(status?.configured ?? null);
   const [saving, setSaving] = useState(false);
@@ -20,6 +21,10 @@ export function SettingsView({ status, task, save, firstRun = false }: {
   useEffect(() => setDraft(status?.configured ?? null), [status?.configured]);
   useEffect(() => { if (firstRun) setGuided(true); }, [firstRun]);
   const dirty = Boolean(draft && status?.configured && JSON.stringify(draft) !== JSON.stringify(status.configured));
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
     const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
       if (!dirty) return;

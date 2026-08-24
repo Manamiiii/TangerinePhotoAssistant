@@ -8,7 +8,6 @@ from typing import Any
 from .database import transaction
 from .inventory import utc_now
 
-
 TAG_DIMENSIONS = frozenset({"subject", "status", "problem", "location"})
 MAX_TAGS_PER_CAPTURE = 64
 MAX_TAG_NAME_LENGTH = 40

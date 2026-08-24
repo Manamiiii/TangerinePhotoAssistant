@@ -9,8 +9,8 @@ from tangerine_photo_assistant.grouping import (
     SimilarityCaptureNotFoundError,
     SimilarityGroupingError,
     list_similarity_group_revisions,
-    restore_similarity_grouping,
     restore_similarity_group_revision,
+    restore_similarity_grouping,
     save_manual_similarity_grouping,
     set_similarity_override,
 )
