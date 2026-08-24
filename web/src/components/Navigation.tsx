@@ -39,10 +39,17 @@ export function CollectionScopeTabs({ scope, setScope, allLabel = "全部" }: {
   </div>;
 }
 
-export function AlbumWorkspaceHeader({ name, category, summary, current, back, openPhotos, openBursts, openQuality }: {
+export type AlbumWorkspaceCounts = {
+  photos: number;
+  similarityGroups: number;
+  qualityResults: number;
+};
+
+export function AlbumWorkspaceHeader({ name, category, summary, counts, current, back, openPhotos, openBursts, openQuality }: {
   name: string;
   category: string;
   summary: string;
+  counts: AlbumWorkspaceCounts;
   current: "library" | "bursts" | "analysis";
   back: () => void;
   openPhotos: () => void;
@@ -50,13 +57,16 @@ export function AlbumWorkspaceHeader({ name, category, summary, current, back, o
   openQuality: () => void;
 }) {
   const destinations = [
-    ["library", "相册照片", openPhotos],
-    ["bursts", "相似组选片", openBursts],
-    ["analysis", "质量结果", openQuality],
+    ["library", "照片", counts.photos, openPhotos],
+    ["bursts", "相似组", counts.similarityGroups, openBursts],
+    ["analysis", "质量", counts.qualityResults, openQuality],
   ] as const;
   return <section className="album-workspace-header">
     <button className="album-back" onClick={back}>← 返回相册列表</button>
     <div className="album-workspace-title"><span>{category}</span><h2>{name}</h2><small>{summary}</small></div>
-    <nav aria-label="在当前相册内切换功能" title="保持当前相册范围，切换照片、相似组选片和质量结果">{destinations.map(([value, label, open]) => <button key={value} aria-current={current === value ? "page" : undefined} className={current === value ? "active" : ""} onClick={open}>{label}</button>)}</nav>
+    <nav aria-label="当前相册视图">{destinations.map(([value, label, count, open]) => {
+      const unavailable = count === 0 && current !== value;
+      return <button key={value} aria-current={current === value ? "page" : undefined} className={current === value ? "active" : ""} disabled={unavailable} title={unavailable ? `当前相册暂无${label}` : undefined} onClick={open}><span>{label}</span><b>{numberFormat.format(count)}</b></button>;
+    })}</nav>
   </section>;
 }

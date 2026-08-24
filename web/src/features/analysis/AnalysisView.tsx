@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJson } from "../../api";
-import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "../../components/Navigation";
+import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice } from "../../formatters";
 import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload } from "./types";
@@ -21,7 +21,7 @@ function modelAdvice(result: QualityItem["ai_result"]) {
   return result?.quality_summary ?? "打开详情查看完整模型建议。";
 }
 
-export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
+export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
   quality: QualityResponse | null;
@@ -31,6 +31,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   setQualitySearch: (search: string) => void;
   qualityAlbumId: string;
   setQualityAlbumId: (albumId: string) => void;
+  albumWorkspaceCounts: AlbumWorkspaceCounts;
   openAlbumPhotos: (albumId: number) => void;
   openAlbumBursts: (albumId: number) => void;
   task: Task | null;
@@ -196,7 +197,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           )}
         </section>
       )}
-      {analysisTab === "quality" && qualityAlbumId && <AlbumWorkspaceHeader name={selectedQualityAlbum?.name ?? "相册质量"} category={selectedQualityAlbum?.category ?? "相册"} summary={`${numberFormat.format(selectedQualityAlbum?.analyzed_count ?? quality?.count ?? 0)} 张已分析 · ${numberFormat.format(selectedQualityAlbum?.problem_count ?? 0)} 张有问题`} current="analysis" back={() => { setQualityBrowseMode("albums"); setQualityAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(qualityAlbumId))} openBursts={() => openAlbumBursts(Number(qualityAlbumId))} openQuality={() => undefined} />}
+      {analysisTab === "quality" && qualityAlbumId && <AlbumWorkspaceHeader name={selectedQualityAlbum?.name ?? "相册质量"} category={selectedQualityAlbum?.category ?? "相册"} summary={`${numberFormat.format(selectedQualityAlbum?.analyzed_count ?? quality?.count ?? 0)} 张已分析 · ${numberFormat.format(selectedQualityAlbum?.problem_count ?? 0)} 张有问题`} counts={albumWorkspaceCounts} current="analysis" back={() => { setQualityBrowseMode("albums"); setQualityAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(qualityAlbumId))} openBursts={() => openAlbumBursts(Number(qualityAlbumId))} openQuality={() => undefined} />}
       {analysisTab === "quality" && !qualityAlbumId && qualityBrowseMode === "albums" && <section className="panel album-selection-panel quality-album-panel">
         <div className="panel-heading compact-list-heading"><div><h3>选择相册</h3></div><span className="batch-count">{quality?.albums.length ?? 0} 个相册已有质量数据</span></div>
         <div className="quality-album-grid">{(quality?.albums ?? []).map((album) => <button key={album.id} onClick={() => setQualityAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><div><b>{numberFormat.format(album.analyzed_count)}</b><small>已分析</small></div><dl><div><dt>{numberFormat.format(album.problem_count)}</dt><dd>有问题</dd></div><div><dt>{numberFormat.format(album.model_count)}</dt><dd>模型完成</dd></div></dl></button>)}</div>

@@ -1,6 +1,6 @@
 import { useEffect, useState, type DragEvent } from "react";
 import { getJson } from "../../api";
-import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination } from "../../components/Navigation";
+import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatExposure, numberFormat } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
@@ -74,7 +74,7 @@ export function SimilarityGroupingEditor({ group, cancel, save, restore, restore
   </div>;
 }
 
-export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, albumId, setAlbumId, openAlbumPhotos, openAlbumQuality }: {
+export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, albumId, setAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumQuality }: {
   groups: SimilarityGroupsResponse | null;
   selectedGroup: SimilarityGroupDetail | null;
   task: Task | null;
@@ -93,6 +93,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   setReviewFilter: (filter: SimilarityReviewFilter) => void;
   albumId: string;
   setAlbumId: (albumId: string) => void;
+  albumWorkspaceCounts: AlbumWorkspaceCounts;
   openAlbumPhotos: (albumId: number) => void;
   openAlbumQuality: (albumId: number) => void;
 }) {
@@ -152,8 +153,8 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
               <article role="button" tabIndex={0} aria-label={`查看 ${item.stem} 详情`} className={`comparison-card ${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id} onClick={() => openCapture(item.capture_id, comparisonItems.map((member) => member.capture_id))} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openCapture(item.capture_id, comparisonItems.map((member) => member.capture_id)); } }}>
                 <div className="photo-frame">
                   <img src={item.thumbnail_url} loading="lazy" alt={`${item.stem} 缩略图`} />
-                  {item.similarity_rank && <span className="photo-rank">#{item.similarity_rank}</span>}
-                  {(item.auto_pick || (comparisonOrder === "balanced" && item.diversity_candidate) || item.user_pick) && <span className="photo-flags">{item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}{comparisonOrder === "balanced" && item.diversity_candidate ? <span className="photo-flag diversity">差异候选</span> : null}{item.user_pick ? <span className="photo-flag user">组内保留</span> : null}</span>}
+                  {item.similarity_rank != null && item.similarity_rank > 0 ? <span className="photo-rank">#{item.similarity_rank}</span> : null}
+                  {Boolean(item.auto_pick || (comparisonOrder === "balanced" && item.diversity_candidate) || item.user_pick) ? <span className="photo-flags">{item.auto_pick ? <span className="photo-flag">技术推荐</span> : null}{comparisonOrder === "balanced" && item.diversity_candidate ? <span className="photo-flag diversity">差异候选</span> : null}{item.user_pick ? <span className="photo-flag user">组内保留</span> : null}</span> : null}
                 </div>
                 <div className="photo-card-copy"><strong>{item.stem}</strong><span>{item.technical_score == null ? "尚未评分" : `技术分 ${Math.round(item.technical_score)}`} · {formatExposure(item.exposure_time)} · ISO {item.iso ?? "—"}</span><small className={`recommendation-tier ${item.recommendation_tier}`}>{tierLabels[item.recommendation_tier]}</small><small className="comparison-reason">{comparisonOrder === "balanced" && item.diversity_reason ? item.diversity_reason : item.recommendation_reason}</small></div>
                 <div className="photo-review" onClick={(event) => event.stopPropagation()}>
@@ -175,7 +176,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
           {!groups?.albums.length && <div className="empty-state">还没有可处理的相似组，请先更新相似分组。</div>}
         </section>
       ) : (<>
-        {albumId && <AlbumWorkspaceHeader name={selectedAlbum?.name ?? "相册选片"} category={selectedAlbum?.category ?? "相册"} summary={`${groups?.pending_count ?? 0} 组待选 · 共 ${groups?.total_count ?? 0} 组`} current="bursts" back={() => { setBrowseMode("albums"); setAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(albumId))} openBursts={() => undefined} openQuality={() => openAlbumQuality(Number(albumId))} />}
+        {albumId && <AlbumWorkspaceHeader name={selectedAlbum?.name ?? "相册选片"} category={selectedAlbum?.category ?? "相册"} summary={`${groups?.pending_count ?? 0} 组待选 · 共 ${groups?.total_count ?? 0} 组`} counts={albumWorkspaceCounts} current="bursts" back={() => { setBrowseMode("albums"); setAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(albumId))} openBursts={() => undefined} openQuality={() => openAlbumQuality(Number(albumId))} />}
         <section className="panel similarity-panel">
           {albumUndo && <div className="similarity-recovery-bar"><span>本相册最近一次人工分组仍可撤销</span><button className="toolbar-button" onClick={() => { if (window.confirm("撤销本相册最近一次人工分组调整？")) void restoreGroupingRevision(albumUndo.id, true); }}>撤销最近调整</button></div>}
           <div className="similarity-list-controls"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选">{([['pending', '待选'], ['completed', '已完成'], ['adjusted', '人工调整'], ['all', '全部']] as const).map(([value, label]) => <button key={value} className={reviewFilter === value ? "active" : ""} onClick={() => setReviewFilter(value)}>{label}</button>)}</div><span className="batch-count">当前显示 {numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div>
