@@ -283,6 +283,10 @@ AI 审计元数据回填状态已进入健康接口，并提供受本地写保�
 35 MB，结果语义保持不变。完整数字、查询计划入口和 Mac 运行方式见
 `docs/PERFORMANCE_BASELINE.md`；正式库仍未由本轮工具读取或修改。
 
+GitHub Actions 质量门禁会在 `main` push 和 PR 上并行执行 Linux/Windows 的 Ruff、Python
+测试、前端测试与生产构建。Mac 隔离样例启动保留为手动 workflow，避免每次提交自动消耗
+macOS runner；手动运行会生成隔离样例、启动服务，并核对健康状态、schema 与当前任务接口。
+
 仍不建议：运行新的全量模型分析、写 XMP、自动操作 Lightroom 或删除照片。后续 schema
 升级仍只应在当前后台任务空闲时通过正常服务启动执行，并核对备份和完整性结果。
 

@@ -1,0 +1,66 @@
+name: Mac isolated smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-isolated-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Prepare and start isolated Mac sample
+        shell: bash
+        run: |
+          bash start-mac-test.sh >"$RUNNER_TEMP/tangerine-mac-smoke.log" 2>&1 &
+          service_pid=$!
+          trap 'kill "$service_pid" 2>/dev/null || true' EXIT
+          for _ in {1..300}; do
+            if curl --silent --fail http://127.0.0.1:8765/api/health >"$RUNNER_TEMP/health.json"; then
+              break
+            fi
+            if ! kill -0 "$service_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/tangerine-mac-smoke.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --silent --fail http://127.0.0.1:8765/api/health
+          curl --silent --fail http://127.0.0.1:8765/api/tasks/current
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          health = json.loads((Path(os.environ["RUNNER_TEMP"]) / "health.json").read_text())
+          assert health["status"] == "ok"
+          assert health["schema_version"] == 27
+          assert health["mode"] == "local-only"
+          PY
+      - name: Upload service log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mac-isolated-smoke-log
+          path: ${{ runner.temp }}/tangerine-mac-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
