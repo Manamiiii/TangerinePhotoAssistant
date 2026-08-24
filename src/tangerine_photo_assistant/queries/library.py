@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,12 @@ def query_library_captures(
     search: str | None = None,
     sort: str = "newest",
     collapse_groups: bool = False,
+    trace: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     connection = connect_readonly(database_path)
     try:
+        if trace is not None:
+            connection.set_trace_callback(trace)
         conditions = [
             "f.present = 1",
             "cf.file_id = (SELECT MIN(cf2.file_id) FROM capture_files cf2 JOIN files f2 ON f2.id = cf2.file_id WHERE cf2.capture_id = c.id AND cf2.role = 'jpeg' AND f2.present = 1)",

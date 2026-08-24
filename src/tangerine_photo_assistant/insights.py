@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any
 
 MIN_CONDITION_SAMPLE = 3
@@ -56,7 +56,14 @@ def build_conditional_review_insights(connection: sqlite3.Connection) -> list[di
     rows = connection.execute(
         """SELECT c.id, aa.result_json, f.camera_model, f.lens_model,
                   f.exposure_time, f.f_number, f.iso,
-                  f.focal_length_mm, f.focal_length_35mm
+                  f.focal_length_mm, f.focal_length_35mm,
+                  COALESCE((
+                      SELECT json_group_array(td.name)
+                      FROM capture_tags ct
+                      JOIN tag_definitions td ON td.id=ct.tag_id
+                      WHERE ct.capture_id=c.id
+                        AND td.dimension='subject' AND td.active=1
+                  ), '[]') AS subject_json
            FROM captures c
            JOIN ai_analyses aa ON aa.capture_id=c.id AND aa.status='complete'
              AND COALESCE(aa.user_verdict, '')!='inaccurate'
@@ -69,15 +76,7 @@ def build_conditional_review_insights(connection: sqlite3.Connection) -> list[di
                                AND f2.present=1)
            JOIN files f ON f.id=cf.file_id
            WHERE aa.result_json IS NOT NULL"""
-    ).fetchall()
-    subject_rows = connection.execute(
-        """SELECT ct.capture_id, td.name FROM capture_tags ct
-           JOIN tag_definitions td ON td.id=ct.tag_id
-           WHERE td.dimension='subject' AND td.active=1"""
-    ).fetchall()
-    subjects: dict[int, list[str]] = defaultdict(list)
-    for row in subject_rows:
-        subjects[int(row["capture_id"])].append(str(row["name"]))
+    )
 
     condition_totals: Counter[tuple[str, str, str]] = Counter()
     problem_totals: Counter[str] = Counter()
@@ -90,12 +89,18 @@ def build_conditional_review_insights(connection: sqlite3.Connection) -> list[di
             continue
         if not isinstance(result, dict):
             continue
+        try:
+            subjects = json.loads(row["subject_json"])
+        except (TypeError, json.JSONDecodeError):
+            subjects = []
+        if not isinstance(subjects, list):
+            subjects = []
         problems = {
             " ".join(str(problem.get("name") or "").split())
             for problem in (result.get("visible_problems") or [])
             if isinstance(problem, dict) and problem.get("name")
         }
-        conditions = _conditions(row, subjects.get(int(row["id"]), []))
+        conditions = _conditions(row, [str(subject) for subject in subjects])
         valid_captures += 1
         condition_totals.update(conditions)
         problem_totals.update(problems)
