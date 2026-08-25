@@ -946,6 +946,7 @@ function App() {
         body: JSON.stringify({ capture_ids: captureIds }),
       });
       await refreshLibrary();
+      pushToast("success", `已将 ${captureIds.length} 张照片归入目标相册`);
     } catch (reason) {
       setError((reason as Error).message);
       throw reason;

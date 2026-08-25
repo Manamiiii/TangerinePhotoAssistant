@@ -808,6 +808,10 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .pending-list button span { color: var(--muted); font-size: 11px; }
 .pending-list button span strong { margin-right: 3px; color: inherit; font-size: 15px; }
 .pending-list button b { color: var(--orange-soft); font-size: 10px; }
+.pending-overview { margin: 0 14px 4px; padding: 11px 8px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pending-overview > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pending-overview b { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.pending-overview small { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .home-current-task .task-card { margin-top: 16px; }
 
 @media (max-width: 980px) {
@@ -1690,6 +1694,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .library-filter-toolbar { align-items: stretch; flex-wrap: wrap; }
   .library-search { min-width: 100%; }
   .sort-control { flex: 1; }
+  .saved-view-shortcuts { grid-template-columns: 1fr; gap: 5px; }
+  .pending-overview { grid-template-columns: 1fr; gap: 8px; }
   .library-filter-drawer { grid-template-columns: 1fr; }
   .detail-panel { height: 100dvh; max-height: 100dvh; }
   .detail-backdrop.immersive .show-immersive-info { grid-template-columns: 1fr; }
@@ -1897,6 +1903,15 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .saved-view-menu > .toolbar-button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .saved-view-menu > .toolbar-button.active { color: var(--orange-soft); border-color: #8b5630; }
 .saved-view-menu > .toolbar-button b { min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; display: grid; place-items: center; color: var(--orange-soft); background: rgba(242, 113, 34, .12); font-size: 10px; }
+.saved-view-shortcuts { padding: 0 10px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; }
+.saved-view-shortcuts > span { color: var(--muted); font-size: 10px; font-weight: 650; }
+.saved-view-shortcuts > div { min-width: 0; overflow-x: auto; display: flex; gap: 6px; scrollbar-width: thin; }
+.saved-view-shortcuts button { flex: 0 0 auto; max-width: 210px; min-height: 39px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--surface-soft); display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; cursor: pointer; }
+.saved-view-shortcuts button:hover { border-color: #785338; }
+.saved-view-shortcuts button.active { color: var(--orange-soft); border-color: #8b5630; background: rgba(242, 113, 34, .07); }
+.saved-view-shortcuts strong, .saved-view-shortcuts small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-view-shortcuts strong { font-size: 11px; font-weight: 650; }
+.saved-view-shortcuts small { color: var(--muted); font-size: 9px; }
 .saved-view-popover { position: absolute; z-index: 80; top: calc(100% + 7px); right: 0; width: min(330px, calc(100vw - 32px)); overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-raised); box-shadow: 0 15px 38px rgba(24, 18, 13, .18); }
 .saved-view-heading { padding: 11px 12px 9px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); }
 .saved-view-heading span { font-size: 12px; font-weight: 700; }
@@ -2219,7 +2234,9 @@ textarea:focus-visible { outline: 1px solid var(--orange-soft); outline-offset: 
   padding-bottom: 9px;
   border-bottom: 1px solid var(--line);
 }
-.selection-toolbar .batch-selection-summary strong { margin-right: auto; font-size: 12px; }
+.selection-toolbar .batch-selection-summary strong { font-size: 12px; white-space: nowrap; }
+.selection-toolbar .batch-selection-summary small { margin-right: auto; color: var(--muted); font-size: 10px; line-height: 1.35; }
+.selection-toolbar .batch-selection-summary small.warning { color: #e3a25f; }
 .selection-toolbar .selection-actions { justify-content: flex-start; gap: 8px; }
 .selection-toolbar button:not(.primary-action),
 .selection-toolbar label,

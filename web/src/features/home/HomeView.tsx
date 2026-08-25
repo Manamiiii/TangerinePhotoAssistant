@@ -37,6 +37,9 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   const activeIssue = activeBaseline?.comparison && !activeBaseline.comparison.healthy;
   const pendingSimilarity = similarity?.pending_count ?? 0;
   const reviewQueue = overview?.work_queue;
+  const queueNewCount = reviewQueue ? reviewQueue.quality.new_count + reviewQueue.ai.new_count + reviewQueue.integrity.new_count + reviewQueue.task.new_count : 0;
+  const queueReappearedCount = reviewQueue ? reviewQueue.quality.reappeared_count + reviewQueue.integrity.reappeared_count + reviewQueue.task.reappeared_count : 0;
+  const queuePriority = reviewQueue?.task.open_count ? "先处理后台任务异常" : reviewQueue?.quality.error_count ? "先核对读取失败" : reviewQueue?.integrity.open_count ? "先调查完整性差异" : reviewQueue?.ai.open_count ? "先复核高风险模型结果" : "先复核技术检测";
   const monthRows = statistics?.months ?? [];
   const latestMonth = monthRows[monthRows.length - 1] ?? null;
   const hasPending = pendingEvents > 0 || unassigned > 0 || pendingSimilarity > 0 || Boolean(reviewQueue?.open_count) || Boolean(archiveIssue) || Boolean(activeIssue);
@@ -63,7 +66,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
       </div>
       <div className="home-dashboard-column home-dashboard-secondary">
         {overview && overview.capture_total > 0 && <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>}
-        <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
+        <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div>{!!reviewQueue?.open_count && <div className="pending-overview"><span><b>今日建议 {numberFormat.format(reviewQueue.today_count)} 项</b><small>约 {numberFormat.format(reviewQueue.estimated_minutes)} 分钟 · {queuePriority}</small></span><span><b>总积压 {numberFormat.format(reviewQueue.open_count)}</b><small>未处理新项 {numberFormat.format(queueNewCount)}{queueReappearedCount ? ` · 重新出现 ${numberFormat.format(queueReappearedCount)}` : ""}</small></span></div>}<div className="pending-list">
           {!!reviewQueue?.task_today_count && <button onClick={openMaintenance}><span><strong>{numberFormat.format(reviewQueue.task_today_count)}</strong> 类后台任务异常待处理<small>共 {numberFormat.format(reviewQueue.task.open_count)} 类{reviewQueue.task.reappeared_count ? ` · ${numberFormat.format(reviewQueue.task.reappeared_count)} 类重新出现` : ""} · 相同故障已自动合并</small></span><b>查看恢复</b></button>}
           {!!reviewQueue?.analysis_today_count && <button onClick={openAnalysis}><span><strong>{numberFormat.format(reviewQueue.analysis_today_count)}</strong> 项今日建议复核<small>技术 {numberFormat.format(reviewQueue.quality.open_count)}{reviewQueue.quality.error_count ? `（读取失败 ${numberFormat.format(reviewQueue.quality.error_count)}）` : ""} · 模型 {numberFormat.format(reviewQueue.ai.open_count)}{reviewQueue.oldest_age_days ? ` · 最早已积压 ${reviewQueue.oldest_age_days} 天` : ""}</small></span><b>开始复核</b></button>}
           {!!reviewQueue?.integrity_today_count && <button onClick={openMaintenance}><span><strong>{numberFormat.format(reviewQueue.integrity_today_count)}</strong> 项完整性差异待调查<small>全部积压 {numberFormat.format(reviewQueue.integrity.open_count)} 项 · 检查只读，不自动修复照片</small></span><b>调查差异</b></button>}
