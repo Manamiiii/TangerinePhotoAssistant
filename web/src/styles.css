@@ -1135,6 +1135,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .integrity-investigation-list article > div { display: flex; gap: 6px; }
 .integrity-investigation-list button { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: var(--surface-soft); font-size: 10px; cursor: pointer; white-space: nowrap; }
 .integrity-investigation-list button:disabled { opacity: .5; cursor: progress; }
+.task-incident-panel { margin-bottom: 14px; }
+.task-incident-intro { margin: 0; padding: 0 18px 14px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.task-incident-list article { grid-template-columns: 90px minmax(140px, .75fr) minmax(220px, 1.25fr) auto; }
 @media (max-width: 850px) {
   .integrity-investigation-toolbar { align-items: stretch; flex-direction: column; }
   .integrity-investigation-list article { grid-template-columns: 54px minmax(0, 1fr); }

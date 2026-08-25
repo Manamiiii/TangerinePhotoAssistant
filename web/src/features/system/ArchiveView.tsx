@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getJson } from "../../api";
 import { formatBytes, formatDate, numberFormat } from "../../formatters";
 
@@ -28,6 +28,16 @@ type IntegrityPage = {
   offset: number;
   items: Array<{ relative_path: string; status: string; workflow_status: string; workflow_age_days: number | null }>;
 };
+type TaskIncident = {
+  task_kind: string;
+  task_label: string;
+  error_code: string;
+  message: string;
+  workflow_status: string;
+  workflow_age_days: number | null;
+  occurrence_count: number;
+};
+type TaskIncidentPage = { count: number; items: TaskIncident[] };
 
 export function ArchiveView({ archive, activeLibrary, createBaseline, createActiveBaseline, checkIntegrity, saveInvestigation }: {
   archive: ArchiveStatus | null;
@@ -50,6 +60,29 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   const [differences, setDifferences] = useState<IntegrityPage | null>(null);
   const [differenceWorkflow, setDifferenceWorkflow] = useState("open");
   const [savingDifference, setSavingDifference] = useState<string | null>(null);
+  const [taskIncidents, setTaskIncidents] = useState<TaskIncidentPage | null>(null);
+  const [taskWorkflow, setTaskWorkflow] = useState("open");
+  const [savingTask, setSavingTask] = useState<string | null>(null);
+  const [taskIncidentError, setTaskIncidentError] = useState<string | null>(null);
+  const loadTaskIncidents = async (workflow = taskWorkflow) => {
+    try {
+      setTaskIncidentError(null);
+      setTaskIncidents(await getJson<TaskIncidentPage>(`/api/task-incidents?workflow=${workflow}`));
+    } catch (reason) { setTaskIncidentError((reason as Error).message); }
+  };
+  useEffect(() => { void loadTaskIncidents("open"); }, []);
+  const updateTaskIncident = async (taskKind: string, status: "pending" | "confirmed" | "ignored" | "snoozed") => {
+    setSavingTask(taskKind);
+    try {
+      setTaskIncidentError(null);
+      await getJson(`/api/task-incidents/${taskKind}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, snooze_days: status === "snoozed" ? 7 : null }),
+      });
+      await loadTaskIncidents();
+    } catch (reason) { setTaskIncidentError((reason as Error).message); }
+    finally { setSavingTask(null); }
+  };
   const loadDifferences = async (scope: "archive" | "active", offset = 0, workflow = differenceWorkflow) => {
     setDifferenceScope(scope);
     setDifferences(await getJson<IntegrityPage>(`/api/integrity/differences/${scope}?limit=50&offset=${offset}&workflow=${workflow}`));
@@ -114,6 +147,13 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   };
   return <>
     <section className="compact-summary"><div><span className="section-kicker">系统维护</span><h2>图库完整性</h2><p>需要时手动核对磁盘文件；日常浏览只读取上次结果，不扫描照片目录。</p></div></section>
+    <section className="panel archive-panel task-incident-panel">
+      <div className="panel-heading"><div><span className="section-kicker">运行恢复</span><h3>后台任务异常</h3></div><div className="integrity-investigation-toolbar"><select aria-label="任务异常状态" value={taskWorkflow} onChange={(event) => { const workflow = event.target.value; setTaskWorkflow(workflow); void loadTaskIncidents(workflow); }}><option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已恢复</option><option value="all">全部状态</option></select></div></div>
+      <p className="task-incident-intro">这里只汇总需要处理的失败任务；相同故障会合并，同类任务成功后会自动标记为已恢复。</p>
+      {!!taskIncidents?.items.length && <div className="integrity-investigation-list task-incident-list">{taskIncidents.items.map((item) => { const isOpen = ["new", "reappeared", "pending"].includes(item.workflow_status); return <article key={item.task_kind}><span className="integrity-kind">{item.task_label}</span><strong>{item.message}</strong><small>{({ new: "新发现", reappeared: "重新出现", pending: "待处理", confirmed: "已核对", ignored: "已忽略", snoozed: "稍后处理", resolved: "已恢复" } as Record<string, string>)[item.workflow_status] ?? item.workflow_status}{item.workflow_age_days ? ` · ${item.workflow_age_days} 天` : " · 今天"}{item.occurrence_count > 1 ? ` · 第 ${item.occurrence_count} 次进入队列` : ""} · {item.error_code}</small><div>{isOpen ? <><button disabled={savingTask === item.task_kind} onClick={() => void updateTaskIncident(item.task_kind, "confirmed")}>已核对</button><button disabled={savingTask === item.task_kind} onClick={() => void updateTaskIncident(item.task_kind, "snoozed")}>7天后</button><button disabled={savingTask === item.task_kind} onClick={() => void updateTaskIncident(item.task_kind, "ignored")}>忽略</button></> : <button disabled={savingTask === item.task_kind} onClick={() => void updateTaskIncident(item.task_kind, "pending")}>重新打开</button>}</div></article>; })}</div>}
+      {taskIncidents && !taskIncidents.items.length && <div className="empty-state">当前状态下没有后台任务异常。</div>}
+      {taskIncidentError && <div className="portable-error" role="alert">{taskIncidentError}</div>}
+    </section>
     <section className="statistics-grid">
       {baselineCard("历史存档", archive, createBaseline, "archive")}
       {baselineCard("活动图库", activeLibrary, createActiveBaseline, "active")}

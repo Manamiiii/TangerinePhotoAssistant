@@ -17,6 +17,7 @@ from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.settings import Settings, write_safe_config
 from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.tags import update_manual_tag_for_captures
+from tangerine_photo_assistant.task_incidents import record_task_incident
 from tangerine_photo_assistant.visual import (
     build_visual_fingerprints,
     rebuild_similarity_groups,
@@ -209,6 +210,37 @@ class WebAppQueryTests(unittest.TestCase):
                 self.assertEqual(
                     client.get(
                         "/api/integrity/differences/active?workflow=confirmed"
+                    ).json()["count"],
+                    1,
+                )
+
+    def test_task_incident_endpoint_updates_persistent_recovery_state(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            with TestClient(create_app(config_path), base_url="http://localhost") as client:
+                session = client.get("/api/session").json()
+                connection = connect(settings.database_path)
+                record_task_incident(
+                    connection, "scan", "PermissionError", "扫描失败"
+                )
+                connection.close()
+
+                self.assertEqual(client.get("/api/task-incidents").json()["count"], 1)
+                response = client.put(
+                    "/api/task-incidents/scan",
+                    headers={session["header"]: session["token"]},
+                    json={"status": "confirmed"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(client.get("/api/task-incidents").json()["count"], 0)
+                self.assertEqual(
+                    client.get(
+                        "/api/task-incidents?workflow=confirmed"
                     ).json()["count"],
                     1,
                 )

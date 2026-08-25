@@ -4,6 +4,8 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from .task_incidents import task_incident_summary
+
 WORK_ITEM_STATUSES = frozenset(
     {"pending", "confirmed", "ignored", "snoozed", "resolved"}
 )
@@ -248,17 +250,22 @@ def work_queue_summary(
               OR saved_status='pending'
               OR (saved_status='snoozed' AND due_at <= CURRENT_TIMESTAMP)"""
     ).fetchone()
+    task = task_incident_summary(connection)
     quality_total = int(quality["total"] or 0)
     ai_total = int(ai["total"] or 0)
     integrity_total = int(integrity["total"] or 0)
-    open_total = quality_total + ai_total + integrity_total
+    task_total = int(task["open_count"] or 0)
+    open_total = quality_total + ai_total + integrity_total + task_total
     daily_limit = max(5, min(int(daily_limit), 200))
-    integrity_today = min(integrity_total, daily_limit)
-    analysis_today = min(quality_total + ai_total, daily_limit - integrity_today)
+    task_today = min(task_total, daily_limit)
+    integrity_today = min(integrity_total, daily_limit - task_today)
+    analysis_today = min(
+        quality_total + ai_total, daily_limit - task_today - integrity_today
+    )
     oldest_candidates = [
         str(value) for value in (
             quality["oldest_seen_at"], ai["oldest_seen_at"],
-            integrity["oldest_seen_at"],
+            integrity["oldest_seen_at"], task["oldest_seen_at"],
         )
         if value
     ]
@@ -277,6 +284,7 @@ def work_queue_summary(
         "today_count": min(daily_limit, open_total),
         "analysis_today_count": analysis_today,
         "integrity_today_count": integrity_today,
+        "task_today_count": task_today,
         "daily_limit": daily_limit,
         "estimated_minutes": min(daily_limit, open_total) * 2,
         "oldest_seen_at": oldest_seen_at,
@@ -295,5 +303,10 @@ def work_queue_summary(
             "open_count": integrity_total,
             "new_count": int(integrity["new_count"] or 0),
             "reappeared_count": int(integrity["reappeared_count"] or 0),
+        },
+        "task": {
+            "open_count": task_total,
+            "new_count": int(task["new_count"] or 0),
+            "reappeared_count": int(task["reappeared_count"] or 0),
         },
     }

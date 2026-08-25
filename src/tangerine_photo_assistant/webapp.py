@@ -138,6 +138,12 @@ from .tags import (
     update_manual_tag_for_captures,
     update_tag_definition,
 )
+from .task_incidents import (
+    record_task_incident,
+    resolve_task_incident,
+    save_task_incident_state,
+    task_incidents_page,
+)
 from .thumbnails import ThumbnailCache
 from .visual import analyze_visuals
 from .work_queue import save_work_item_state, save_work_item_states
@@ -273,6 +279,11 @@ class IntegrityInvestigationRequest(BaseModel):
     snooze_days: int | None = Field(default=None, ge=1, le=365)
 
 
+class TaskIncidentRequest(BaseModel):
+    status: Literal["pending", "confirmed", "ignored", "snoozed", "resolved"]
+    snooze_days: int | None = Field(default=None, ge=1, le=365)
+
+
 class EditRecipeRequest(BaseModel):
     parameters: dict[str, float]
     status: Literal["draft", "accepted", "dismissed"] = "draft"
@@ -398,6 +409,29 @@ class TaskCancelled(RuntimeError):
     pass
 
 
+def _task_kind_for_stage(stage: str) -> str:
+    if stage.startswith("migration-"):
+        return "migration"
+    if stage.startswith("ai-"):
+        return "ai"
+    if stage.startswith("detail-"):
+        return "detail"
+    if stage == "quality":
+        return "quality"
+    if stage in {"duplicates", "fingerprints"}:
+        return "visual"
+    if stage in {
+        "indexing", "metadata", "pairing", "structure", "album", "reporting"
+    }:
+        return "scan"
+    return "system"
+
+
+def _safe_task_error_code(error: Any) -> str:
+    value = str(error or "TaskFailure")
+    return value if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,79}", value) else "TaskFailure"
+
+
 class ScanTaskManager:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -409,6 +443,9 @@ class ScanTaskManager:
         self._migration_thread_active = False
         self._migration_run_id: int | None = None
         self._ai_run_id: int | None = None
+        self._task_outcomes: list[
+            tuple[tuple[str, str, str] | None, str | None]
+        ] = []
 
     def attach_ai_run(self, run_id: int) -> None:
         connection = connect_readonly(self.settings.database_path)
@@ -481,22 +518,60 @@ class ScanTaskManager:
                     total=run["requested_count"], failure_count=run["failed_count"],
                     eta_seconds=0.0 if status == "complete" else None,
                     pausable=False, message=messages.get(status, f"模型任务：{status}"),
-                    error=run["error"],
+                    error="AiWorkerFailure" if run["error"] else None,
                 )
                 return
         finally:
             if self._state.status != "paused":
                 self._ai_run_id = None
             connection.close()
+            self._flush_task_outcomes()
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return asdict(self._state)
 
     def _update(self, **changes: Any) -> None:
+        incident: tuple[str, str, str] | None = None
+        resolved_kind: str | None = None
         with self._lock:
+            previous_status = self._state.status
+            previous_stage = self._state.stage
+            if changes.get("status") == "failed" and "error" in changes:
+                changes["error"] = _safe_task_error_code(changes["error"])
             for key, value in changes.items():
                 setattr(self._state, key, value)
+            if self._state.status == "failed" and previous_status != "failed":
+                incident = (
+                    _task_kind_for_stage(previous_stage),
+                    _safe_task_error_code(self._state.error),
+                    self._state.message,
+                )
+            elif self._state.status == "complete" and previous_status != "complete":
+                resolved_kind = _task_kind_for_stage(previous_stage)
+            if incident is not None or resolved_kind is not None:
+                self._task_outcomes.append((incident, resolved_kind))
+
+    def _flush_task_outcomes(self) -> None:
+        with self._lock:
+            outcomes = self._task_outcomes
+            self._task_outcomes = []
+        if not outcomes:
+            return
+        try:
+            connection = connect(self.settings.database_path)
+            try:
+                for incident, resolved_kind in outcomes:
+                    if incident is not None:
+                        record_task_incident(connection, *incident)
+                    elif resolved_kind is not None:
+                        resolve_task_incident(connection, resolved_kind)
+            finally:
+                connection.close()
+        except (OSError, sqlite3.Error, ValueError):
+            # Incident bookkeeping must never turn the original task result into
+            # another failure or interfere with an in-progress recovery.
+            pass
 
     def _progress(self, **changes: Any) -> None:
         if self._cancel.is_set():
@@ -735,13 +810,14 @@ class ScanTaskManager:
         except Exception as exc:
             self._update(
                 status="failed", stage="migration-failed", pausable=False,
-                message="迁移任务失败", error=str(exc),
+                message="迁移任务失败", error=type(exc).__name__,
             )
         finally:
             with self._lock:
                 if self._state.status != "running":
                     self._migration_thread_active = False
             connection.close()
+            self._flush_task_outcomes()
 
     def start(self, album_id: int) -> dict[str, Any]:
         with self._lock:
@@ -807,10 +883,12 @@ class ScanTaskManager:
             self._update(status="cancelled", stage="cancelled", message="视觉预筛已取消")
         except Exception as exc:
             self._update(
-                status="failed", stage="failed", message="视觉预筛失败", error=str(exc)
+                status="failed", stage="failed", message="视觉预筛失败",
+                error=type(exc).__name__,
             )
         finally:
             connection.close()
+            self._flush_task_outcomes()
 
     def start_quality(self) -> dict[str, Any]:
         with self._lock:
@@ -846,10 +924,12 @@ class ScanTaskManager:
             self._update(status="cancelled", stage="cancelled", message="技术质量分析已取消")
         except Exception as exc:
             self._update(
-                status="failed", stage="failed", message="技术质量分析失败", error=str(exc)
+                status="failed", stage="failed", message="技术质量分析失败",
+                error=type(exc).__name__,
             )
         finally:
             connection.close()
+            self._flush_task_outcomes()
 
     def start_detail_backfill(self) -> dict[str, Any]:
         exiftool = self.settings.find_exiftool()
@@ -924,10 +1004,11 @@ class ScanTaskManager:
         except Exception as exc:
             self._update(
                 status="failed", stage="failed", pausable=False,
-                message="详情数据补全失败", error=str(exc),
+                message="详情数据补全失败", error=type(exc).__name__,
             )
         finally:
             connection.close()
+            self._flush_task_outcomes()
 
     def start_ai(self, mode: str, limit: int, config_path: Path) -> dict[str, Any]:
         preflight = ai_preflight(self.settings)
@@ -1149,13 +1230,15 @@ class ScanTaskManager:
             self._update(status="cancelled", stage="cancelled", message="本地大模型任务已取消")
         except Exception as exc:
             self._update(
-                status="failed", stage="failed", message="本地大模型分析失败", error=str(exc)
+                status="failed", stage="failed", message="本地大模型分析失败",
+                error=type(exc).__name__,
             )
         finally:
             self._process = None
             if self._state.status != "paused":
                 self._ai_run_id = None
             connection.close()
+            self._flush_task_outcomes()
 
     def _run(self, task_id: str, album_id: int) -> None:
         connection = connect(self.settings.database_path)
@@ -1224,10 +1307,11 @@ class ScanTaskManager:
                 status="failed",
                 stage="failed",
                 message="扫描失败",
-                error=str(exc),
+                error=type(exc).__name__,
             )
         finally:
             connection.close()
+            self._flush_task_outcomes()
 
 
 def _query_overview(settings: Settings) -> dict[str, Any]:
@@ -2774,6 +2858,38 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             try:
                 return save_integrity_investigation(
                     connection, request.scope, request.relative_path, request.status,
+                    snooze_days=request.snooze_days,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/task-incidents")
+    def list_task_incidents(
+        workflow: Literal[
+            "all", "open", "new", "reappeared", "pending", "confirmed",
+            "ignored", "snoozed", "resolved",
+        ] = "open",
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return task_incidents_page(connection, workflow)
+        finally:
+            connection.close()
+
+    @app.put("/api/task-incidents/{task_kind}")
+    def update_task_incident(
+        task_kind: Literal[
+            "scan", "visual", "quality", "detail", "ai", "migration", "system"
+        ],
+        request: TaskIncidentRequest,
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return save_task_incident_state(
+                    connection, task_kind, request.status,
                     snooze_days=request.snooze_days,
                 )
             except ValueError as exc:
