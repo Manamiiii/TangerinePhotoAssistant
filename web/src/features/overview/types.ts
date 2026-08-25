@@ -36,7 +36,9 @@ export type Overview = {
     today_count: number;
     daily_limit: number;
     estimated_minutes: number;
-    quality: { open_count: number; new_count: number; reappeared_count: number };
+    oldest_seen_at: string | null;
+    oldest_age_days: number | null;
+    quality: { open_count: number; new_count: number; reappeared_count: number; error_count: number };
     ai: { open_count: number; new_count: number };
   };
   latest_scan: {

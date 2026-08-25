@@ -9,6 +9,7 @@ export type CaptureDetail = {
   event_name: string | null;
   category: string | null;
   technical_score: number | null;
+  has_quality_error: boolean;
   exposure_score: number | null;
   sharpness_score: number | null;
   exif_score: number | null;

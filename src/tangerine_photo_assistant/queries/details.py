@@ -109,7 +109,7 @@ def query_capture_detail(database_path: Path, capture_id: int) -> dict[str, Any]
                    qm.luminance_mean, qm.shadow_clip_pct, qm.highlight_clip_pct,
                    qm.edge_strength, qm.exposure_score, qm.sharpness_score,
                    qm.exif_score, qm.technical_score, qm.issue_json,
-                   qm.histogram_json, qm.error,
+                   qm.histogram_json, (qm.error IS NOT NULL) AS has_quality_error,
                    cr.auto_rating, cr.auto_pick, cr.similarity_rank,
                    cr.user_rating, cr.user_pick, cr.user_reject, cr.user_note,
                    cr.selection_reason_json

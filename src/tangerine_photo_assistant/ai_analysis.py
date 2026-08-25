@@ -731,14 +731,23 @@ def ai_results_page(
                qm.technical_score, aa.result_json
                , ({workflow_status}) AS workflow_status,
                wis.due_at AS workflow_due_at,
-               wis.reviewed_at AS workflow_reviewed_at
+               wis.reviewed_at AS workflow_reviewed_at,
+               COALESCE(wis.first_seen_at, aa.finished_at) AS workflow_first_seen_at,
+               MAX(0, CAST(julianday('now') - julianday(
+                   COALESCE(wis.first_seen_at, aa.finished_at)
+               ) AS INTEGER)) AS workflow_age_days
         {from_sql}
         JOIN captures c ON c.id=aa.capture_id
         LEFT JOIN event_captures ec ON ec.capture_id=c.id
         LEFT JOIN events e ON e.id=ec.event_id
         LEFT JOIN quality_metrics qm ON qm.capture_id=c.id
         WHERE {where}
-        ORDER BY aa.id DESC LIMIT ? OFFSET ?
+        ORDER BY CASE ({workflow_status})
+                     WHEN 'reappeared' THEN 0 WHEN 'new' THEN 1
+                     WHEN 'pending' THEN 2 ELSE 3 END,
+                 COALESCE(wis.first_seen_at, aa.finished_at) ASC,
+                 aa.id DESC
+        LIMIT ? OFFSET ?
         """,
         (*parameters, limit, offset),
     ).fetchall()

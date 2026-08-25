@@ -1404,7 +1404,7 @@ def _query_similarity_group(settings: Settings, group_id: int) -> dict[str, Any]
 
 def _query_capture_detail(settings: Settings, capture_id: int) -> dict[str, Any]:
     item = query_capture_detail(settings.database_path, capture_id)
-    if item["histogram"] is None and item["error"] is None:
+    if item["histogram"] is None and not item["has_quality_error"]:
         item["histogram"] = _ensure_capture_histogram(settings, capture_id)
     return item
 
@@ -1978,7 +1978,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
         review_filter: Literal[
-            "all", "problems", "low_score", "with_model", "without_model", "unrated"
+            "all", "problems", "errors", "low_score", "with_model",
+            "without_model", "unrated"
         ] = "all",
         search: str | None = Query(default=None, max_length=120),
         album_id: int | None = Query(default=None, ge=1),

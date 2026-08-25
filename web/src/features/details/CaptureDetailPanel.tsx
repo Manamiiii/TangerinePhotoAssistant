@@ -301,7 +301,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "完整详情与后期建议"}</button>
           </div>
           <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
-          {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未检测技术健康度" : `技术健康度 ${Math.round(detail.technical_score)}`}{shootingReview.editing.length ? ` · 后期建议 ${shootingReview.editing.length} 项` : ""}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
+          {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.has_quality_error ? "技术检测读取失败" : detail.technical_score == null ? "尚未检测技术健康度" : `技术健康度 ${Math.round(detail.technical_score)}`}{shootingReview.editing.length ? ` · 后期建议 ${shootingReview.editing.length} 项` : ""}</span><p>{detail.has_quality_error ? "请确认来源文件仍存在且可读取，再重新运行技术检测。" : shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
           <div className={`detail-section detail-exif-section ${sectionClass(["browse"])}`}>
             <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
             <dl className="exif-grid">
@@ -342,7 +342,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
           </div>
           <div className={`detail-section ${sectionClass(["analyze"])}`}><h3>技术检测</h3>
             {detail.histogram && detail.histogram.length > 0 && <LuminanceHistogram histogram={detail.histogram} shadowClip={detail.shadow_clip_pct} highlightClip={detail.highlight_clip_pct} />}
-            {detail.technical_score == null ? <p>尚未运行技术质量分析。</p> : <div className="score-bars">
+            {detail.has_quality_error ? <p>技术检测未能读取这张照片。请确认来源文件仍存在且可读取，再重新运行技术检测。</p> : detail.technical_score == null ? <p>尚未运行技术质量分析。</p> : <div className="score-bars">
               <ScoreBar label={`技术健康度 ${Math.round(detail.technical_score)}`} score={detail.technical_score} />
               <ScoreBar label="曝光" score={detail.exposure_score} />
               <ScoreBar label="清晰度" score={detail.sharpness_score} />

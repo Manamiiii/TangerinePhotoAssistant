@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..database import connect_readonly
+from ..work_queue import quality_fingerprint_sql
 
 
 def query_quality(
@@ -21,7 +23,9 @@ def query_quality(
         conditions = ["1=1"]
         parameters: list[Any] = []
         if review_filter == "problems":
-            conditions.append("qm.issue_json <> '[]'")
+            conditions.append("(qm.error IS NOT NULL OR qm.issue_json <> '[]')")
+        elif review_filter == "errors":
+            conditions.append("qm.error IS NOT NULL")
         elif review_filter == "low_score":
             conditions.append("qm.technical_score < 70")
         elif review_filter == "with_model":
@@ -37,15 +41,15 @@ def query_quality(
             conditions.append("(c.stem LIKE ? OR e.proposed_name LIKE ?)")
             term = f"%{search.strip()}%"
             parameters.extend((term, term))
-        current_fingerprint = "(qm.algorithm_version || ':' || qm.issue_json)"
+        current_fingerprint = quality_fingerprint_sql()
         workflow_status = f"""CASE
             WHEN wis.subject_id IS NULL THEN 'new'
-            WHEN qm.issue_json = '[]' THEN 'resolved'
+            WHEN qm.error IS NULL AND qm.issue_json = '[]' THEN 'resolved'
             WHEN wis.fingerprint <> {current_fingerprint} THEN 'reappeared'
             WHEN wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP THEN 'pending'
             ELSE wis.status END"""
         if workflow_filter == "open":
-            conditions.append("qm.issue_json <> '[]'")
+            conditions.append("(qm.error IS NOT NULL OR qm.issue_json <> '[]')")
             conditions.append(
                 f"({workflow_status}) IN ('new', 'reappeared', 'pending')"
             )
@@ -80,18 +84,22 @@ def query_quality(
                    e.proposed_name AS event_name,
                    e.category, qm.technical_score, qm.exposure_score, qm.sharpness_score,
                    qm.exif_score, qm.highlight_clip_pct, qm.shadow_clip_pct,
-                   qm.issue_json, qm.error, cr.auto_rating, cr.auto_pick,
+                   qm.issue_json, (qm.error IS NOT NULL) AS has_error,
+                   cr.auto_rating, cr.auto_pick,
                    cr.similarity_rank, cr.user_rating, cr.user_pick,
                    cr.user_reject, cr.user_note, aa.result_json AS ai_result_json
                    , ({workflow_status}) AS workflow_status,
                    wis.due_at AS workflow_due_at,
-                   wis.reviewed_at AS workflow_reviewed_at
+                   wis.reviewed_at AS workflow_reviewed_at,
+                   COALESCE(wis.first_seen_at, qm.computed_at) AS workflow_first_seen_at
             {from_sql}
             WHERE {where_sql}
             ORDER BY CASE ({workflow_status})
                          WHEN 'reappeared' THEN 0 WHEN 'new' THEN 1
                          WHEN 'pending' THEN 2 ELSE 3 END,
-                     qm.error IS NOT NULL, qm.technical_score ASC, qm.computed_at DESC,
+                     qm.error IS NULL,
+                     COALESCE(wis.first_seen_at, qm.computed_at) ASC,
+                     qm.technical_score ASC, qm.computed_at DESC,
                      qm.capture_id
             LIMIT ? OFFSET ?
             """,
@@ -103,13 +111,15 @@ def query_quality(
             item["issues"] = json.loads(item.pop("issue_json"))
             raw_ai = item.pop("ai_result_json")
             item["ai_result"] = json.loads(raw_ai) if raw_ai else None
+            first_seen_at = item.get("workflow_first_seen_at")
+            item["workflow_age_days"] = _age_days(first_seen_at)
             item["thumbnail_url"] = f"/api/thumbnails/{item['capture_id']}?size=320"
             items.append(item)
         album_rows = connection.execute(
             """
             SELECT e.id, e.proposed_name AS name, e.category,
                    COUNT(qm.capture_id) AS analyzed_count,
-                   SUM(CASE WHEN qm.issue_json <> '[]' THEN 1 ELSE 0 END) AS problem_count,
+                   SUM(CASE WHEN qm.error IS NOT NULL OR qm.issue_json <> '[]' THEN 1 ELSE 0 END) AS problem_count,
                    SUM(CASE WHEN EXISTS (
                        SELECT 1 FROM ai_analyses aa
                        WHERE aa.capture_id = c.id AND aa.status = 'complete'
@@ -131,3 +141,15 @@ def query_quality(
         }
     finally:
         connection.close()
+
+
+def _age_days(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return max(0, (datetime.now(UTC) - parsed).days)
+    except ValueError:
+        return None
