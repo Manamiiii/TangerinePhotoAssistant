@@ -2264,6 +2264,10 @@ textarea:focus-visible { outline: 1px solid var(--orange-soft); outline-offset: 
 .batch-export-options input { accent-color: var(--orange); }
 .selection-toolbar .export-share-button { margin-left: auto; }
 
+@media (min-width: 981px) {
+  .selection-toolbar.visible { position: sticky; z-index: 55; top: 10px; box-shadow: 0 12px 28px rgba(15, 12, 9, .22); }
+}
+
 .photo-list-header,
 .layout-list .photo-list-copy {
   grid-template-columns: minmax(230px, 1.35fr) 142px minmax(190px, 1fr) 84px minmax(160px, auto);
