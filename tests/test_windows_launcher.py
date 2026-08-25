@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -20,6 +22,14 @@ class WindowsLauncherTests(unittest.TestCase):
         self.assertIn("-Mode Install", installer)
         self.assertNotIn("config.example.toml", command_entry)
         controller_text = controller.read_text(encoding="utf-8")
+        icon = ROOT / "assets" / "tangerine-photo-assistant.ico"
+        self.assertTrue(icon.is_file())
+        self.assertGreater(icon.stat().st_size, 1_024)
+        with Image.open(icon) as image:
+            self.assertEqual(image.format, "ICO")
+            self.assertTrue({(16, 16), (32, 32), (48, 48), (256, 256)}.issubset(image.info["sizes"]))
+        self.assertIn("assets\\tangerine-photo-assistant.ico", controller_text)
+        self.assertIn('$shortcut.IconLocation = "$IconFile,0"', controller_text)
         self.assertIn("Get-TrackedTangerineProcess", controller_text)
         self.assertIn("$attempt -lt 900", controller_text)
         self.assertIn("System.Threading.Mutex", controller_text)

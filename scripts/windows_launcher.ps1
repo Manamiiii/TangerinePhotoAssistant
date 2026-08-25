@@ -13,6 +13,7 @@ $Executable = Join-Path $ProjectRoot ".venv\Scripts\tangerine-photo.exe"
 $ConfigFile = Join-Path $ProjectRoot "config.toml"
 $WebIndex = Join-Path $ProjectRoot "web\dist\index.html"
 $SilentEntry = Join-Path $ProjectRoot "TangerinePhotoAssistant.vbs"
+$IconFile = Join-Path $ProjectRoot "assets\tangerine-photo-assistant.ico"
 $RuntimeRoot = Join-Path $ProjectRoot "runtime\launcher"
 $PidFile = Join-Path $RuntimeRoot "server.pid"
 
@@ -36,6 +37,9 @@ function Assert-LauncherFiles {
     }
     if (-not (Test-Path -LiteralPath $ConfigFile -PathType Leaf)) {
         $missing += "local configuration (config.toml)"
+    }
+    if (-not (Test-Path -LiteralPath $IconFile -PathType Leaf)) {
+        $missing += "application icon (assets\tangerine-photo-assistant.ico)"
     }
     if ($missing.Count) {
         throw "The application is not ready: $($missing -join ', '). Complete the one-time setup first."
@@ -113,7 +117,7 @@ function Install-TangerineShortcuts {
         $shortcut.TargetPath = "$env:WINDIR\System32\wscript.exe"
         $shortcut.Arguments = "`"$SilentEntry`""
         $shortcut.WorkingDirectory = $ProjectRoot
-        $shortcut.IconLocation = "$Executable,0"
+        $shortcut.IconLocation = "$IconFile,0"
         $shortcut.Description = "Open the local TangerinePhotoAssistant application"
         $shortcut.Save()
     }

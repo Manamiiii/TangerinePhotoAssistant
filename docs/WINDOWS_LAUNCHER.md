@@ -12,7 +12,8 @@ install-windows-launcher.cmd
 ```
 
 脚本只在当前用户的桌面和开始菜单创建快捷方式，不复制项目、不修改配置、数据库或照片。快捷
-方式指向仓库内的 `TangerinePhotoAssistant.vbs`；如果以后移动项目目录，需要重新运行安装脚本。
+方式指向仓库内的 `TangerinePhotoAssistant.vbs`，图标使用
+`assets/tangerine-photo-assistant.ico`；如果以后移动项目目录，需要重新运行安装脚本。
 
 ## 日常启动
 
@@ -35,4 +36,5 @@ install-windows-launcher.cmd
 
 - 仍需要项目目录、`.venv`、`web/dist` 和 `config.toml`；缺少任一项会给出明确错误。
 - 当前壳使用系统默认浏览器，不管理服务退出。服务可长期驻留并由后续点击复用。
-- 正式发布前仍需安装器、应用图标、代码签名、自动升级策略和可选的 WebView2 独立窗口。
+- 当前已提供项目内品牌图标；正式发布前仍需安装器、代码签名、自动升级策略和可选的 WebView2
+  独立窗口。
