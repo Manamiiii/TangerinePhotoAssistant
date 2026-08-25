@@ -124,6 +124,14 @@ from .queries.library import query_library_captures, query_library_filters
 from .queries.overview import query_inbox, query_overview
 from .queries.quality import query_quality
 from .queries.similarity import query_similarity_group, query_similarity_groups
+from .similarity_batch import (
+    apply_low_risk_batch,
+    list_audit_groups,
+    list_review_batches,
+    low_risk_preview,
+    save_audit_result,
+    undo_review_batch,
+)
 from .reporting import build_report, write_report
 from .reviews import (
     CaptureReviewError,
@@ -354,6 +362,16 @@ class SimilarityGroupEditRequest(BaseModel):
 
 class SimilarityRevisionRestoreRequest(BaseModel):
     use_before: bool = False
+
+
+class SimilarityBatchApplyRequest(BaseModel):
+    group_ids: list[int] = Field(min_length=1, max_length=200)
+    album_id: int | None = Field(default=None, ge=1)
+
+
+class SimilarityAuditRequest(BaseModel):
+    status: Literal["confirmed", "problem"]
+    note: str | None = Field(default=None, max_length=500)
 
 
 class MigrationStartRequest(BaseModel):
@@ -1502,9 +1520,11 @@ def _query_quality(
 def _query_similarity_groups(
     settings: Settings, limit: int, offset: int, review_filter: str = "all",
     album_id: int | None = None,
+    confidence_filter: str = "all", age_filter: str = "all",
 ) -> dict[str, Any]:
     return query_similarity_groups(
-        settings.database_path, limit, offset, review_filter, album_id
+        settings.database_path, limit, offset, review_filter, album_id,
+        confidence_filter, age_filter,
     )
 
 
@@ -2191,10 +2211,87 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         offset: int = Query(default=0, ge=0),
         review_filter: Literal["all", "pending", "completed", "adjusted"] = "all",
         album_id: int | None = Query(default=None, ge=1),
+        confidence_filter: Literal["all", "high", "medium", "low"] = "all",
+        age_filter: Literal["all", "recent", "month", "older"] = "all",
     ) -> dict[str, Any]:
         return _query_similarity_groups(
-            settings, limit, offset, review_filter=review_filter, album_id=album_id
+            settings, limit, offset, review_filter=review_filter, album_id=album_id,
+            confidence_filter=confidence_filter, age_filter=age_filter,
         )
+
+    @app.get("/api/similarity-groups/bulk-preview")
+    def similarity_bulk_preview(
+        album_id: int | None = Query(default=None, ge=1),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return low_risk_preview(connection, album_id, limit)
+        finally:
+            connection.close()
+
+    @app.post("/api/similarity-groups/bulk-accept")
+    def similarity_bulk_accept(request: SimilarityBatchApplyRequest) -> dict[str, Any]:
+        if manager.snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="后台任务运行时不能批量处理相似组")
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return apply_low_risk_batch(
+                    connection, request.group_ids, request.album_id
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/similarity-review-batches")
+    def similarity_review_batches(
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return list_review_batches(connection, limit)
+        finally:
+            connection.close()
+
+    @app.post("/api/similarity-review-batches/{batch_id}/undo")
+    def undo_similarity_review_batch(batch_id: int) -> dict[str, Any]:
+        if manager.snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="后台任务运行时不能撤销批量选片")
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return undo_review_batch(connection, batch_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/similarity-review-audits")
+    def similarity_review_audits(
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return list_audit_groups(connection, limit)
+        finally:
+            connection.close()
+
+    @app.put("/api/similarity-review-batches/{batch_id}/audits/{capture_id}")
+    def update_similarity_review_audit(
+        batch_id: int, capture_id: int, request: SimilarityAuditRequest
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return save_audit_result(
+                    connection, batch_id, capture_id, request.status, request.note
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
 
     @app.get("/api/similarity-groups/{group_id}")
     def similarity_group(group_id: int) -> dict[str, Any]:

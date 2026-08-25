@@ -11,7 +11,7 @@ import type { EquipmentCatalog, EquipmentDraft, EquipmentItem, EquipmentKind } f
 import { StatisticsView, type Statistics } from "./features/statistics/StatisticsView";
 import { AnalysisView } from "./features/analysis/AnalysisView";
 import type { AiPreflight, AnalysisOverview, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload, WorkItemFilter, WorkItemStatus } from "./features/analysis/types";
-import type { GroupCapture, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter } from "./features/similarity/types";
+import type { GroupCapture, SimilarityAgeFilter, SimilarityConfidenceFilter, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter } from "./features/similarity/types";
 import { BurstsView } from "./features/similarity/BurstsView";
 import type { CaptureDetail, DetailMode, EditParameters, EditRecipe } from "./features/details/types";
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
@@ -63,6 +63,8 @@ function App() {
   const [groupOffset, setGroupOffset] = useState(0);
   const [groupPageSize, setGroupPageSize] = useState(40);
   const [groupReviewFilter, setGroupReviewFilter] = useState<SimilarityReviewFilter>("pending");
+  const [groupConfidenceFilter, setGroupConfidenceFilter] = useState<SimilarityConfidenceFilter>("all");
+  const [groupAgeFilter, setGroupAgeFilter] = useState<SimilarityAgeFilter>("all");
   const [groupAlbumId, setGroupAlbumId] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<SimilarityGroupDetail | null>(null);
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
@@ -195,7 +197,7 @@ function App() {
       getJson<AnalysisOverview>("/api/analysis/overview"),
       getJson<AiPreflight>("/api/ai/preflight"),
       getJson<QualityResponse>(`/api/quality?${new URLSearchParams({ limit: String(qualityPageSize), offset: String(qualityOffset), review_filter: qualityFilter, workflow_filter: qualityWorkflowFilter, ...(qualitySearch.trim() ? { search: qualitySearch.trim() } : {}), ...(qualityAlbumId ? { album_id: qualityAlbumId } : {}) }).toString()}`),
-      getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId)),
+      getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId, groupConfidenceFilter, groupAgeFilter)),
       getJson<Statistics>("/api/statistics"),
       getJson<EquipmentCatalog>("/api/equipment"),
       getJson<ArchiveStatus>("/api/archive/status"),
@@ -223,7 +225,7 @@ function App() {
     if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
-  }, [albumOffset, albumPageSize, groupAlbumId, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter]);
+  }, [albumOffset, albumPageSize, groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter]);
 
   useEffect(() => {
     Promise.all([refreshInitialSnapshot(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
@@ -262,10 +264,10 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId), { signal: controller.signal })
+    getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId, groupConfidenceFilter, groupAgeFilter), { signal: controller.signal })
       .then(setSimilarityGroups).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
     return () => controller.abort();
-  }, [groupAlbumId, groupOffset, groupPageSize, groupReviewFilter]);
+  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter]);
 
   useEffect(() => {
     if (task?.status !== "running") return;
@@ -1165,7 +1167,7 @@ function App() {
           openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupReviewFilter("pending"); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }}
           openAlbumQuality={(albumId) => { setQualityOffset(0); setQualityAlbumId(String(albumId)); setView("analysis"); }}
         />}
-        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} albumWorkspaceCounts={albumWorkspaceCounts(groupAlbumId)} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumQuality={(albumId) => { setQualityOffset(0); setQualityAlbumId(String(albumId)); setView("analysis"); }} />}
+        {view === "bursts" && <BurstsView groups={similarityGroups} selectedGroup={selectedGroup} task={task} startVisual={startVisual} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} openCapture={openCapture} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} cancelTask={cancelTask} changeGroupPage={setGroupOffset} changeGroupPageSize={(limit) => { setGroupOffset(0); setGroupPageSize(limit); }} reviewFilter={groupReviewFilter} setReviewFilter={(filter) => { setGroupOffset(0); setGroupReviewFilter(filter); }} confidenceFilter={groupConfidenceFilter} setConfidenceFilter={(filter) => { setGroupOffset(0); setGroupConfidenceFilter(filter); }} ageFilter={groupAgeFilter} setAgeFilter={(filter) => { setGroupOffset(0); setGroupAgeFilter(filter); }} refreshSimilarity={refreshLibrary} albumId={groupAlbumId} setAlbumId={(albumId) => { setGroupOffset(0); setSelectedGroup(null); setGroupReviewFilter("pending"); setGroupAlbumId(albumId); }} albumWorkspaceCounts={albumWorkspaceCounts(groupAlbumId)} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumQuality={(albumId) => { setQualityOffset(0); setQualityAlbumId(String(albumId)); setView("analysis"); }} />}
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualityWorkflowFilter={qualityWorkflowFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualityWorkflowFilter={(filter) => { setQualityOffset(0); setQualityWorkflowFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} qualityAlbumId={qualityAlbumId} setQualityAlbumId={(albumId) => { setQualityOffset(0); setQualityAlbumId(albumId); }} albumWorkspaceCounts={albumWorkspaceCounts(qualityAlbumId)} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupReviewFilter("pending"); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} syncAnalysisSubjectTags={syncAnalysisSubjectTags} clearAnalysisSubjectTags={clearAnalysisSubjectTags} saveReview={saveReview} saveWorkItem={saveWorkItem} saveWorkItems={saveWorkItems} workQueueRevision={workQueueRevision} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}

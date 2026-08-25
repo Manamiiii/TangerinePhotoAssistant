@@ -50,6 +50,25 @@ class PortableDataTests(unittest.TestCase):
             source.execute(
                 "INSERT INTO ai_version_reviews VALUES ('v1','rejected','需优化','now')"
             )
+            source.execute(
+                """INSERT INTO similarity_review_batches(
+                       id,mode,group_count,capture_count,before_json,after_json,
+                       status,created_at)
+                   VALUES (1,'low_risk_accept',1,1,?,?,'applied','now')""",
+                (
+                    json.dumps([{"capture_id": capture_id, "user_pick": None,
+                                 "user_reject": 0}]),
+                    json.dumps([{"capture_id": capture_id, "user_pick": 1,
+                                 "user_reject": 0}]),
+                ),
+            )
+            source.execute(
+                """INSERT INTO similarity_review_batch_groups(
+                       batch_id,representative_capture_id,capture_ids_json,
+                       confidence,requires_audit,audit_status)
+                   VALUES (1,?,?,'high',1,'confirmed')""",
+                (capture_id, json.dumps([capture_id])),
+            )
             source.commit()
             save_work_item_state(source, "ai", 1, "ignored")
             inventory = root / "inventory.json"
@@ -62,6 +81,7 @@ class PortableDataTests(unittest.TestCase):
             self.assertFalse(backup["privacy"]["contains_model_results"])
             self.assertEqual(len(backup["ai_benchmark"]), 1)
             self.assertEqual(len(backup["ai_version_reviews"]), 1)
+            self.assertEqual(len(backup["similarity_review_batches"]), 1)
             source.close()
 
             target = self._catalog(root / "target.sqlite3")
@@ -79,6 +99,8 @@ class PortableDataTests(unittest.TestCase):
             self.assertEqual(target.execute("SELECT status FROM work_item_states").fetchone()[0], "ignored")
             self.assertEqual(target.execute("SELECT COUNT(*) FROM ai_audit_benchmark").fetchone()[0], 1)
             self.assertEqual(target.execute("SELECT status FROM ai_version_reviews").fetchone()[0], "rejected")
+            self.assertEqual(target.execute("SELECT COUNT(*) FROM similarity_review_batches").fetchone()[0], 1)
+            self.assertEqual(target.execute("SELECT audit_status FROM similarity_review_batch_groups").fetchone()[0], "confirmed")
             self.assertEqual(len(list((root / "backups").glob("*.sqlite3"))), 1)
             self.assertEqual(json.loads((root / "target-inventory.json").read_text(encoding="utf-8"))["ownership"]["camera"]["X"], True)
             target.close()

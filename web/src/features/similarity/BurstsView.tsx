@@ -5,7 +5,7 @@ import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorksp
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatExposure, numberFormat } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
-import type { SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter, SimilarityRevision } from "./types";
+import type { SimilarityAgeFilter, SimilarityAuditItem, SimilarityBatchPreview, SimilarityConfidenceFilter, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewBatch, SimilarityReviewFilter, SimilarityRevision } from "./types";
 
 const selectionReasonOptions = ["动作差异", "表情差异", "构图差异", "关键瞬间", "叙事补充"];
 
@@ -75,7 +75,7 @@ export function SimilarityGroupingEditor({ group, cancel, save, restore, restore
   </div>;
 }
 
-export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, albumId, setAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumQuality }: {
+export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup, closeGroup, openCapture, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, cancelTask, changeGroupPage, changeGroupPageSize, reviewFilter, setReviewFilter, confidenceFilter, setConfidenceFilter, ageFilter, setAgeFilter, refreshSimilarity, albumId, setAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumQuality }: {
   groups: SimilarityGroupsResponse | null;
   selectedGroup: SimilarityGroupDetail | null;
   task: Task | null;
@@ -92,6 +92,11 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   changeGroupPageSize: (limit: number) => void;
   reviewFilter: SimilarityReviewFilter;
   setReviewFilter: (filter: SimilarityReviewFilter) => void;
+  confidenceFilter: SimilarityConfidenceFilter;
+  setConfidenceFilter: (filter: SimilarityConfidenceFilter) => void;
+  ageFilter: SimilarityAgeFilter;
+  setAgeFilter: (filter: SimilarityAgeFilter) => void;
+  refreshSimilarity: () => Promise<void>;
   albumId: string;
   setAlbumId: (albumId: string) => void;
   albumWorkspaceCounts: AlbumWorkspaceCounts;
@@ -103,6 +108,13 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   const [reasonEditorCaptureId, setReasonEditorCaptureId] = useState<number | null>(null);
   const [comparisonOrder, setComparisonOrder] = useState<"recommended" | "balanced" | "capture">("recommended");
   const [albumUndo, setAlbumUndo] = useState<SimilarityRevision | null>(null);
+  const [batchWorkspaceOpen, setBatchWorkspaceOpen] = useState(false);
+  const [batchPreview, setBatchPreview] = useState<SimilarityBatchPreview | null>(null);
+  const [batchSelected, setBatchSelected] = useState<Set<number>>(new Set());
+  const [reviewBatches, setReviewBatches] = useState<SimilarityReviewBatch[]>([]);
+  const [auditItems, setAuditItems] = useState<SimilarityAuditItem[]>([]);
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
   const groupItems = groups?.items ?? [];
   const currentIndex = selectedGroup ? groupItems.findIndex((item) => item.id === selectedGroup.id) : -1;
   const nextPending = groupItems.find((item, index) => index > currentIndex && item.review_status === "pending")
@@ -136,6 +148,44 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
     setEditingGroupId(null);
     setReasonEditorCaptureId(null);
   }, [selectedGroup?.id]);
+  const loadBatchWorkspace = async () => {
+    setBatchError(null);
+    const albumParameter = albumId ? `&album_id=${albumId}` : "";
+    try {
+      const [preview, batches, audits] = await Promise.all([
+        getJson<SimilarityBatchPreview>(`/api/similarity-groups/bulk-preview?limit=100${albumParameter}`),
+        getJson<{ items: SimilarityReviewBatch[] }>("/api/similarity-review-batches?limit=20"),
+        getJson<{ items: SimilarityAuditItem[] }>("/api/similarity-review-audits?limit=100"),
+      ]);
+      setBatchPreview(preview); setBatchSelected(new Set(preview.items.map((item) => item.id))); setReviewBatches(batches.items); setAuditItems(audits.items);
+    } catch (reason) { setBatchError((reason as Error).message); }
+  };
+  const openBatchWorkspace = () => { setBatchWorkspaceOpen(true); void loadBatchWorkspace(); };
+  const applyBatch = async () => {
+    if (!batchPreview?.group_count || !batchSelected.size) return;
+    setBatchSaving(true); setBatchError(null);
+    try {
+      await getJson("/api/similarity-groups/bulk-accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group_ids: [...batchSelected], album_id: albumId ? Number(albumId) : null }) });
+      await refreshSimilarity(); await loadBatchWorkspace();
+    } catch (reason) { setBatchError((reason as Error).message); }
+    finally { setBatchSaving(false); }
+  };
+  const undoBatch = async (batchId: number) => {
+    setBatchSaving(true); setBatchError(null);
+    try {
+      await getJson(`/api/similarity-review-batches/${batchId}/undo`, { method: "POST" });
+      await refreshSimilarity(); await loadBatchWorkspace();
+    } catch (reason) { setBatchError((reason as Error).message); }
+    finally { setBatchSaving(false); }
+  };
+  const saveAudit = async (item: SimilarityAuditItem, status: "confirmed" | "problem") => {
+    setBatchSaving(true); setBatchError(null);
+    try {
+      await getJson(`/api/similarity-review-batches/${item.batch_id}/audits/${item.representative_capture_id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      await loadBatchWorkspace();
+    } catch (reason) { setBatchError((reason as Error).message); }
+    finally { setBatchSaving(false); }
+  };
   return (
     <>
       <section className="structure-hero burst-hero">
@@ -183,12 +233,12 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
         {albumId && <AlbumWorkspaceHeader name={selectedAlbum?.name ?? "相册选片"} category={selectedAlbum?.category ?? "相册"} summary={`${groups?.pending_count ?? 0} 组待选 · 共 ${groups?.total_count ?? 0} 组`} counts={albumWorkspaceCounts} current="bursts" back={() => { setBrowseMode("albums"); setAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(albumId))} openBursts={() => undefined} openQuality={() => openAlbumQuality(Number(albumId))} />}
         <section className="panel similarity-panel">
           {albumUndo && <div className="similarity-recovery-bar"><span>本相册最近一次人工分组仍可撤销</span><button className="toolbar-button" onClick={() => { if (window.confirm("撤销本相册最近一次人工分组调整？")) void restoreGroupingRevision(albumUndo.id, true); }}>撤销最近调整</button></div>}
-          <div className="similarity-list-controls"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选">{([['pending', '待选'], ['completed', '已完成'], ['adjusted', '人工调整'], ['all', '全部']] as const).map(([value, label]) => <button key={value} className={reviewFilter === value ? "active" : ""} onClick={() => setReviewFilter(value)}>{label}</button>)}</div><span className="batch-count">当前显示 {numberFormat.format(groups?.count ?? 0)} 组 · 点击进入对比</span></div>
+          <div className="similarity-list-controls"><div className="similarity-filter-cluster"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选">{([['pending', '待选'], ['completed', '已完成'], ['adjusted', '人工调整'], ['all', '全部']] as const).map(([value, label]) => <button key={value} className={reviewFilter === value ? "active" : ""} onClick={() => setReviewFilter(value)}>{label}</button>)}</div><label>置信度<select value={confidenceFilter} onChange={(event) => setConfidenceFilter(event.target.value as SimilarityConfidenceFilter)}><option value="all">全部</option><option value="low">需重点看 · {groups?.confidence_counts.low ?? 0}</option><option value="medium">一般 · {groups?.confidence_counts.medium ?? 0}</option><option value="high">高 · {groups?.confidence_counts.high ?? 0}</option></select></label><label>拍摄距今<select value={ageFilter} onChange={(event) => setAgeFilter(event.target.value as SimilarityAgeFilter)}><option value="all">全部</option><option value="older">半年以上</option><option value="month">1–6 个月</option><option value="recent">30 天内</option></select></label></div><div className="similarity-scale-actions"><span className="batch-count">当前 {numberFormat.format(groups?.count ?? 0)} 组</span><button className="toolbar-button" onClick={openBatchWorkspace}>批量预览</button></div></div>
           <div className="similarity-grid">
             {groupItems.map((group) => (
               <button className="similarity-card" key={group.id} onClick={() => openGroup(group.id)}>
                 <span className="similarity-cover"><img src={group.thumbnail_url} loading="lazy" alt={`${group.event_name} 相似组封面`} /><b>{group.capture_count} 张</b><i className={`review-status-badge ${group.review_status}`}>{statusLabels[group.review_status]}</i></span>
-                <span className="similarity-copy"><strong>{group.event_name}</strong><small>{group.recommended_stem ? `推荐 ${group.recommended_stem}` : "等待技术评分"}{group.average_score == null ? "" : ` · 均分 ${group.average_score}`}{group.pick_count ? ` · ${group.pick_count} 张入选` : ""}</small></span>
+                <span className="similarity-copy"><strong>{group.event_name}</strong><small>{group.recommended_stem ? `推荐 ${group.recommended_stem}` : "等待技术评分"}{group.average_score == null ? "" : ` · 均分 ${group.average_score}`}{group.pick_count ? ` · ${group.pick_count} 张入选` : ""}</small><em className={`similarity-confidence ${group.confidence_level}`}>{group.confidence_level === "high" ? "高置信" : group.confidence_level === "medium" ? "一般" : "需重点看"}{group.pending_age_days != null ? ` · 拍摄距今 ${group.pending_age_days} 天` : ""}</em></span>
               </button>
             ))}
             {!groupItems.length && <div className="empty-state">{{ pending: "所有相似组都已处理完，可切换到“全部”回顾。", completed: "还没有完成选片的相似组。", adjusted: "当前没有生效中的人工分组调整。", all: "还没有相似分组，先运行相似分析。" }[reviewFilter]}</div>}
@@ -199,6 +249,14 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
       {reasonEditorItem && <ModalShell title={`${reasonEditorItem.stem} · 保留依据`} close={() => setReasonEditorCaptureId(null)}>
         <div className="selection-reason-editor"><p>可多选，用于复盘你的选片偏好，不会修改照片文件。</p><div className="detail-selection-reasons">{selectionReasonOptions.map((reason) => <button key={reason} className={reasonEditorItem.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => saveReview(reasonEditorItem.capture_id, { user_rating: reasonEditorItem.user_rating, user_pick: true, user_reject: false, user_note: reasonEditorItem.user_note, selection_reasons: reasonEditorItem.selection_reasons.includes(reason) ? reasonEditorItem.selection_reasons.filter((itemReason) => itemReason !== reason) : [...reasonEditorItem.selection_reasons, reason] })}>{reason}</button>)}</div></div>
         <footer className="editor-footer"><button className="primary" onClick={() => setReasonEditorCaptureId(null)}>完成</button></footer>
+      </ModalShell>}
+      {batchWorkspaceOpen && <ModalShell title="相似组批量处理" close={() => setBatchWorkspaceOpen(false)}>
+        <div className="similarity-batch-workspace">
+          <section><div className="similarity-batch-heading"><div><strong>低风险推荐预览</strong><small>仅把技术推荐标为组内保留；点击卡片可取消本组。</small></div><div className="similarity-batch-selection"><span>已选 {batchSelected.size} / {batchPreview?.group_count ?? 0} 组 · 抽检 {batchSelected.size ? Math.ceil(batchSelected.size * .05) : 0} 组</span>{Boolean(batchPreview?.group_count) && <><button onClick={() => setBatchSelected(new Set(batchPreview?.items.map((item) => item.id)))}>全选</button><button onClick={() => setBatchSelected(new Set())}>清空</button></>}</div></div><div className="similarity-batch-preview">{(batchPreview?.items ?? []).map((item) => <button className={batchSelected.has(item.id) ? "selected" : ""} onClick={() => setBatchSelected((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} key={item.id}><img src={item.thumbnail_url} loading="lazy" alt={item.recommended_stem ?? item.event_name} /><span><strong>{item.event_name}</strong><small>{item.capture_count} 张 · 推荐领先 {item.score_margin} 分</small></span><b>{batchSelected.has(item.id) ? "✓" : ""}</b></button>)}</div>{batchPreview && !batchPreview.group_count && <div className="empty-state">当前范围没有满足高置信条件的待选组。</div>}<footer><span>不会排除其他照片；应用前重新校验，可从批次历史撤销。</span><button className="toolbar-button primary" disabled={batchSaving || !batchSelected.size} onClick={() => void applyBatch()}>{batchSaving ? "处理中" : `处理 ${batchSelected.size} 组`}</button></footer></section>
+          {!!auditItems.length && <section><div className="similarity-batch-heading"><div><strong>5% 稳定抽检</strong><small>只核对批量结论，不要求重看全部照片。</small></div></div><div className="similarity-audit-list">{auditItems.map((item) => <article key={`${item.batch_id}-${item.representative_capture_id}`}><button disabled={!item.group_id} onClick={() => { if (item.group_id) { setBatchWorkspaceOpen(false); openGroup(item.group_id); } }}><img src={item.thumbnail_url} alt={item.stem} /><span><strong>{item.stem}</strong><small>{item.album_name ?? "未归入相册"}</small></span></button><span className={`audit-state ${item.audit_status}`}>{item.audit_status === "pending" ? "待抽检" : item.audit_status === "confirmed" ? "结论正确" : "发现问题"}</span><div><button disabled={batchSaving} onClick={() => void saveAudit(item, "confirmed")}>正确</button><button disabled={batchSaving} onClick={() => void saveAudit(item, "problem")}>有问题</button></div></article>)}</div></section>}
+          {!!reviewBatches.length && <section><div className="similarity-batch-heading"><div><strong>最近批次</strong><small>人工修改过批次结果后，为避免覆盖新结论将不再允许撤销。</small></div></div><div className="similarity-batch-history">{reviewBatches.map((batch) => <article key={batch.id}><span><strong>{batch.album_name ?? "全部相册"} · {batch.group_count} 组</strong><small>{batch.created_at.replace("T", " ").slice(0, 16)} · 抽检待办 {batch.pending_audit_count}</small></span><b>{batch.status === "undone" ? "已撤销" : "已应用"}</b>{batch.can_undo && <button disabled={batchSaving} onClick={() => void undoBatch(batch.id)}>撤销批次</button>}</article>)}</div></section>}
+          {batchError && <div className="portable-error" role="alert">{batchError}</div>}
+        </div>
       </ModalShell>}
     </>
   );

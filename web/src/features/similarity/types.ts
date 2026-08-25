@@ -13,12 +13,38 @@ export type SimilarityGroupItem = {
   cover_capture_id: number;
   pick_count: number;
   reject_count: number;
+  confidence_level: "high" | "medium" | "low";
+  pending_age_days: number | null;
+  recommended_score: number | null;
+  runner_up_score: number | null;
   review_status: "pending" | "picked" | "skipped";
   thumbnail_url: string;
 };
 export type SimilarityAlbumSummary = { id: number; name: string; category: string; total_count: number; pending_count: number };
-export type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; estimated_review_minutes: number; estimate_basis: string; albums: SimilarityAlbumSummary[] };
+export type SimilarityGroupsResponse = { count: number; limit: number; offset: number; items: SimilarityGroupItem[]; total_count: number; pending_count: number; estimated_review_minutes: number; estimate_basis: string; albums: SimilarityAlbumSummary[]; confidence_counts: Record<"high" | "medium" | "low", number> };
 export type SimilarityReviewFilter = "all" | "pending" | "completed" | "adjusted";
+export type SimilarityConfidenceFilter = "all" | "high" | "medium" | "low";
+export type SimilarityAgeFilter = "all" | "recent" | "month" | "older";
+
+export type SimilarityBatchPreview = {
+  group_count: number;
+  capture_count: number;
+  audit_count: number;
+  items: Array<SimilarityGroupItem & { score_margin: number }>;
+};
+
+export type SimilarityReviewBatch = {
+  id: number; album_name: string | null; group_count: number; capture_count: number;
+  status: "applied" | "undone"; created_at: string; undone_at: string | null;
+  audit_count: number; pending_audit_count: number; can_undo: boolean;
+};
+
+export type SimilarityAuditItem = {
+  batch_id: number; representative_capture_id: number; group_id: number | null;
+  stem: string; album_name: string | null;
+  audit_status: "pending" | "confirmed" | "problem";
+  created_at: string; thumbnail_url: string;
+};
 
 export type GroupCapture = {
   capture_id: number;

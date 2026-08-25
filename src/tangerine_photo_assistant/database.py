@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -370,6 +370,38 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_similarity_group_revision_captures_capture
             ON similarity_group_revision_captures(capture_id, revision_id DESC);
+
+        CREATE TABLE IF NOT EXISTS similarity_review_batches (
+            id INTEGER PRIMARY KEY,
+            album_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('low_risk_accept')),
+            group_count INTEGER NOT NULL,
+            capture_count INTEGER NOT NULL,
+            before_json TEXT NOT NULL,
+            after_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'applied'
+                CHECK(status IN ('applied', 'undone')),
+            created_at TEXT NOT NULL,
+            undone_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS similarity_review_batch_groups (
+            batch_id INTEGER NOT NULL REFERENCES similarity_review_batches(id)
+                ON DELETE CASCADE,
+            representative_capture_id INTEGER NOT NULL REFERENCES captures(id)
+                ON DELETE CASCADE,
+            capture_ids_json TEXT NOT NULL,
+            confidence TEXT NOT NULL CHECK(confidence IN ('high', 'medium', 'low')),
+            requires_audit INTEGER NOT NULL DEFAULT 0,
+            audit_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(audit_status IN ('pending', 'confirmed', 'problem')),
+            audited_at TEXT,
+            note TEXT,
+            PRIMARY KEY (batch_id, representative_capture_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_similarity_review_batch_groups_audit
+            ON similarity_review_batch_groups(requires_audit, audit_status, batch_id);
 
         CREATE TABLE IF NOT EXISTS quality_metrics (
             capture_id INTEGER PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,

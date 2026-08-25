@@ -36,6 +36,44 @@ def build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) 
         item["fingerprint_sha256"] = hashlib.sha256(
             item.pop("fingerprint").encode("utf-8")
         ).hexdigest()
+    capture_keys = {
+        int(row["id"]): row["capture_key"]
+        for row in connection.execute("SELECT id,capture_key FROM captures")
+    }
+    similarity_batches = []
+    for batch in connection.execute(
+        """SELECT b.*,e.event_key FROM similarity_review_batches b
+           LEFT JOIN events e ON e.id=b.album_id ORDER BY b.id"""
+    ):
+        item = dict(batch)
+        batch_id = item.pop("id")
+        item.pop("album_id", None)
+        item["before"] = [
+            {**entry, "capture_key": capture_keys.get(int(entry["capture_id"]))}
+            for entry in json.loads(item.pop("before_json"))
+        ]
+        item["after"] = [
+            {**entry, "capture_key": capture_keys.get(int(entry["capture_id"]))}
+            for entry in json.loads(item.pop("after_json"))
+        ]
+        for snapshot in (item["before"], item["after"]):
+            for entry in snapshot:
+                entry.pop("capture_id", None)
+        item["groups"] = []
+        for group in connection.execute(
+            """SELECT * FROM similarity_review_batch_groups WHERE batch_id=?
+               ORDER BY representative_capture_id""", (batch_id,),
+        ):
+            group_item = dict(group)
+            group_item.pop("batch_id", None)
+            representative = int(group_item.pop("representative_capture_id"))
+            group_item["representative_capture_key"] = capture_keys.get(representative)
+            group_item["capture_keys"] = [
+                capture_keys.get(int(capture_id))
+                for capture_id in json.loads(group_item.pop("capture_ids_json"))
+            ]
+            item["groups"].append(group_item)
+        similarity_batches.append(item)
     return {
         "format": FORMAT, "format_version": FORMAT_VERSION,
         "source_schema": SCHEMA_VERSION, "created_at": utc_now(),
@@ -65,6 +103,7 @@ def build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) 
             JOIN captures c ON c.id=b.capture_id ORDER BY b.capture_id"""),
         "ai_version_reviews": _rows(connection, """SELECT prompt_version,status,
             note,reviewed_at FROM ai_version_reviews ORDER BY prompt_version"""),
+        "similarity_review_batches": similarity_batches,
         "work_items": work_items,
         "equipment": _load_inventory(inventory_path),
     }
@@ -85,13 +124,27 @@ def _validate(data: dict[str, Any]) -> None:
     data.setdefault("ai_reviews", [])
     data.setdefault("ai_benchmark", [])
     data.setdefault("ai_version_reviews", [])
+    data.setdefault("similarity_review_batches", [])
     data.setdefault("work_items", [])
     for key in (
         "reviews", "tags", "grouping", "edit_recipes", "ai_reviews",
-        "ai_benchmark", "ai_version_reviews", "work_items",
+        "ai_benchmark", "ai_version_reviews", "similarity_review_batches", "work_items",
     ):
         if not isinstance(data.get(key), list) or len(data[key]) > 1_000_000:
             raise ValueError(f"备份字段无效：{key}")
+    for batch in data["similarity_review_batches"]:
+        if not isinstance(batch, dict):
+            raise ValueError("批量选片备份字段无效")
+        for key, maximum in (("before", 200), ("after", 200), ("groups", 200)):
+            if not isinstance(batch.get(key, []), list) or len(batch.get(key, [])) > maximum:
+                raise ValueError("批量选片备份字段无效")
+        if any(
+            not isinstance(group, dict)
+            or not isinstance(group.get("capture_keys", []), list)
+            or len(group.get("capture_keys", [])) > 500
+            for group in batch.get("groups", [])
+        ):
+            raise ValueError("批量选片组备份字段无效")
     if not isinstance(data.get("equipment", {}), dict):
         raise ValueError("设备备份字段无效")
 
@@ -99,7 +152,7 @@ def _validate(data: dict[str, Any]) -> None:
 def backup_summary(data: dict[str, Any]) -> dict[str, int]:
     return {key: len(data.get(key, [])) for key in (
         "reviews", "tags", "grouping", "edit_recipes", "ai_reviews",
-        "ai_benchmark", "ai_version_reviews", "work_items",
+        "ai_benchmark", "ai_version_reviews", "similarity_review_batches", "work_items",
     )}
 
 
@@ -109,6 +162,13 @@ def preflight_restore(connection: sqlite3.Connection, data: dict[str, Any]) -> d
         "reviews", "tags", "grouping", "edit_recipes", "ai_reviews",
         "ai_benchmark", "work_items",
     ) for row in data[section]}
+    for batch in data["similarity_review_batches"]:
+        for snapshot_name in ("before", "after"):
+            keys.update(str(row.get("capture_key", "")) for row in batch.get(snapshot_name, []))
+        for group in batch.get("groups", []):
+            keys.add(str(group.get("representative_capture_key", "")))
+            keys.update(str(key) for key in group.get("capture_keys", []))
+    keys.discard("")
     existing = set()
     for batch_start in range(0, len(keys), 500):
         batch = list(keys)[batch_start:batch_start + 500]
@@ -195,6 +255,53 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
                 ON CONFLICT(prompt_version) DO UPDATE SET status=excluded.status,
                   note=excluded.note,reviewed_at=excluded.reviewed_at""",
                 (prompt_version,status,row.get("note"),row.get("reviewed_at") or now))
+        event_ids = {
+            row["event_key"]: int(row["id"])
+            for row in connection.execute("SELECT id,event_key FROM events")
+        }
+        if data["similarity_review_batches"]:
+            connection.execute("DELETE FROM similarity_review_batches")
+        for batch in data["similarity_review_batches"]:
+            before = [
+                {**entry, "capture_id": capture_ids[entry["capture_key"]]}
+                for entry in batch.get("before", [])
+                if entry.get("capture_key") in capture_ids
+            ]
+            after = [
+                {**entry, "capture_id": capture_ids[entry["capture_key"]]}
+                for entry in batch.get("after", [])
+                if entry.get("capture_key") in capture_ids
+            ]
+            for snapshot in (before, after):
+                for entry in snapshot:
+                    entry.pop("capture_key", None)
+            if not before or len(before) != len(after):
+                continue
+            status = batch.get("status")
+            if status not in {"applied", "undone"}:
+                continue
+            cursor = connection.execute("""INSERT INTO similarity_review_batches(
+                album_id,mode,group_count,capture_count,before_json,after_json,
+                status,created_at,undone_at) VALUES (?,?,?,?,?,?,?,?,?)""", (
+                event_ids.get(batch.get("event_key")), "low_risk_accept",
+                int(batch.get("group_count") or 0), int(batch.get("capture_count") or 0),
+                json.dumps(before, ensure_ascii=False), json.dumps(after, ensure_ascii=False),
+                status, batch.get("created_at") or now, batch.get("undone_at"),
+            ))
+            restored_batch_id = int(cursor.lastrowid)
+            for group in batch.get("groups", []):
+                representative = capture_ids.get(group.get("representative_capture_key"))
+                member_ids = [capture_ids[key] for key in group.get("capture_keys", []) if key in capture_ids]
+                audit_status = group.get("audit_status")
+                if representative is None or not member_ids or audit_status not in {"pending", "confirmed", "problem"}:
+                    continue
+                connection.execute("""INSERT INTO similarity_review_batch_groups(
+                    batch_id,representative_capture_id,capture_ids_json,confidence,
+                    requires_audit,audit_status,audited_at,note) VALUES (?,?,?,?,?,?,?,?)""", (
+                    restored_batch_id, representative, json.dumps(member_ids), "high",
+                    int(bool(group.get("requires_audit"))), audit_status,
+                    group.get("audited_at"), group.get("note"),
+                ))
         for row in data["work_items"]:
             capture_id = capture_ids.get(row.get("capture_key")); source_kind = row.get("source_kind")
             if capture_id is None or source_kind not in {"quality", "ai"}: continue

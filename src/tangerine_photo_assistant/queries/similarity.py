@@ -13,49 +13,110 @@ def query_similarity_groups(
     offset: int,
     review_filter: str = "all",
     album_id: int | None = None,
+    confidence_filter: str = "all",
+    age_filter: str = "all",
 ) -> dict[str, Any]:
+    if confidence_filter not in {"all", "high", "medium", "low"}:
+        raise ValueError("相似组置信度筛选无效")
+    if age_filter not in {"all", "recent", "month", "older"}:
+        raise ValueError("相似组拍摄时间筛选无效")
     connection = connect_readonly(database_path)
     try:
-        album_filter = " AND b.event_id=?" if album_id is not None else ""
+        album_filter = " AND event_id=?" if album_id is not None else ""
         count_parameters = (album_id,) if album_id is not None else ()
-        pending_condition = """
-            NOT EXISTS (
-                SELECT 1 FROM similarity_group_captures psgc
-                JOIN capture_reviews pcr ON pcr.capture_id = psgc.capture_id
-                WHERE psgc.group_id = sg.id AND COALESCE(pcr.user_pick, 0) = 1
-            ) AND EXISTS (
-                SELECT 1 FROM similarity_group_captures rsgc
-                LEFT JOIN capture_reviews rcr ON rcr.capture_id = rsgc.capture_id
-                WHERE rsgc.group_id = sg.id AND COALESCE(rcr.user_reject, 0) = 0
+        facts_cte = """
+            WITH group_facts AS (
+                SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
+                       b.start_at, b.end_at, e.id AS event_id,
+                       e.proposed_name AS event_name, e.category,
+                       ROUND(AVG(qm.technical_score), 1) AS average_score,
+                       MAX(CASE WHEN cr.auto_pick = 1 THEN c.id END)
+                           AS recommended_capture_id,
+                       MAX(CASE WHEN cr.auto_pick = 1 THEN c.stem END)
+                           AS recommended_stem,
+                       MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END)
+                           AS cover_capture_id,
+                       SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END)
+                           AS pick_count,
+                       SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END)
+                           AS reject_count,
+                       SUM(CASE WHEN qm.technical_score IS NOT NULL THEN 1 ELSE 0 END)
+                           AS analyzed_count,
+                       SUM(CASE WHEN COALESCE(cr.auto_pick, 0)=1 THEN 1 ELSE 0 END)
+                           AS auto_pick_count,
+                       MAX(CASE WHEN cr.auto_pick=1 THEN qm.technical_score END)
+                           AS recommended_score,
+                       MAX(CASE WHEN cr.auto_pick=1
+                                THEN COALESCE(cr.user_reject,0) END)
+                           AS recommended_reject,
+                       MAX(CASE WHEN COALESCE(cr.auto_pick, 0)=0
+                                THEN qm.technical_score END) AS runner_up_score,
+                       SUM(CASE WHEN sgo.capture_id IS NOT NULL THEN 1 ELSE 0 END)
+                           AS override_count,
+                       MAX(0, CAST(julianday('now') -
+                           julianday(COALESCE(b.end_at, b.start_at)) AS INTEGER))
+                           AS pending_age_days
+                  FROM similarity_groups sg
+                  JOIN bursts b ON b.id=sg.burst_id
+                  JOIN events e ON e.id=b.event_id
+                  JOIN similarity_group_captures sgc ON sgc.group_id=sg.id
+                  JOIN captures c ON c.id=sgc.capture_id
+                  LEFT JOIN quality_metrics qm
+                    ON qm.capture_id=c.id AND qm.error IS NULL
+                  LEFT JOIN capture_reviews cr ON cr.capture_id=c.id
+                  LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id=c.id
+                 GROUP BY sg.id
             )
         """
+        pending_condition = "pick_count=0 AND reject_count<capture_count"
         completed_condition = f"NOT ({pending_condition})"
-        adjusted_condition = """
-            EXISTS (
-                SELECT 1 FROM similarity_group_captures asgc
-                JOIN similarity_group_overrides aso ON aso.capture_id = asgc.capture_id
-                WHERE asgc.group_id = sg.id
-            )
-        """
+        adjusted_condition = "override_count>0"
         review_condition = {
             "pending": pending_condition,
             "completed": completed_condition,
             "adjusted": adjusted_condition,
         }.get(review_filter, "1=1")
-        total = connection.execute(
-            f"""SELECT COUNT(*) FROM similarity_groups sg
-                JOIN bursts b ON b.id=sg.burst_id WHERE 1=1{album_filter}""",
+        confidence_case = """CASE
+            WHEN auto_pick_count=1 AND analyzed_count=capture_count
+             AND recommended_reject=0 AND override_count=0
+             AND max_adjacent_hamming<=8
+             AND recommended_score>=75
+             AND (runner_up_score IS NULL OR recommended_score-runner_up_score>=5)
+              THEN 'high'
+            WHEN auto_pick_count=1 AND analyzed_count=capture_count
+             AND recommended_reject=0 AND max_adjacent_hamming<=14 THEN 'medium'
+            ELSE 'low' END"""
+        confidence_condition = (
+            "1=1" if confidence_filter == "all"
+            else f"({confidence_case})='{confidence_filter}'"
+        )
+        age_condition = {
+            "all": "1=1", "recent": "pending_age_days<30",
+            "month": "pending_age_days>=30 AND pending_age_days<180",
+            "older": "pending_age_days>=180",
+        }[age_filter]
+        summary = connection.execute(
+            f"""{facts_cte}
+            SELECT COUNT(*) AS total_count,
+                   SUM(CASE WHEN {pending_condition} THEN 1 ELSE 0 END)
+                       AS pending_count,
+                   SUM(CASE WHEN {review_condition} AND {confidence_condition}
+                                  AND {age_condition} THEN 1 ELSE 0 END)
+                       AS filtered_count,
+                   SUM(CASE WHEN {pending_condition}
+                                  AND ({confidence_case})='high' THEN 1 ELSE 0 END)
+                       AS high_count,
+                   SUM(CASE WHEN {pending_condition}
+                                  AND ({confidence_case})='medium' THEN 1 ELSE 0 END)
+                       AS medium_count,
+                   SUM(CASE WHEN {pending_condition}
+                                  AND ({confidence_case})='low' THEN 1 ELSE 0 END)
+                       AS low_count
+              FROM group_facts WHERE 1=1{album_filter}""",
             count_parameters,
-        ).fetchone()[0]
-        pending_count = connection.execute(
-            f"""
-            SELECT COUNT(*) FROM similarity_groups sg
-            JOIN bursts b ON b.id=sg.burst_id
-            WHERE {pending_condition}
-            {album_filter}
-            """,
-            count_parameters,
-        ).fetchone()[0]
+        ).fetchone()
+        total = int(summary["total_count"] or 0)
+        pending_count = int(summary["pending_count"] or 0)
         review_timing = connection.execute(
             """SELECT AVG(active_seconds)
                FROM selection_sessions
@@ -63,52 +124,25 @@ def query_similarity_groups(
         ).fetchone()[0]
         seconds_per_group = max(15.0, min(float(review_timing or 30.0), 300.0))
         album_rows = connection.execute(
-            """
-            SELECT e.id, e.proposed_name AS name, e.category,
+            f"""{facts_cte}
+            SELECT event_id AS id, event_name AS name, category,
                    COUNT(*) AS total_count,
-                   SUM(CASE WHEN NOT EXISTS (
-                       SELECT 1 FROM similarity_group_captures psgc
-                       JOIN capture_reviews pcr ON pcr.capture_id=psgc.capture_id
-                       WHERE psgc.group_id=sg.id AND COALESCE(pcr.user_pick, 0)=1
-                   ) AND EXISTS (
-                       SELECT 1 FROM similarity_group_captures rsgc
-                       LEFT JOIN capture_reviews rcr ON rcr.capture_id=rsgc.capture_id
-                       WHERE rsgc.group_id=sg.id AND COALESCE(rcr.user_reject, 0)=0
-                   ) THEN 1 ELSE 0 END) AS pending_count
-              FROM similarity_groups sg
-              JOIN bursts b ON b.id=sg.burst_id
-              JOIN events e ON e.id=b.event_id
-             GROUP BY e.id
-             ORDER BY pending_count DESC, total_count DESC, e.start_at DESC
-            """
+                   SUM(CASE WHEN {pending_condition} THEN 1 ELSE 0 END)
+                       AS pending_count
+              FROM group_facts GROUP BY event_id
+             ORDER BY pending_count DESC, total_count DESC, start_at DESC"""
         ).fetchall()
-        filtered_count = connection.execute(
-            f"""SELECT COUNT(*) FROM similarity_groups sg
-                JOIN bursts b ON b.id=sg.burst_id
-                WHERE {review_condition}{album_filter}""",
-            count_parameters,
-        ).fetchone()[0]
+        filtered_count = int(summary["filtered_count"] or 0)
         rows = connection.execute(
             f"""
-            SELECT sg.id, sg.capture_count, sg.max_adjacent_hamming,
-                   b.start_at, b.end_at, e.id AS event_id,
-                   e.proposed_name AS event_name, e.category,
-                   ROUND(AVG(qm.technical_score), 1) AS average_score,
-                   MAX(CASE WHEN cr.auto_pick = 1 THEN c.id END) AS recommended_capture_id,
-                   MAX(CASE WHEN cr.auto_pick = 1 THEN c.stem END) AS recommended_stem,
-                   MIN(CASE WHEN sgc.sequence_index = 0 THEN c.id END) AS cover_capture_id,
-                   SUM(CASE WHEN COALESCE(cr.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
-                   SUM(CASE WHEN COALESCE(cr.user_reject, 0)=1 THEN 1 ELSE 0 END) AS reject_count
-            FROM similarity_groups sg
-            JOIN bursts b ON b.id = sg.burst_id
-            JOIN events e ON e.id = b.event_id
-            JOIN similarity_group_captures sgc ON sgc.group_id = sg.id
-            JOIN captures c ON c.id = sgc.capture_id
-            LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
-            LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
-            WHERE {review_condition} {album_filter}
-            GROUP BY sg.id
-            ORDER BY sg.capture_count DESC, b.start_at DESC
+            {facts_cte}
+            SELECT *, ({confidence_case}) AS confidence_level
+            FROM group_facts
+            WHERE {review_condition} AND {confidence_condition}
+              AND {age_condition} {album_filter}
+            ORDER BY CASE ({confidence_case}) WHEN 'low' THEN 0
+                         WHEN 'medium' THEN 1 ELSE 2 END,
+                     pending_age_days DESC, capture_count DESC, start_at DESC
             LIMIT ? OFFSET ?
             """,
             (*count_parameters, limit, offset),
@@ -132,6 +166,11 @@ def query_similarity_groups(
                 "completed_sessions" if review_timing is not None else "default_30_seconds"
             ),
             "albums": [dict(row) for row in album_rows],
+            "confidence_counts": {
+                "high": int(summary["high_count"] or 0),
+                "medium": int(summary["medium_count"] or 0),
+                "low": int(summary["low_count"] or 0),
+            },
         }
     finally:
         connection.close()

@@ -71,11 +71,15 @@ export function similarityGroupsUrl(
   offset: number,
   reviewFilter: "all" | "pending" | "completed" | "adjusted",
   albumId: string,
+  confidenceFilter: "all" | "high" | "medium" | "low" = "all",
+  ageFilter: "all" | "recent" | "month" | "older" = "all",
 ) {
   const parameters = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
     review_filter: reviewFilter,
+    confidence_filter: confidenceFilter,
+    age_filter: ageFilter,
   });
   if (albumId) parameters.set("album_id", albumId);
   return `/api/similarity-groups?${parameters}`;
