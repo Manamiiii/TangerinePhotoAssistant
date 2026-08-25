@@ -130,7 +130,7 @@ python -m tangerine_photo_assistant ai-report --config config.toml --run-id 3
 
 ## 本地网页
 
-完成一次环境安装和前端构建后，可双击项目根目录的 `start-photo-assistant.cmd`。程序只监听 `127.0.0.1:8765`，并自动打开本地页面。
+完成一次环境安装和前端构建后，双击 `install-windows-launcher.cmd` 可一次性创建桌面和开始菜单快捷方式；以后直接点击 “TangerinePhotoAssistant” 即可复用或隐藏启动本地服务并打开页面。`start-photo-assistant.cmd` 继续作为带控制台反馈的排障入口。程序只监听 `127.0.0.1:8765`，详细说明见 [docs/WINDOWS_LAUNCHER.md](docs/WINDOWS_LAUNCHER.md)。
 
 页面当前提供：
 
