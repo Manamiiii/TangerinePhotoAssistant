@@ -50,6 +50,22 @@ PYTHONPATH=src .venv/bin/python -m tangerine_photo_assistant.large_library_bench
 Mac 隔离环境，并关注随 10k → 50k → 100k 的增长曲线。只有 P95、内存或查询计划表现出稳定
 退化时才进入优化；优化前后必须使用相同数据规模、迭代次数、Python 和 SQLite 版本复测。
 
+## 正式库只读测量
+
+正式库完成当前版本备份升级和健康验收后，可把报告写入已经存在的本地运行目录：
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m tangerine_photo_assistant.large_library_benchmark `
+  --existing-database D:\PhotoLibrary\AnalysisDatabase\catalog.sqlite3 `
+  --output runtime\formal-library-benchmark.json `
+  --iterations 5
+```
+
+该模式要求数据库 schema 与代码完全一致，只使用只读连接，不运行完整性检查，不读取照片，
+也不会创建、升级或修改数据库。报告不包含数据库路径；输出目录必须已经存在，并且拒绝覆盖
+同名报告。需要复测时应显式选择新的报告文件名，以保留前后对照。
+
 ## 2026-08-24 Windows 开发机基线
 
 环境为 Windows 11、Python 3.12.10、schema 27；每项预热一次后测量 3 次。数字是合成元数据
@@ -67,3 +83,10 @@ Mac 隔离环境，并关注随 10k → 50k → 100k 的增长曲线。只有 P9
 统计最初在 100k 下出现约 171 MB 进程峰值。将条件复盘改为流式读取、只关联已有模型结果的
 题材后，正式三档复测的所有场景进程峰值均约为 27–35 MB，统计结果未改变。100k 统计耗时仍
 超过 3 秒，因此后续应先评估按版本增量汇总；当前图库查询尚不需要引入外部数据库或服务。
+
+## 2026-08-25 正式库升级前只读检查
+
+Windows 正式配置指向的分析库仍为 schema 26，共 13,809 个 Capture。服务关闭时执行完整
+`PRAGMA integrity_check` 约耗时 4 分 30 秒，结果为 `ok`；该过程没有升级或写入数据库，也没有
+读取照片或启动模型。schema 32 的工作队列和相似组规模化查询依赖后续表结构，因此正式库查询
+延迟必须在首次启动完成备份升级并验收健康状态后再测，不能用 schema 26 数字冒充当前版本基线。

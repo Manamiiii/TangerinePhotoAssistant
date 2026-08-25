@@ -22,6 +22,7 @@ import { LibraryView } from "./features/library/LibraryView";
 import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
 import { navigationHash, readNavigationState, type AppView } from "./navigationState";
+import { createLatestRequestGuard } from "./requestGuard";
 import "./styles.css";
 
 type View = AppView;
@@ -81,10 +82,15 @@ function App() {
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [workQueueRevision, setWorkQueueRevision] = useState(0);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const refreshSequence = useRef(0);
+  const libraryRequestGuard = useRef(createLatestRequestGuard());
+  const albumRequestGuard = useRef(createLatestRequestGuard());
+  const qualityRequestGuard = useRef(createLatestRequestGuard());
+  const similarityRequestGuard = useRef(createLatestRequestGuard());
   const captureRequestSequence = useRef(0);
   const toastSequence = useRef(0);
   const reviewQueues = useRef(new Map<number, Promise<void>>());
@@ -189,43 +195,37 @@ function App() {
 
   const refreshLibrary = useCallback(async () => {
     const requestSequence = ++refreshSequence.current;
+    setWorkspaceRevision((current) => current + 1);
     const results = await Promise.allSettled([
       getJson<Overview>("/api/overview"),
-      getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset)),
       getJson<LibraryFilters>("/api/library/filters"),
-      getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`),
       getJson<AnalysisOverview>("/api/analysis/overview"),
-      getJson<AiPreflight>("/api/ai/preflight"),
-      getJson<QualityResponse>(`/api/quality?${new URLSearchParams({ limit: String(qualityPageSize), offset: String(qualityOffset), review_filter: qualityFilter, workflow_filter: qualityWorkflowFilter, ...(qualitySearch.trim() ? { search: qualitySearch.trim() } : {}), ...(qualityAlbumId ? { album_id: qualityAlbumId } : {}) }).toString()}`),
-      getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId, groupConfidenceFilter, groupAgeFilter)),
       getJson<Statistics>("/api/statistics"),
-      getJson<EquipmentCatalog>("/api/equipment"),
-      getJson<ArchiveStatus>("/api/archive/status"),
-      getJson<ArchiveStatus>("/api/active-library/baseline/status"),
       getJson<LightroomStatus>("/api/lightroom/status"),
-      getJson<SystemCapabilities>("/api/system/capabilities"),
-      getJson<SettingsStatus>("/api/settings"),
     ] as const);
     if (requestSequence !== refreshSequence.current) return;
-    const [overviewData, libraryData, filterData, eventData, analysisData, preflightData, qualityData, groupData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData, settingsData] = results;
+    const [overviewData, filterData, analysisData, statisticsData, lightroomData] = results;
     if (overviewData.status === "fulfilled") setOverview(overviewData.value);
-    if (libraryData.status === "fulfilled") setLibraryCaptures(libraryData.value);
     if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
-    if (eventData.status === "fulfilled") setEvents(eventData.value);
     if (analysisData.status === "fulfilled") setAnalysis(analysisData.value);
-    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
-    if (qualityData.status === "fulfilled") setQuality(qualityData.value);
-    if (groupData.status === "fulfilled") setSimilarityGroups(groupData.value);
     if (statisticsData.status === "fulfilled") setStatistics(statisticsData.value);
-    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
-    if (archiveData.status === "fulfilled") setArchive(archiveData.value);
-    if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
     if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
-    if (capabilitiesData.status === "fulfilled") setCapabilities(capabilitiesData.value);
-    if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
-  }, [albumOffset, albumPageSize, groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, libraryOffset, libraryQuery, qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter]);
+  }, []);
+
+  const refreshAfterTask = useCallback(async () => {
+    const results = await Promise.allSettled([
+      refreshLibrary(),
+      getJson<AiPreflight>("/api/ai/preflight"),
+      getJson<EquipmentCatalog>("/api/equipment"),
+    ] as const);
+    const [, preflightData, equipmentData] = results;
+    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
+    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
+  }, [refreshLibrary]);
 
   useEffect(() => {
     Promise.all([refreshInitialSnapshot(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
@@ -235,39 +235,46 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestToken = libraryRequestGuard.current.begin();
     const timer = window.setTimeout(() => {
       getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset), { signal: controller.signal })
-        .then(setLibraryCaptures)
-        .catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
+        .then((result) => { if (libraryRequestGuard.current.isCurrent(requestToken)) setLibraryCaptures(result); })
+        .catch((reason: Error) => { if (reason.name !== "AbortError" && libraryRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
     }, libraryQuery.search ? 250 : 0);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [libraryOffset, libraryQuery]);
+    return () => { libraryRequestGuard.current.invalidate(); window.clearTimeout(timer); controller.abort(); };
+  }, [libraryOffset, libraryQuery, workspaceRevision]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestToken = albumRequestGuard.current.begin();
     getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`, { signal: controller.signal })
-      .then(setEvents).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
-    return () => controller.abort();
-  }, [albumOffset, albumPageSize]);
+      .then((result) => { if (albumRequestGuard.current.isCurrent(requestToken)) setEvents(result); })
+      .catch((reason: Error) => { if (reason.name !== "AbortError" && albumRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
+    return () => { albumRequestGuard.current.invalidate(); controller.abort(); };
+  }, [albumOffset, albumPageSize, workspaceRevision]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestToken = qualityRequestGuard.current.begin();
     const timer = window.setTimeout(() => {
       const parameters = new URLSearchParams({ limit: String(qualityPageSize), offset: String(qualityOffset), review_filter: qualityFilter, workflow_filter: qualityWorkflowFilter });
       if (qualitySearch.trim()) parameters.set("search", qualitySearch.trim());
       if (qualityAlbumId) parameters.set("album_id", qualityAlbumId);
       getJson<QualityResponse>(`/api/quality?${parameters}`, { signal: controller.signal })
-        .then(setQuality).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
+        .then((result) => { if (qualityRequestGuard.current.isCurrent(requestToken)) setQuality(result); })
+        .catch((reason: Error) => { if (reason.name !== "AbortError" && qualityRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
     }, qualitySearch ? 250 : 0);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter, workQueueRevision]);
+    return () => { qualityRequestGuard.current.invalidate(); window.clearTimeout(timer); controller.abort(); };
+  }, [qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter, workQueueRevision, workspaceRevision]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestToken = similarityRequestGuard.current.begin();
     getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId, groupConfidenceFilter, groupAgeFilter), { signal: controller.signal })
-      .then(setSimilarityGroups).catch((reason: Error) => { if (reason.name !== "AbortError") setError(reason.message); });
-    return () => controller.abort();
-  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter]);
+      .then((result) => { if (similarityRequestGuard.current.isCurrent(requestToken)) setSimilarityGroups(result); })
+      .catch((reason: Error) => { if (reason.name !== "AbortError" && similarityRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
+    return () => { similarityRequestGuard.current.invalidate(); controller.abort(); };
+  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, workspaceRevision]);
 
   useEffect(() => {
     if (task?.status !== "running") return;
@@ -275,13 +282,13 @@ function App() {
       try {
         const next = await getJson<Task>("/api/tasks/current");
         setTask(next);
-        if (next.status !== "running") await refreshLibrary();
+        if (next.status !== "running") await refreshAfterTask();
       } catch (reason) {
         setError((reason as Error).message);
       }
     }, 1200);
     return () => window.clearInterval(timer);
-  }, [task?.status, refreshLibrary]);
+  }, [task?.status, refreshAfterTask]);
 
   useEffect(() => {
     if (task?.status !== "complete" && task?.status !== "cancelled") return;

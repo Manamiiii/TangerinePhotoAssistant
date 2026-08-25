@@ -1,3 +1,4 @@
+import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -5,6 +6,7 @@ from tempfile import TemporaryDirectory
 from tangerine_photo_assistant.database import connect_readonly
 from tangerine_photo_assistant.large_library_benchmark import (
     SCENARIOS,
+    benchmark_existing_catalog,
     benchmark_scenario,
     generate_synthetic_catalog,
     run_benchmark_suite,
@@ -56,6 +58,50 @@ class LargeLibraryBenchmarkTests(unittest.TestCase):
             (workspace / "existing.txt").write_text("user data", encoding="utf-8")
             with self.assertRaises(RuntimeError):
                 run_benchmark_suite(workspace, [100], iterations=1)
+
+    def test_existing_catalog_benchmark_is_read_only_and_non_overwriting(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "catalog.sqlite3"
+            output = root / "formal-baseline.json"
+            generate_synthetic_catalog(database, 200)
+            before = database.stat().st_mtime_ns
+
+            report = benchmark_existing_catalog(
+                database, output, iterations=1,
+                scenarios=("library-first-page",),
+            )
+
+            self.assertEqual(report["catalog"]["capture_count"], 200)
+            self.assertEqual(report["source_photos_read"], 0)
+            self.assertEqual(report["source_photos_written"], 0)
+            self.assertEqual(database.stat().st_mtime_ns, before)
+            self.assertTrue(output.is_file())
+            with self.assertRaises(FileExistsError):
+                benchmark_existing_catalog(
+                    database, output, iterations=1,
+                    scenarios=("library-first-page",),
+                )
+
+    def test_existing_catalog_benchmark_rejects_an_old_schema(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "catalog.sqlite3"
+            output = root / "formal-baseline.json"
+            generate_synthetic_catalog(database, 100)
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("UPDATE schema_info SET version=version-1")
+                connection.commit()
+            finally:
+                connection.close()
+
+            with self.assertRaisesRegex(RuntimeError, "expected"):
+                benchmark_existing_catalog(
+                    database, output, iterations=1,
+                    scenarios=("library-first-page",),
+                )
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

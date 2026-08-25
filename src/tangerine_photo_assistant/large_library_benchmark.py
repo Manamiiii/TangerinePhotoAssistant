@@ -17,7 +17,7 @@ from statistics import median
 from typing import Any
 
 from .ai_analysis import ai_results_page
-from .database import SCHEMA_VERSION, connect, connect_readonly
+from .database import SCHEMA_VERSION, connect, connect_readonly, read_schema_version
 from .queries.library import query_library_captures
 from .statistics import build_statistics
 
@@ -574,11 +574,78 @@ def run_benchmark_suite(
     return report
 
 
+def benchmark_existing_catalog(
+    database_path: Path,
+    output_path: Path,
+    iterations: int = 5,
+    scenarios: Iterable[str] = SCENARIOS,
+) -> dict[str, Any]:
+    """Benchmark an existing current-schema catalog without reading source photos."""
+    database_path = database_path.resolve()
+    output_path = output_path.resolve()
+    if iterations < 1:
+        raise ValueError("iterations must be positive")
+    if not database_path.is_file():
+        raise FileNotFoundError("Existing benchmark catalog does not exist")
+    if output_path == database_path:
+        raise ValueError("Benchmark report must not replace the catalog")
+    if output_path.suffix.casefold() != ".json":
+        raise ValueError("Benchmark report must use a .json filename")
+    if output_path.exists():
+        raise FileExistsError("Refusing to overwrite an existing benchmark report")
+    if not output_path.parent.is_dir():
+        raise FileNotFoundError("Benchmark report directory does not exist")
+    schema_version = read_schema_version(database_path)
+    if schema_version != SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Existing catalog schema is {schema_version}; expected {SCHEMA_VERSION}"
+        )
+    capture_count = _capture_count(database_path)
+    measured = []
+    for name in scenarios:
+        if name not in SCENARIOS:
+            raise ValueError(f"Unknown benchmark scenario: {name}")
+        completed = subprocess.run(
+            [
+                sys.executable, "-m",
+                "tangerine_photo_assistant.large_library_benchmark",
+                "--worker", str(database_path), name, str(iterations),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+        measured.append(json.loads(completed.stdout))
+    report = {
+        "benchmark_version": 1,
+        "schema_version": schema_version,
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "iterations": iterations,
+        "catalog": {
+            "capture_count": capture_count,
+            "database_bytes": database_path.stat().st_size,
+        },
+        "scenarios": measured,
+        "integrity_check": "not-run",
+        "source_photos_read": 0,
+        "source_photos_written": 0,
+    }
+    output_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {**report, "report_path": str(output_path)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build metadata-only synthetic catalogs and benchmark large-library queries."
     )
     parser.add_argument("--workspace", type=Path)
+    parser.add_argument("--existing-database", type=Path)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--sizes", nargs="+", type=int, default=list(DEFAULT_SIZES))
     parser.add_argument("--iterations", type=int, default=5)
     parser.add_argument("--worker", nargs=3, metavar=("DATABASE", "SCENARIO", "ITERATIONS"))
@@ -590,8 +657,26 @@ def main() -> None:
             ensure_ascii=False,
         ))
         return
+    if arguments.existing_database is not None:
+        if arguments.workspace is not None:
+            parser.error("--workspace and --existing-database cannot be combined")
+        if arguments.output is None:
+            parser.error("--output is required with --existing-database")
+        try:
+            report = benchmark_existing_catalog(
+                arguments.existing_database, arguments.output, arguments.iterations
+            )
+        except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps({
+            "report_path": report["report_path"],
+            "capture_count": report["catalog"]["capture_count"],
+        }, ensure_ascii=False))
+        return
     if arguments.workspace is None:
         parser.error("--workspace is required")
+    if arguments.output is not None:
+        parser.error("--output is only valid with --existing-database")
     report = run_benchmark_suite(arguments.workspace, arguments.sizes, arguments.iterations)
     print(json.dumps({
         "report_path": report["report_path"],
