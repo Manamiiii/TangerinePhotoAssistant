@@ -38,6 +38,12 @@ from .ai_analysis import (
     update_ai_review,
     write_ai_run_report,
 )
+from .ai_audit import (
+    ai_audit_facets,
+    create_fixed_benchmark,
+    fixed_benchmark_summary,
+    save_ai_version_review,
+)
 from .ai_safety import (
     ai_preflight,
     create_pre_ai_database_backup,
@@ -177,6 +183,15 @@ class TaskState:
 class AiStartRequest(BaseModel):
     mode: Literal["benchmark", "recommended"] = "benchmark"
     limit: int = Field(default=100, ge=1, le=5000)
+
+
+class AiBenchmarkRequest(BaseModel):
+    target_size: int = Field(default=100, ge=10, le=500)
+
+
+class AiVersionReviewRequest(BaseModel):
+    status: Literal["draft", "approved", "rejected"]
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class ReviewUpdateRequest(BaseModel):
@@ -2016,17 +2031,70 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         offset: int = Query(default=0, ge=0),
         prompt_version: str | None = Query(default=None, max_length=100),
         verdict: Literal["accurate", "partial", "inaccurate", "unreviewed"] | None = None,
-        audit: Literal["risk", "sample"] | None = None,
+        audit: Literal["risk", "sample", "benchmark"] | None = None,
         workflow: Literal[
             "open", "new", "reappeared", "pending", "confirmed",
             "ignored", "snoozed", "resolved"
+        ] | None = None,
+        album_id: int | None = Query(default=None, ge=1),
+        subject: str | None = Query(default=None, max_length=120),
+        month: str | None = Query(default=None, max_length=7),
+        confidence: Literal[
+            "low", "medium", "high", "overconfident", "unknown"
+        ] | None = None,
+        problem: Literal[
+            "parse", "schema", "unsafe", "overconfident",
+            "low_confidence", "visible", "none",
         ] | None = None,
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
             return ai_results_page(
-                connection, limit, offset, prompt_version, verdict, audit, workflow
+                connection, limit, offset, prompt_version, verdict, audit, workflow,
+                album_id, subject, month, confidence, problem,
             )
+        finally:
+            connection.close()
+
+    @app.get("/api/ai/audit/benchmark")
+    def model_audit_benchmark() -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return fixed_benchmark_summary(connection)
+        finally:
+            connection.close()
+
+    @app.post("/api/ai/audit/benchmark")
+    def create_model_audit_benchmark(
+        request: AiBenchmarkRequest,
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return create_fixed_benchmark(connection, request.target_size)
+        finally:
+            connection.close()
+
+    @app.get("/api/ai/audit/facets")
+    def model_audit_facets() -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return ai_audit_facets(connection)
+        finally:
+            connection.close()
+
+    @app.put("/api/ai/audit/versions/{prompt_version}")
+    def update_model_version_review(
+        prompt_version: str,
+        request: AiVersionReviewRequest,
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return save_ai_version_review(
+                    connection, prompt_version, request.status, request.note
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 

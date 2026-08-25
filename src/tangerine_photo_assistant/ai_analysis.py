@@ -82,18 +82,36 @@ def create_ai_run(
     ).fetchone()
     if current:
         raise RuntimeError("已有本地大模型任务正在运行")
+    if mode == "recommended" and connection.execute(
+        "SELECT 1 FROM ai_audit_benchmark LIMIT 1"
+    ).fetchone() is not None:
+        from .ai_audit import ai_version_gates
+
+        gate = next(
+            (item for item in ai_version_gates(connection)
+             if item["prompt_version"] == PROMPT_VERSION),
+            None,
+        )
+        if (
+            gate is None
+            or not gate["eligible_for_expansion"]
+            or gate["review_status"] != "approved"
+        ):
+            raise ValueError("当前模型版本尚未通过固定基准质量门禁")
 
     candidate_rows = connection.execute(
         """
         SELECT
             c.id AS capture_id,
             CASE
+                WHEN aab.capture_id IS NOT NULL THEN 200
                 WHEN cr.auto_pick = 1 THEN 120
                 WHEN qm.technical_score < 55 THEN 100
                 WHEN sgc.capture_id IS NULL THEN 50
                 ELSE 20
             END AS priority,
             CASE
+                WHEN aab.capture_id IS NOT NULL THEN 'fixed_benchmark'
                 WHEN cr.auto_pick = 1 THEN 'similarity_group_representative'
                 WHEN qm.technical_score < 55 THEN 'technical_issue_review'
                 WHEN sgc.capture_id IS NULL THEN 'standalone_sample'
@@ -110,6 +128,7 @@ def create_ai_run(
         LEFT JOIN quality_metrics qm ON qm.capture_id = c.id AND qm.error IS NULL
         LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
         LEFT JOIN similarity_group_captures sgc ON sgc.capture_id = c.id
+        LEFT JOIN ai_audit_benchmark aab ON aab.capture_id=c.id
         WHERE qm.capture_id IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ai_analyses previous
@@ -119,15 +138,20 @@ def create_ai_run(
                 AND previous.status = 'complete'
           )
           AND (
-              ? = 'benchmark'
-              OR cr.auto_pick = 1
-              OR qm.technical_score < 55
-              OR (sgc.capture_id IS NULL AND c.id % 5 = 0)
+              (? = 'benchmark' AND (
+                  aab.capture_id IS NOT NULL
+                  OR NOT EXISTS (SELECT 1 FROM ai_audit_benchmark)
+              ))
+              OR (? = 'recommended' AND (
+                  cr.auto_pick = 1
+                  OR qm.technical_score < 55
+                  OR (sgc.capture_id IS NULL AND c.id % 5 = 0)
+              ))
           )
         GROUP BY c.id
         ORDER BY priority DESC, c.id
         """,
-        (model_id(model_path, model_variant), PROMPT_VERSION, mode),
+        (model_id(model_path, model_variant), PROMPT_VERSION, mode, mode),
     ).fetchall()
     if mode == "benchmark":
         candidate_rows = _balanced_benchmark_candidates(candidate_rows, limit)
@@ -677,18 +701,37 @@ def ai_results_page(
     verdict: str | None = None,
     audit: str | None = None,
     workflow: str | None = None,
+    album_id: int | None = None,
+    subject: str | None = None,
+    month: str | None = None,
+    confidence: str | None = None,
+    problem: str | None = None,
 ) -> dict[str, Any]:
     if limit <= 0 or limit > 200 or offset < 0:
         raise ValueError("AI result page bounds are invalid")
     if verdict not in {None, "accurate", "partial", "inaccurate", "unreviewed"}:
         raise ValueError("AI result verdict filter is invalid")
-    if audit not in {None, "risk", "sample"}:
+    if audit not in {None, "risk", "sample", "benchmark"}:
         raise ValueError("AI result audit filter is invalid")
     if workflow not in {
         None, "open", "new", "reappeared", "pending", "confirmed",
         "ignored", "snoozed", "resolved",
     }:
         raise ValueError("AI result workflow filter is invalid")
+    if album_id is not None and album_id <= 0:
+        raise ValueError("AI result album filter is invalid")
+    clean_subject = subject.strip() if subject else None
+    if clean_subject is not None and (not clean_subject or len(clean_subject) > 120):
+        raise ValueError("AI result subject filter is invalid")
+    if month is not None and not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise ValueError("AI result month filter is invalid")
+    if confidence not in {None, "low", "medium", "high", "overconfident", "unknown"}:
+        raise ValueError("AI result confidence filter is invalid")
+    if problem not in {
+        None, "parse", "schema", "unsafe", "overconfident",
+        "low_confidence", "visible", "none",
+    }:
+        raise ValueError("AI result problem filter is invalid")
     filters = ["aa.status='complete'", "aa.result_json IS NOT NULL"]
     parameters: list[Any] = []
     if prompt_version:
@@ -704,7 +747,52 @@ def ai_results_page(
             f"(aa.audit_bits IS NULL OR (aa.audit_bits & {AUDIT_RISK_MASK}) != 0)"
         )
     elif audit == "sample":
-        filters.append("aa.user_verdict IS NULL AND aa.id % 20 = 0")
+        filters.append("aa.user_verdict IS NULL AND aa.capture_id % 20 = 0")
+    elif audit == "benchmark":
+        filters.append(
+            "EXISTS (SELECT 1 FROM ai_audit_benchmark benchmark "
+            "WHERE benchmark.capture_id=aa.capture_id)"
+        )
+    if album_id is not None:
+        filters.append(
+            "EXISTS (SELECT 1 FROM event_captures album_capture "
+            "WHERE album_capture.capture_id=aa.capture_id "
+            "AND album_capture.event_id=?)"
+        )
+        parameters.append(album_id)
+    if clean_subject:
+        filters.append(
+            "EXISTS (SELECT 1 FROM capture_tags subject_link "
+            "JOIN tag_definitions subject_tag ON subject_tag.id=subject_link.tag_id "
+            "WHERE subject_link.capture_id=aa.capture_id "
+            "AND subject_link.source='analysis' "
+            "AND subject_tag.dimension='subject' AND subject_tag.name=?)"
+        )
+        parameters.append(clean_subject)
+    if month:
+        filters.append("substr(c.captured_at,1,7)=?")
+        parameters.append(month)
+    confidence_filters = {
+        "low": "aa.audit_confidence < 0.5",
+        "medium": "aa.audit_confidence >= 0.5 AND aa.audit_confidence < 0.8",
+        "high": "aa.audit_confidence >= 0.8 AND aa.audit_confidence < 0.99",
+        "overconfident": "aa.audit_confidence >= 0.99",
+        "unknown": "aa.audit_confidence IS NULL",
+    }
+    if confidence:
+        filters.append(f"({confidence_filters[confidence]})")
+    problem_bits = {
+        "parse": AUDIT_PARSE_ERROR,
+        "schema": AUDIT_SCHEMA_ERROR,
+        "unsafe": AUDIT_UNSAFE_ACTION,
+        "overconfident": AUDIT_OVERCONFIDENT,
+        "low_confidence": AUDIT_LOW_CONFIDENCE,
+        "visible": AUDIT_VISIBLE_PROBLEMS,
+    }
+    if problem == "none":
+        filters.append("COALESCE(aa.audit_bits,0)=0")
+    elif problem:
+        filters.append(f"(COALESCE(aa.audit_bits,0) & {problem_bits[problem]}) != 0")
     workflow_status = """CASE
         WHEN aa.user_verdict IS NOT NULL THEN 'confirmed'
         WHEN wis.subject_id IS NULL THEN 'new'
@@ -718,6 +806,7 @@ def ai_results_page(
         parameters.append(workflow)
     where = " AND ".join(filters)
     from_sql = """FROM ai_analyses aa
+        JOIN captures c ON c.id=aa.capture_id
         LEFT JOIN work_item_states wis
           ON wis.source_kind='ai' AND wis.subject_id=aa.id"""
     total = connection.execute(
@@ -728,7 +817,17 @@ def ai_results_page(
         SELECT aa.id, aa.capture_id, aa.model_id, aa.prompt_version,
                aa.finished_at, aa.user_verdict, aa.user_note,
                aa.audit_flags_json, aa.audit_confidence,
-               c.stem, e.proposed_name AS event_name, e.category,
+               c.stem,
+               (SELECT MIN(event_name.proposed_name)
+                FROM event_captures event_link
+                JOIN events event_name ON event_name.id=event_link.event_id
+                WHERE event_link.capture_id=c.id AND event_name.status!='archived')
+                   AS event_name,
+               (SELECT MIN(event_category.category)
+                FROM event_captures category_link
+                JOIN events event_category ON event_category.id=category_link.event_id
+                WHERE category_link.capture_id=c.id
+                  AND event_category.status!='archived') AS category,
                qm.technical_score, aa.result_json
                , ({workflow_status}) AS workflow_status,
                wis.due_at AS workflow_due_at,
@@ -738,9 +837,6 @@ def ai_results_page(
                    COALESCE(wis.first_seen_at, aa.finished_at)
                ) AS INTEGER)) AS workflow_age_days
         {from_sql}
-        JOIN captures c ON c.id=aa.capture_id
-        LEFT JOIN event_captures ec ON ec.capture_id=c.id
-        LEFT JOIN events e ON e.id=ec.event_id
         LEFT JOIN quality_metrics qm ON qm.capture_id=c.id
         WHERE {where}
         ORDER BY CASE ({workflow_status})
@@ -787,7 +883,10 @@ def ai_candidate_counts(
 ) -> dict[str, int]:
     row = connection.execute(
         """
-        SELECT COUNT(DISTINCT c.id) AS benchmark_available,
+        SELECT COUNT(DISTINCT CASE WHEN
+                   aab.capture_id IS NOT NULL
+                   OR NOT EXISTS (SELECT 1 FROM ai_audit_benchmark)
+               THEN c.id END) AS benchmark_available,
                COUNT(DISTINCT CASE WHEN
                    cr.auto_pick = 1
                    OR qm.technical_score < 55
@@ -800,6 +899,7 @@ def ai_candidate_counts(
         JOIN quality_metrics qm ON qm.capture_id=c.id AND qm.error IS NULL
         LEFT JOIN capture_reviews cr ON cr.capture_id=c.id
         LEFT JOIN similarity_group_captures sgc ON sgc.capture_id=c.id
+        LEFT JOIN ai_audit_benchmark aab ON aab.capture_id=c.id
         WHERE NOT EXISTS (
             SELECT 1 FROM ai_analyses previous
             WHERE previous.capture_id=c.id
@@ -922,6 +1022,7 @@ def ai_summary(
     history = ai_run_history(connection, limit=8)
     latest_run = history["items"][0] if history["items"] else None
     return {
+        "prompt_version": PROMPT_VERSION,
         "completed_analysis_count": counts["completed"],
         "analyzed_capture_count": counts["analyzed_captures"],
         "latest_run": latest_run,

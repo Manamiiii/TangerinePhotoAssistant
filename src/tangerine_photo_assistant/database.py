@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -510,6 +510,24 @@ def connect(path: Path) -> sqlite3.Connection:
             ON ai_analyses(capture_id, finished_at);
         CREATE INDEX IF NOT EXISTS idx_ai_analyses_capture_model_prompt_status
             ON ai_analyses(capture_id, model_id, prompt_version, status);
+
+        CREATE TABLE IF NOT EXISTS ai_audit_benchmark (
+            capture_id INTEGER PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,
+            source_analysis_id INTEGER REFERENCES ai_analyses(id) ON DELETE SET NULL,
+            added_at TEXT NOT NULL,
+            strata_json TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ai_audit_benchmark_source
+            ON ai_audit_benchmark(source_analysis_id);
+
+        CREATE TABLE IF NOT EXISTS ai_version_reviews (
+            prompt_version TEXT PRIMARY KEY,
+            status TEXT NOT NULL CHECK(status IN ('draft', 'approved', 'rejected')),
+            note TEXT,
+            reviewed_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS edit_recipe_revisions (
             id INTEGER PRIMARY KEY,
             capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,

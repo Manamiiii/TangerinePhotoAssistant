@@ -4,7 +4,7 @@ import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice } from "../../formatters";
-import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityResponse, QualityReviewFilter, ReviewPayload, WorkItemFilter, WorkItemStatus } from "./types";
+import type { AiAuditBenchmark, AiAuditFacets, AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityResponse, QualityReviewFilter, ReviewPayload, WorkItemFilter, WorkItemStatus } from "./types";
 
 type CollectionScope = "all" | "albums";
 
@@ -64,7 +64,16 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [resultVerdict, setResultVerdict] = useState("all");
   const [resultAudit, setResultAudit] = useState("risk");
   const [resultWorkflow, setResultWorkflow] = useState("open");
+  const [resultAlbum, setResultAlbum] = useState("all");
+  const [resultSubject, setResultSubject] = useState("all");
+  const [resultMonth, setResultMonth] = useState("all");
+  const [resultConfidence, setResultConfidence] = useState("all");
+  const [resultProblem, setResultProblem] = useState("all");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
+  const [auditBenchmark, setAuditBenchmark] = useState<AiAuditBenchmark | null>(null);
+  const [auditFacets, setAuditFacets] = useState<AiAuditFacets | null>(null);
+  const [auditSaving, setAuditSaving] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
   const [healthHelpOpen, setHealthHelpOpen] = useState(false);
   const [analysisTab, setAnalysisTab] = useState<"quality" | "model" | "history">("quality");
@@ -74,6 +83,8 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [qualityHidden, setQualityHidden] = useState<Set<number>>(new Set());
   const [qualityStatusOverrides, setQualityStatusOverrides] = useState<Map<number, WorkItemStatus>>(new Map());
   const [qualityBatchSaving, setQualityBatchSaving] = useState(false);
+  const currentAuditGate = auditBenchmark?.versions.find((version) => version.prompt_version === ai?.prompt_version) ?? null;
+  const expandedBatchAllowed = !auditBenchmark?.capture_count || (currentAuditGate?.eligible_for_expansion && currentAuditGate.review_status === "approved");
   const selectedQualityAlbum = quality?.albums.find((album) => String(album.id) === qualityAlbumId) ?? null;
   useEffect(() => {
     if (qualityAlbumId) setAnalysisTab("quality");
@@ -138,11 +149,39 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
     if (resultVerdict !== "all") parameters.set("verdict", resultVerdict);
     if (resultAudit !== "all") parameters.set("audit", resultAudit);
     if (resultWorkflow !== "all") parameters.set("workflow", resultWorkflow);
+    if (resultAlbum !== "all") parameters.set("album_id", resultAlbum);
+    if (resultSubject !== "all") parameters.set("subject", resultSubject);
+    if (resultMonth !== "all") parameters.set("month", resultMonth);
+    if (resultConfidence !== "all") parameters.set("confidence", resultConfidence);
+    if (resultProblem !== "all") parameters.set("problem", resultProblem);
     getJson<AiResultsResponse>(`/api/ai/results?${parameters.toString()}`)
       .then((page) => { if (active) setResultPage(page); })
       .catch(() => { if (active) setResultPage(null); });
     return () => { active = false; };
-  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, resultWorkflow, ai?.completed_analysis_count, workQueueRevision]);
+  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, resultWorkflow, resultAlbum, resultSubject, resultMonth, resultConfidence, resultProblem, ai?.completed_analysis_count, workQueueRevision]);
+  const refreshAuditWorkbench = () => Promise.all([
+    getJson<AiAuditBenchmark>("/api/ai/audit/benchmark"),
+    getJson<AiAuditFacets>("/api/ai/audit/facets"),
+  ]).then(([benchmark, facets]) => { setAuditBenchmark(benchmark); setAuditFacets(facets); });
+  useEffect(() => {
+    void refreshAuditWorkbench().catch(() => { setAuditBenchmark(null); setAuditFacets(null); });
+  }, [ai?.completed_analysis_count]);
+  const buildAuditBenchmark = async () => {
+    setAuditSaving(true); setAuditError(null);
+    try {
+      setAuditBenchmark(await getJson<AiAuditBenchmark>("/api/ai/audit/benchmark", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target_size: 100 }) }));
+      setResultAudit("benchmark"); setResultWorkflow("all"); setResultOffset(0);
+    } catch (reason) { setAuditError((reason as Error).message); }
+    finally { setAuditSaving(false); }
+  };
+  const reviewAuditVersion = async (promptVersion: string, status: "approved" | "rejected") => {
+    setAuditSaving(true); setAuditError(null);
+    try {
+      await getJson(`/api/ai/audit/versions/${encodeURIComponent(promptVersion)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      await refreshAuditWorkbench();
+    } catch (reason) { setAuditError((reason as Error).message); }
+    finally { setAuditSaving(false); }
+  };
   useEffect(() => {
     let active = true;
     const refresh = () => getJson<GpuStatus>("/api/system/gpu")
@@ -172,7 +211,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
       <section className="analysis-action-grid">
         <article className="panel analysis-action-card"><span className="section-kicker">不使用 GPU</span><h3>技术质量检测</h3><p>检查曝光、清晰度与拍摄参数，未变化的照片会复用已有结果。</p><strong>{summary ? `${numberFormat.format(summary.analyzed)} 张已完成` : "正在读取"}</strong><button className="toolbar-button primary" onClick={startQuality} disabled={running}>检测新增或变化照片</button></article>
         <article className="panel analysis-action-card"><span className="section-kicker">拍摄信息</span><h3>详情数据补全</h3><p>补充扩展 EXIF、机内配方和 JPG 亮度直方图，不修改照片。</p><strong>{analysis ? `元数据待补 ${numberFormat.format(analysis.detail_data.metadata_pending)} · 直方图待补 ${numberFormat.format(analysis.detail_data.histograms_pending)}` : "正在读取"}</strong>{task?.status === "paused" && task.stage.startsWith("detail-") ? <button className="toolbar-button primary" onClick={resumeDetailBackfill}>继续补全</button> : <button className="toolbar-button" onClick={startDetailBackfill} disabled={running || (!analysis?.detail_data.metadata_pending && !analysis?.detail_data.histograms_pending)}>{analysis && !analysis.detail_data.metadata_pending && !analysis.detail_data.histograms_pending ? "当前无需补全" : "补全详情数据"}</button>}</article>
-        <article className="panel analysis-action-card model"><span className="section-kicker">使用本机 GPU</span><h3>本地模型分析</h3><p>分析画面内容、可见问题和后期建议；仅保存建议，需人工复核。</p><strong>{preflight?.ready ? `${numberFormat.format(ai?.candidates?.recommended_available ?? 0)} 张推荐候选` : preflight?.blockers.join("；") ?? "正在预检"}</strong><div><button className="toolbar-button" onClick={() => startAi("benchmark", 10)} disabled={running || !summary?.analyzed || !preflight?.ready}>验证 10 张</button><label><select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} disabled={running}>{[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} 张</option>)}</select><small>{estimatedBatchSeconds ? `约 ${formatDuration(estimatedBatchSeconds)}` : "批次"}</small></label><button className="toolbar-button primary" onClick={() => startAi("recommended", batchSize)} disabled={running || !summary?.analyzed || !preflight?.ready}>运行批次</button></div></article>
+        <article className="panel analysis-action-card model"><span className="section-kicker">使用本机 GPU</span><h3>本地模型分析</h3><p>分析画面内容、可见问题和后期建议；仅保存建议，需人工复核。</p><strong>{preflight?.ready ? `${numberFormat.format(ai?.candidates?.recommended_available ?? 0)} 张推荐候选${!expandedBatchAllowed ? " · 扩大批次尚未通过门禁" : ""}` : preflight?.blockers.join("；") ?? "正在预检"}</strong><div><button className="toolbar-button" onClick={() => startAi("benchmark", 10)} disabled={running || !summary?.analyzed || !preflight?.ready}>验证 10 张</button><label><select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} disabled={running}>{[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} 张</option>)}</select><small>{estimatedBatchSeconds ? `约 ${formatDuration(estimatedBatchSeconds)}` : "批次"}</small></label><button className="toolbar-button primary" onClick={() => startAi("recommended", batchSize)} disabled={running || !summary?.analyzed || !preflight?.ready || !expandedBatchAllowed}>{expandedBatchAllowed ? "运行批次" : "先通过基准门禁"}</button></div></article>
       </section>
       {(analysis?.subject_tags.eligible_captures ?? 0) > 0 && <section className="panel analysis-tag-sync">
         <div><span className="section-kicker">题材标签</span><strong>分析来源 {numberFormat.format(analysis?.subject_tags.tagged_captures ?? 0)} / {numberFormat.format(analysis?.subject_tags.eligible_captures ?? 0)} 张</strong><small>{numberFormat.format(analysis?.subject_tags.subject_count ?? 0)} 种题材 · 不覆盖人工标签</small></div>
@@ -211,8 +250,16 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           </div>)}
         </div>
       </section>}
+      {analysisTab === "model" && <section className="panel ai-audit-benchmark-panel">
+        <div className="panel-heading"><div><span className="section-kicker">分层审计</span><h3>固定基准集</h3></div><div className="ai-audit-benchmark-actions"><span className="batch-count">{auditBenchmark ? `${numberFormat.format(auditBenchmark.capture_count)} 张` : "正在读取"}</span>{(auditBenchmark?.capture_count ?? 0) < Math.min(100, auditBenchmark?.available_capture_count ?? 100) && <button className="toolbar-button" disabled={auditSaving || !ai?.completed_analysis_count} onClick={() => void buildAuditBenchmark()}>{auditSaving ? "处理中" : auditBenchmark?.capture_count ? "补足 100 张" : "建立 100 张基准"}</button>}</div></div>
+        <p className="ai-audit-benchmark-intro">从已有模型结果按相册、题材、月份、置信度和问题类型均衡选取；建立后成员保持固定，后续“验证”任务优先复用同一批照片。</p>
+        {!!auditBenchmark?.capture_count && <div className="ai-audit-coverage"><span>相册 <b>{auditBenchmark.coverage.album}</b></span><span>题材 <b>{auditBenchmark.coverage.subject}</b></span><span>月份 <b>{auditBenchmark.coverage.month}</b></span><span>置信度层 <b>{auditBenchmark.coverage.confidence}</b></span><span>问题层 <b>{auditBenchmark.coverage.problem}</b></span></div>}
+        {!!auditBenchmark?.versions.length && <div className="ai-audit-gate-list">{auditBenchmark.versions.map((version) => <article key={version.prompt_version}><div><strong>{version.prompt_version}</strong><small>分析覆盖 {version.analysis_coverage}% · 人工复核 {version.review_coverage}% · 不准确率 {version.inaccurate_rate == null ? "未确认" : `${version.inaccurate_rate}%`}</small></div><span className={version.eligible_for_expansion ? "passed" : "blocked"}>{version.review_status === "approved" ? "已批准扩大" : version.review_status === "rejected" ? "已拒绝" : version.eligible_for_expansion ? "门禁通过" : `${version.gate_blockers.length} 项未通过`}</span><div>{version.review_status !== "approved" && <button disabled={auditSaving || !version.eligible_for_expansion} onClick={() => void reviewAuditVersion(version.prompt_version, "approved")}>批准扩大</button>}<button disabled={auditSaving} onClick={() => void reviewAuditVersion(version.prompt_version, "rejected")}>标记不通过</button></div>{!!version.gate_blockers.length && <small className="ai-audit-blockers">{version.gate_blockers.join(" · ")}</small>}</article>)}</div>}
+        {auditBenchmark && !auditBenchmark.capture_count && <div className="empty-state">还没有固定基准。建立基准只写数据库，不读取照片或运行模型。</div>}
+        {auditError && <div className="portable-error" role="alert">{auditError}</div>}
+      </section>}
       {analysisTab === "model" && <section className="panel ai-results-panel">
-        <div className="panel-heading"><div><span className="section-kicker">分页复核</span><h3>{resultAudit === "risk" ? "高风险复核队列" : resultAudit === "sample" ? "5% 稳定抽样队列" : "全部模型结果"}</h3></div><span className="batch-count">{resultPage ? `${numberFormat.format(resultPage.count)} 条` : "正在读取"}</span></div>
+        <div className="panel-heading"><div><span className="section-kicker">分页复核</span><h3>{resultAudit === "risk" ? "高风险复核队列" : resultAudit === "benchmark" ? "固定基准复核" : resultAudit === "sample" ? "5% 稳定抽样队列" : "全部模型结果"}</h3></div><span className="batch-count">{resultPage ? `${numberFormat.format(resultPage.count)} 条` : "正在读取"}</span></div>
         <div className="ai-results-toolbar">
           <label>提示词版本<select value={resultVersion} onChange={(event) => { setResultVersion(event.target.value); setResultOffset(0); }}>
             <option value="all">全部版本</option>
@@ -221,12 +268,17 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           <label>人工复核<select value={resultVerdict} onChange={(event) => { setResultVerdict(event.target.value); setResultOffset(0); }}>
             <option value="all">全部</option><option value="unreviewed">未复核</option><option value="accurate">准确</option><option value="partial">部分准确</option><option value="inaccurate">不准确</option>
           </select></label>
-          <label>审计队列<select value={resultAudit} onChange={(event) => { setResultAudit(event.target.value); setResultOffset(0); }}>
-            <option value="risk">高风险优先</option><option value="sample">5% 稳定抽样</option><option value="all">全部记录</option>
+          <label>审计队列<select value={resultAudit} onChange={(event) => { const audit = event.target.value; setResultAudit(audit); if (audit === "benchmark") setResultWorkflow("all"); setResultOffset(0); }}>
+            <option value="risk">高风险优先</option><option value="benchmark">固定基准集</option><option value="sample">5% 稳定抽样</option><option value="all">全部记录</option>
           </select></label>
           <label>处理状态<select value={resultWorkflow} onChange={(event) => { setResultWorkflow(event.target.value); setResultOffset(0); }}>
             <option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option>
           </select></label>
+          <label>相册<select value={resultAlbum} onChange={(event) => { setResultAlbum(event.target.value); setResultOffset(0); }}><option value="all">全部相册</option>{(auditFacets?.albums ?? []).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.count}</option>)}</select></label>
+          <label>题材<select value={resultSubject} onChange={(event) => { setResultSubject(event.target.value); setResultOffset(0); }}><option value="all">全部题材</option>{(auditFacets?.subjects ?? []).map((item) => <option key={item.name} value={item.name}>{item.name} · {item.count}</option>)}</select></label>
+          <label>月份<select value={resultMonth} onChange={(event) => { setResultMonth(event.target.value); setResultOffset(0); }}><option value="all">全部月份</option>{(auditFacets?.months ?? []).map((item) => <option key={item.name} value={item.name}>{item.name} · {item.count}</option>)}</select></label>
+          <label>置信度<select value={resultConfidence} onChange={(event) => { setResultConfidence(event.target.value); setResultOffset(0); }}><option value="all">全部区间</option><option value="low">低于 0.5</option><option value="medium">0.5–0.8</option><option value="high">0.8–0.99</option><option value="overconfident">0.99 以上</option><option value="unknown">未记录</option></select></label>
+          <label>问题类型<select value={resultProblem} onChange={(event) => { setResultProblem(event.target.value); setResultOffset(0); }}><option value="all">全部类型</option><option value="parse">解析失败</option><option value="schema">结构/逻辑</option><option value="unsafe">危险操作提及</option><option value="overconfident">过度自信</option><option value="low_confidence">低置信度</option><option value="visible">可见问题</option><option value="none">未标记问题</option></select></label>
         </div>
         {!!resultPage?.items.length && <div className="ai-result-grid">
           {resultPage.items.map((result) => <article key={result.id} className="ai-result-card">

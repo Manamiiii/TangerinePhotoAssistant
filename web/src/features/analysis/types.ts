@@ -86,6 +86,37 @@ export type AiResultsResponse = {
   items: AiRecentResult[];
 };
 
+export type AiAuditVersionGate = {
+  prompt_version: string;
+  benchmark_count: number;
+  analyzed: number;
+  reviewed: number;
+  inaccurate: number;
+  unresolved_risk: number;
+  analysis_coverage: number;
+  review_coverage: number;
+  inaccurate_rate: number | null;
+  gate_blockers: string[];
+  eligible_for_expansion: boolean;
+  review_status: "draft" | "approved" | "rejected";
+  note: string | null;
+};
+
+export type AiAuditBenchmark = {
+  capture_count: number;
+  available_capture_count: number;
+  added_count?: number;
+  requested_size?: number;
+  coverage: { album: number; subject: number; month: number; confidence: number; problem: number };
+  versions: AiAuditVersionGate[];
+};
+
+export type AiAuditFacets = {
+  albums: Array<{ id: number; name: string; count: number }>;
+  subjects: Array<{ name: string; count: number }>;
+  months: Array<{ name: string; count: number }>;
+};
+
 export type AiPreflight = {
   ready: boolean;
   blockers: string[];
@@ -122,6 +153,7 @@ export type AnalysisOverview = {
     ratings: Array<{ rating: number; count: number }>;
   };
   ai: {
+    prompt_version: string;
     completed_analysis_count: number;
     analyzed_capture_count: number;
     latest_run: AiRun | null;

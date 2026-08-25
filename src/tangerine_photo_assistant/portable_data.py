@@ -60,6 +60,11 @@ def build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) 
             a.prompt_version, a.user_verdict, a.user_note, a.reviewed_at
             FROM ai_analyses a JOIN captures c ON c.id=a.capture_id
             WHERE a.user_verdict IS NOT NULL OR a.user_note IS NOT NULL"""),
+        "ai_benchmark": _rows(connection, """SELECT c.capture_key, b.added_at,
+            b.strata_json FROM ai_audit_benchmark b
+            JOIN captures c ON c.id=b.capture_id ORDER BY b.capture_id"""),
+        "ai_version_reviews": _rows(connection, """SELECT prompt_version,status,
+            note,reviewed_at FROM ai_version_reviews ORDER BY prompt_version"""),
         "work_items": work_items,
         "equipment": _load_inventory(inventory_path),
     }
@@ -78,8 +83,13 @@ def _validate(data: dict[str, Any]) -> None:
     if data.get("format") != FORMAT or data.get("format_version") != FORMAT_VERSION:
         raise ValueError("不是受支持的 Tangerine 人工数据备份")
     data.setdefault("ai_reviews", [])
+    data.setdefault("ai_benchmark", [])
+    data.setdefault("ai_version_reviews", [])
     data.setdefault("work_items", [])
-    for key in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews", "work_items"):
+    for key in (
+        "reviews", "tags", "grouping", "edit_recipes", "ai_reviews",
+        "ai_benchmark", "ai_version_reviews", "work_items",
+    ):
         if not isinstance(data.get(key), list) or len(data[key]) > 1_000_000:
             raise ValueError(f"备份字段无效：{key}")
     if not isinstance(data.get("equipment", {}), dict):
@@ -87,12 +97,18 @@ def _validate(data: dict[str, Any]) -> None:
 
 
 def backup_summary(data: dict[str, Any]) -> dict[str, int]:
-    return {key: len(data.get(key, [])) for key in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews", "work_items")}
+    return {key: len(data.get(key, [])) for key in (
+        "reviews", "tags", "grouping", "edit_recipes", "ai_reviews",
+        "ai_benchmark", "ai_version_reviews", "work_items",
+    )}
 
 
 def preflight_restore(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     _validate(data)
-    keys = {str(row.get("capture_key", "")) for section in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews", "work_items") for row in data[section]}
+    keys = {str(row.get("capture_key", "")) for section in (
+        "reviews", "tags", "grouping", "edit_recipes", "ai_reviews",
+        "ai_benchmark", "work_items",
+    ) for row in data[section]}
     existing = set()
     for batch_start in range(0, len(keys), 500):
         batch = list(keys)[batch_start:batch_start + 500]
@@ -156,6 +172,29 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
                 ORDER BY finished_at DESC,id DESC LIMIT 1""", (capture_id,row.get("model_id"),row.get("prompt_version"))).fetchone()
             if match is not None:
                 connection.execute("UPDATE ai_analyses SET user_verdict=?,user_note=?,reviewed_at=? WHERE id=?", (row.get("user_verdict"),row.get("user_note"),row.get("reviewed_at") or now,match[0]))
+        for row in data["ai_benchmark"]:
+            capture_id = capture_ids.get(row.get("capture_key"))
+            if capture_id is None: continue
+            source = connection.execute("""SELECT id FROM ai_analyses
+                WHERE capture_id=? AND status='complete'
+                ORDER BY finished_at DESC,id DESC LIMIT 1""", (capture_id,)).fetchone()
+            connection.execute("""INSERT INTO ai_audit_benchmark(
+                capture_id,source_analysis_id,added_at,strata_json) VALUES (?,?,?,?)
+                ON CONFLICT(capture_id) DO UPDATE SET
+                  source_analysis_id=COALESCE(excluded.source_analysis_id,source_analysis_id),
+                  strata_json=excluded.strata_json""",
+                (capture_id,source[0] if source else None,row.get("added_at") or now,
+                 row.get("strata_json") or "{}"))
+        for row in data["ai_version_reviews"]:
+            status = row.get("status")
+            prompt_version = str(row.get("prompt_version") or "").strip()
+            if status not in {"draft", "approved", "rejected"} or not prompt_version:
+                continue
+            connection.execute("""INSERT INTO ai_version_reviews(
+                prompt_version,status,note,reviewed_at) VALUES (?,?,?,?)
+                ON CONFLICT(prompt_version) DO UPDATE SET status=excluded.status,
+                  note=excluded.note,reviewed_at=excluded.reviewed_at""",
+                (prompt_version,status,row.get("note"),row.get("reviewed_at") or now))
         for row in data["work_items"]:
             capture_id = capture_ids.get(row.get("capture_key")); source_kind = row.get("source_kind")
             if capture_id is None or source_kind not in {"quality", "ai"}: continue

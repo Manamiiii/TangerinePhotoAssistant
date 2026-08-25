@@ -43,6 +43,14 @@ class PortableDataTests(unittest.TestCase):
             source.execute("INSERT INTO edit_recipe_revisions(capture_id,parameter_space,parameters_json,status,note,created_at) VALUES (?,'tangerine-preview-v2','{}','accepted','采用','now')", (capture_id,))
             source.commit()
             self._add_ai_result(source)
+            source.execute(
+                "INSERT INTO ai_audit_benchmark VALUES (?,1,'now','{}')",
+                (capture_id,),
+            )
+            source.execute(
+                "INSERT INTO ai_version_reviews VALUES ('v1','rejected','需优化','now')"
+            )
+            source.commit()
             save_work_item_state(source, "ai", 1, "ignored")
             inventory = root / "inventory.json"
             inventory.write_text(json.dumps({"version": 2, "ownership": {"camera": {"X": True}, "lens": {}, "accessory": {}}}), encoding="utf-8")
@@ -52,6 +60,8 @@ class PortableDataTests(unittest.TestCase):
             self.assertNotIn(str(root), serialized)
             self.assertFalse(backup["privacy"]["contains_gps"])
             self.assertFalse(backup["privacy"]["contains_model_results"])
+            self.assertEqual(len(backup["ai_benchmark"]), 1)
+            self.assertEqual(len(backup["ai_version_reviews"]), 1)
             source.close()
 
             target = self._catalog(root / "target.sqlite3")
@@ -67,6 +77,8 @@ class PortableDataTests(unittest.TestCase):
             self.assertEqual(target.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0], 1)
             self.assertEqual(target.execute("SELECT COUNT(*) FROM edit_recipe_revisions").fetchone()[0], 1)
             self.assertEqual(target.execute("SELECT status FROM work_item_states").fetchone()[0], "ignored")
+            self.assertEqual(target.execute("SELECT COUNT(*) FROM ai_audit_benchmark").fetchone()[0], 1)
+            self.assertEqual(target.execute("SELECT status FROM ai_version_reviews").fetchone()[0], "rejected")
             self.assertEqual(len(list((root / "backups").glob("*.sqlite3"))), 1)
             self.assertEqual(json.loads((root / "target-inventory.json").read_text(encoding="utf-8"))["ownership"]["camera"]["X"], True)
             target.close()
