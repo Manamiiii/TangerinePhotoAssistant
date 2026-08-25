@@ -29,10 +29,8 @@ from tangerine_photo_assistant.webapp import (
     SimilarityGroupEditRequest,
     _open_file,
     _pick_directory,
+    _query_albums,
     _query_analysis_overview,
-    _query_bursts,
-    _query_duplicates,
-    _query_events,
     _query_inbox,
     _query_library_captures,
     _query_library_filters,
@@ -327,7 +325,7 @@ class WebAppQueryTests(unittest.TestCase):
             library = _query_library_captures(settings, 20, 0)
             quality = _query_quality(settings, 20, 0)
             similarity = _query_similarity_groups(settings, 20, 0)
-            albums = _query_events(settings, 20, 0)
+            albums = _query_albums(settings, 20, 0)
 
             self.assertEqual(library["count"], 0)
             self.assertEqual(library["items"], [])
@@ -357,6 +355,23 @@ class WebAppQueryTests(unittest.TestCase):
         )
         self.assertEqual(request.excluded_ids, [1, 2])
 
+    def test_openapi_only_exposes_current_album_and_export_routes(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            with TestClient(create_app(config_path), base_url="http://localhost") as client:
+                paths = client.get("/openapi.json").json()["paths"]
+            self.assertIn("/api/albums", paths)
+            self.assertIn("/api/exports/photos", paths)
+            self.assertNotIn("/api/events", paths)
+            self.assertNotIn("/api/bursts", paths)
+            self.assertNotIn("/api/duplicates", paths)
+            self.assertNotIn("/api/exports/phone-share", paths)
+
     def test_overview_and_inbox_use_real_catalog_data(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -384,9 +399,7 @@ class WebAppQueryTests(unittest.TestCase):
                 settings, 10, 0, unassigned_only=True
             )
             library_filters = _query_library_filters(settings)
-            events = _query_events(settings, 10, 0)
-            bursts = _query_bursts(settings, 10, 0)
-            duplicates = _query_duplicates(settings, 10, 0)
+            albums = _query_albums(settings, 10, 0)
             analysis = _query_analysis_overview(settings)
             quality = _query_quality(settings, 10, 0)
 
@@ -401,11 +414,9 @@ class WebAppQueryTests(unittest.TestCase):
             self.assertEqual(unassigned_library["count"], 0)
             self.assertIn("旅行", {item["name"] for item in library_filters["album_types"]})
             self.assertEqual(library_filters["albums"][0]["capture_count"], 1)
-            self.assertEqual(events["count"], 1)
-            self.assertEqual(events["items"][0]["category"], "旅行")
-            self.assertEqual(bursts["count"], 0)
+            self.assertEqual(albums["count"], 1)
+            self.assertEqual(albums["items"][0]["category"], "旅行")
             self.assertEqual(overview["visual"]["fingerprint_count"], 0)
-            self.assertEqual(duplicates["count"], 0)
             self.assertEqual(analysis["quality"]["analyzed"], 0)
             self.assertFalse(analysis["runtime"]["ready"])
             self.assertEqual(quality["count"], 0)

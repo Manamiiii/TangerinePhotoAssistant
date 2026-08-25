@@ -22,7 +22,7 @@ def _safe_stem(value: str) -> str:
     return cleaned[:80] or "photo"
 
 
-def write_phone_share_export(
+def write_photo_export(
     connection: sqlite3.Connection,
     originals: Path,
     reports_path: Path,
@@ -79,7 +79,7 @@ def write_phone_share_export(
         export_rows.extend(raw_rows)
     required_free = sum(int(row["size_bytes"]) for row in export_rows) + 256 * 1024**2
     if shutil.disk_usage(reports_path).free < required_free:
-        raise ValueError("报告目录空间不足，未创建手机分享包")
+        raise ValueError("报告目录空间不足，未创建照片导出包")
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"photo-export-{timestamp}-{uuid4().hex[:8]}.zip"
     target = (reports_path / filename).resolve()

@@ -51,15 +51,14 @@ integrations as capabilities, not assumptions.
   requires explicit confirmation, blocks around background tasks, and creates an
   integrity-checked SQLite backup before changing ratings, picks, notes, tags,
   current grouping overrides, edit histories, AI review verdicts, or equipment.
-- Generated migration fixtures exercise every supported schema version 1–25 into
-  schema 26, verifying both preserved fixture data and the pre-upgrade backup.
+- Generated migration fixtures exercise every supported schema version before the
+  current schema 32, verifying both preserved fixture data and the pre-upgrade backup.
 - A redacted diagnostic ZIP is constructed from an explicit whitelist. It reports
   versions, capability and safety switches, database integrity and aggregate counts,
   while excluding images, names and paths, GPS, serials, user-authored text, model
   payloads, and raw error messages. Its archive contains one inspectable JSON file.
-- Persistent worker and deadline-guard logs record exception categories and aggregate
-  states, not raw exception text, task error bodies, or runtime path messages. A
-  regression test guards those log boundaries.
+- Persistent worker and launcher logs record exception categories and aggregate
+  states, not raw exception text, task error bodies, or runtime path messages.
 
 ## Release work still required
 

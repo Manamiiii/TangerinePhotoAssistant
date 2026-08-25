@@ -17,7 +17,7 @@ import type { CaptureDetail, DetailMode, EditParameters, EditRecipe } from "./fe
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
 import type { CaptureTagDimension } from "./features/details/types";
 import type { Overview } from "./features/overview/types";
-import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport, PhotoExportOptions } from "./features/library/types";
+import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhotoExportOptions, PhotoExportResult } from "./features/library/types";
 import { LibraryView } from "./features/library/LibraryView";
 import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
@@ -1055,10 +1055,10 @@ function App() {
     }
   };
 
-  const exportPhoneShare = async (captureIds: number[], options: PhotoExportOptions) => {
+  const exportPhotos = async (captureIds: number[], options: PhotoExportOptions) => {
     setError(null);
     try {
-      return await getJson<PhoneShareExport>("/api/exports/photos", {
+      return await getJson<PhotoExportResult>("/api/exports/photos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1167,7 +1167,7 @@ function App() {
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures} batchReview={batchReviewCaptures}
-          openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhoneShare} changePage={setLibraryOffset}
+          openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhotos} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}
           changeAlbumPage={setAlbumOffset} changeAlbumPageSize={(limit) => { setAlbumOffset(0); setAlbumPageSize(limit); }}
           albumWorkspaceCounts={albumWorkspaceCounts(libraryQuery.albumId)}

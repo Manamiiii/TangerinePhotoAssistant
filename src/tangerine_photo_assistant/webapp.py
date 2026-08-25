@@ -88,7 +88,7 @@ from .equipment import (
     save_equipment_ownership,
     set_equipment_visibility,
 )
-from .exports import ALLOWED_SHARE_EDGES, write_phone_share_export
+from .exports import ALLOWED_SHARE_EDGES, write_photo_export
 from .grouping import (
     SimilarityCaptureNotFoundError,
     SimilarityGroupingError,
@@ -266,7 +266,7 @@ class EquipmentVisibilityRequest(EquipmentDeleteRequest):
     visible: bool
 
 
-class PhoneShareExportRequest(BaseModel):
+class PhotoExportRequest(BaseModel):
     capture_ids: list[int] = Field(min_length=1, max_length=100)
     max_edge: int = 2048
     quality: int = Field(default=90, ge=70, le=95)
@@ -1417,73 +1417,8 @@ def _query_library_filters(settings: Settings) -> dict[str, Any]:
 
 
 
-def _query_events(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
+def _query_albums(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
     return query_albums(settings.database_path, limit, offset)
-
-
-def _query_bursts(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        total = connection.execute("SELECT COUNT(*) FROM bursts").fetchone()[0]
-        rows = connection.execute(
-            """
-            SELECT
-                b.id, b.start_at, b.end_at, b.capture_count, b.camera_model,
-                b.grouping_method, b.status,
-                e.id AS event_id, e.proposed_name AS event_name, e.category,
-                MIN(c.stem) AS first_stem, MAX(c.stem) AS last_stem,
-                COUNT(DISTINCT sg.id) AS similarity_group_count,
-                COALESCE(MAX(sg.capture_count), 0) AS largest_similarity_group
-            FROM bursts b
-            JOIN events e ON e.id = b.event_id
-            JOIN burst_captures bc ON bc.burst_id = b.id
-            JOIN captures c ON c.id = bc.capture_id
-            LEFT JOIN similarity_groups sg ON sg.burst_id = b.id
-            GROUP BY b.id
-            ORDER BY b.capture_count DESC, b.start_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ).fetchall()
-        return {
-            "count": total,
-            "limit": limit,
-            "offset": offset,
-            "items": [dict(row) for row in rows],
-        }
-    finally:
-        connection.close()
-
-
-def _query_duplicates(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    connection = connect_readonly(settings.database_path)
-    try:
-        total = connection.execute("SELECT COUNT(*) FROM duplicate_groups").fetchone()[0]
-        rows = connection.execute(
-            """
-            SELECT dg.id, dg.file_count, dg.total_bytes, dg.status,
-                   MIN(f.file_name) AS file_name
-            FROM duplicate_groups dg
-            JOIN duplicate_group_files dgf ON dgf.group_id = dg.id
-            JOIN files f ON f.id = dgf.file_id
-            GROUP BY dg.id
-            ORDER BY dg.total_bytes DESC, dg.file_count DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ).fetchall()
-        items = []
-        for row in rows:
-            item = dict(row)
-            item["paths"] = [r[0] for r in connection.execute(
-                """SELECT f.path FROM duplicate_group_files dgf
-                   JOIN files f ON f.id = dgf.file_id
-                   WHERE dgf.group_id = ? ORDER BY f.path""", (row["id"],)
-            )]
-            items.append(item)
-        return {"count": total, "limit": limit, "offset": offset, "items": items}
-    finally:
-        connection.close()
 
 
 def _query_analysis_overview(settings: Settings) -> dict[str, Any]:
@@ -1665,7 +1600,7 @@ def _runtime_capabilities(settings: Settings) -> dict[str, Any]:
             "directory_picker": _can_pick_directory(),
             "raw_pairing": bool(settings.raw_extensions),
             "lightroom_manifest": True,
-            "phone_share_export": True,
+            "photo_export": True,
         },
         "safety": {
             "offline_only": settings.offline_only,
@@ -1994,33 +1929,12 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def library_filters() -> dict[str, Any]:
         return _query_library_filters(settings)
 
-    @app.get("/api/events")
-    def events(
-        limit: int = Query(default=50, ge=1, le=200),
-        offset: int = Query(default=0, ge=0),
-    ) -> dict[str, Any]:
-        return _query_events(settings, limit, offset)
-
     @app.get("/api/albums")
     def albums(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
     ) -> dict[str, Any]:
-        return _query_events(settings, limit, offset)
-
-    @app.get("/api/bursts")
-    def bursts(
-        limit: int = Query(default=50, ge=1, le=200),
-        offset: int = Query(default=0, ge=0),
-    ) -> dict[str, Any]:
-        return _query_bursts(settings, limit, offset)
-
-    @app.get("/api/duplicates")
-    def duplicates(
-        limit: int = Query(default=50, ge=1, le=200),
-        offset: int = Query(default=0, ge=0),
-    ) -> dict[str, Any]:
-        return _query_duplicates(settings, limit, offset)
+        return _query_albums(settings, limit, offset)
 
     @app.get("/api/analysis/overview")
     def analysis_overview() -> dict[str, Any]:
@@ -2870,14 +2784,13 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         return result
 
     @app.post("/api/exports/photos", status_code=201)
-    @app.post("/api/exports/phone-share", status_code=201, deprecated=True)
-    def create_phone_share_export(request: PhoneShareExportRequest) -> dict[str, Any]:
+    def create_photo_export(request: PhotoExportRequest) -> dict[str, Any]:
         if request.include_jpeg and not request.original_jpeg and request.max_edge not in ALLOWED_SHARE_EDGES:
             raise HTTPException(status_code=422, detail="不支持的导出尺寸")
         connection = connect_readonly(settings.database_path)
         try:
             try:
-                result = write_phone_share_export(
+                result = write_photo_export(
                     connection,
                     settings.originals,
                     settings.reports_path,
@@ -2943,8 +2856,8 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         is_migration_report = bool(
             re.fullmatch(r"migration-(?:plan|failures)-\d+\.(csv|json)", filename)
         )
-        is_phone_share = bool(
-            re.fullmatch(r"(?:phone-share|photo-export)-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
+        is_photo_export = bool(
+            re.fullmatch(r"photo-export-\d{8}-\d{6}-[a-f0-9]{8}\.zip", filename)
         )
         is_human_data = bool(re.fullmatch(r"tangerine-human-data-\d{8}-\d{6}-\d{6}\.json", filename))
         is_diagnostics = bool(re.fullmatch(r"tangerine-diagnostics-\d{8}-\d{6}-\d{6}\.zip", filename))
@@ -2954,7 +2867,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 filename,
             )
         )
-        if filename not in allowed and not is_migration_report and not is_phone_share and not is_human_data and not is_diagnostics and not is_integrity_report:
+        if filename not in allowed and not is_migration_report and not is_photo_export and not is_human_data and not is_diagnostics and not is_integrity_report:
             raise HTTPException(status_code=404, detail="报告不存在")
         path = (settings.reports_path / filename).resolve()
         if not path.is_file() or not path.is_relative_to(settings.reports_path.resolve()):
@@ -3188,10 +3101,6 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
-
-    @app.put("/api/events/{event_id}")
-    def update_event(event_id: int, request: EventUpdateRequest) -> dict[str, Any]:
-        return save_album(event_id, request)
 
     @app.put("/api/albums/{album_id}")
     def update_album(album_id: int, request: EventUpdateRequest) -> dict[str, Any]:

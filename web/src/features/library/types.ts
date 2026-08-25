@@ -63,7 +63,7 @@ export type LibraryQuery = {
   sort: string;
   collapseGroups: boolean;
 };
-export type PhoneShareExport = {
+export type PhotoExportResult = {
   filename: string;
   photo_count: number;
   file_count: number;

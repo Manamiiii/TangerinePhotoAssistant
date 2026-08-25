@@ -7,7 +7,7 @@ from zipfile import ZipFile
 from PIL import Image
 
 from tangerine_photo_assistant.database import connect
-from tangerine_photo_assistant.exports import write_phone_share_export
+from tangerine_photo_assistant.exports import write_photo_export
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.metadata import PillowMetadataReader
 from tangerine_photo_assistant.pairing import rebuild_captures
@@ -35,7 +35,7 @@ def _settings(root: Path) -> Settings:
     )
 
 
-class PhoneShareExportTests(unittest.TestCase):
+class PhotoExportTests(unittest.TestCase):
     def test_export_creates_resized_metadata_free_jpeg_zip(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -54,7 +54,7 @@ class PhoneShareExportTests(unittest.TestCase):
                 rebuild_captures(connection)
                 capture_ids = [row[0] for row in connection.execute("SELECT id FROM captures ORDER BY id")]
 
-                result = write_phone_share_export(
+                result = write_photo_export(
                     connection,
                     settings.originals,
                     settings.reports_path,
@@ -73,7 +73,7 @@ class PhoneShareExportTests(unittest.TestCase):
                         self.assertEqual(max(exported.size), 1080)
                         self.assertIsNone(exported.getexif().get(271))
 
-                originals_result = write_phone_share_export(
+                originals_result = write_photo_export(
                     connection,
                     settings.originals,
                     settings.reports_path,

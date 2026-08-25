@@ -71,7 +71,7 @@ D:\PhotoLibrary\Backups\AnalysisDatabase
 1. `webapp.py` 同时包含任务调度、查询和路由，文件偏大。
 2. `web/src/main.tsx` 集中了类型、状态与所有页面组件。
 3. 已完成的迁移仍保留后台 API、任务恢复和审计数据；不可达的旧迁移前端已经移除。
-4. 部分旧只读接口（例如 `/api/events`、`/api/bursts`、`/api/duplicates`）已没有当前页面调用，暂时保留给测试和外部兼容用途。
+4. `styles.css` 仍集中承载全站样式；后续应按 feature 小步拆分，并以视觉回归保证已验收页面不漂移。
 
 2026-08-13 的主分支已经加入照片详情键盘导航、直方图、版本化扩展 EXIF、乐观评分、统计钻取、沉浸查看、紧凑图库筛选和轻量首页。这些功能继续复用稳定 `capture_id` 和现有只读照片边界；schema 19 扩充分析衍生数据和元数据采集版本，schema 20 只增加人工分组历史快照，不改变原片身份。
 
@@ -114,7 +114,7 @@ schema 24 在 `capture_reviews.selection_reason_json` 保存人工入选的多�
 1. 先把纯业务写操作从路由抽到独立服务模块；手工分组已完成此步骤。
 2. 再把只读 SQL 查询抽到 `queries/`，保持 API 响应不变。
 3. UI 验收稳定后，按首页、图库、分析、系统拆分 React feature 模块。
-4. 最后确认哪些兼容接口不再需要，再逐项移除，同时保留迁移恢复和数据库审计能力。
+4. 最后继续清理未使用契约，同时保留迁移恢复和数据库审计能力。
 
 万张级图库的交互遵循“聚合、风险排序、抽样、再下钻”：折叠图库必须在 SQLite 内完成分组
 与分页，模型结果默认进入风险队列或稳定抽样，完整性异常必须保留完整分页清单；不得把保存了
@@ -151,8 +151,9 @@ schema 24 在 `capture_reviews.selection_reason_json` 保存人工入选的多�
 
 照片详情和分析概览的纯只读查询已分别移入 `queries/details.py` 与
 `queries/analysis.py`。单张直方图惰性补全仍由 Web 编排层显式触发，因为它会读取源 JPG
-并写入可重建缓存字段。2026-08-14 审计确认当前前端和 CLI 均未调用旧 `/api/bursts`、
-`/api/duplicates`；只有兼容路由、测试和文档仍引用，因此继续保留，未擅自移除。
+并写入可重建缓存字段。2026-08-25 清理了没有当前调用方的 `/api/events`、`/api/bursts`、
+`/api/duplicates` 和 `/api/exports/phone-share` 旧别名；现行入口分别使用相册、相似组和
+`/api/exports/photos` 契约。
 
 ## 验证基线
 

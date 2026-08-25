@@ -9,7 +9,7 @@ export type SystemCapabilities = {
     directory_picker: boolean;
     raw_pairing: boolean;
     lightroom_manifest: boolean;
-    phone_share_export: boolean;
+    photo_export: boolean;
   };
   safety: {
     offline_only: boolean;

@@ -10,7 +10,7 @@ import type { CaptureTagDimension } from "../details/types";
 import type { EquipmentCatalog } from "../equipment/types";
 import { SimilarityGroupingEditor } from "../similarity/BurstsView";
 import type { SimilarityGroupDetail } from "../similarity/types";
-import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhoneShareExport, PhotoExportOptions, PhotoInboxStatus, PhotoLayout } from "./types";
+import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters, LibraryQuery, LibrarySection, PhotoExportOptions, PhotoExportResult, PhotoInboxStatus, PhotoLayout } from "./types";
 
 function isLibraryTask(task: Task | null) {
   if (!task || task.status === "idle") return false;
@@ -179,7 +179,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   openCapture: (captureId: number, context?: number[]) => void;
   openGroup?: (groupId: number) => void;
   editGrouping?: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
-  exportPhotos: (captureIds: number[], options: PhotoExportOptions) => Promise<PhoneShareExport>;
+  exportPhotos: (captureIds: number[], options: PhotoExportOptions) => Promise<PhotoExportResult>;
   assignToAlbum: (albumId: number, captureIds: number[]) => Promise<void>;
   batchTag: (captureIds: number[], dimension: CaptureTagDimension, name: string, action: "add" | "remove") => Promise<void>;
   batchReview: (captureIds: number[], rating: number | null, selection: "picked" | "rejected" | "clear" | null) => Promise<void>;
@@ -206,7 +206,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [originalJpeg, setOriginalJpeg] = useState(false);
   const [batchRating, setBatchRating] = useState("");
   const [exporting, setExporting] = useState(false);
-  const [latestExport, setLatestExport] = useState<PhoneShareExport | null>(null);
+  const [latestExport, setLatestExport] = useState<PhotoExportResult | null>(null);
   const [selectionGroup, setSelectionGroup] = useState<SimilarityGroupDetail | null>(null);
   const [selectionGroupDraft, setSelectionGroupDraft] = useState<Set<number>>(new Set());
   const [batchTagEditor, setBatchTagEditor] = useState(false);
@@ -444,7 +444,7 @@ export function LibraryView({ overview, library, albums, filters, equipment, que
   editGrouping: (captureId: number, action: "exclude" | "split_before" | "auto") => Promise<void>;
   saveGrouping: (groupId: number, groups: number[][], excludedIds: number[]) => Promise<{ revision_id: number; group_ids: number[] }>;
   restoreGroupingRevision: (revisionId: number, useBefore?: boolean) => Promise<void>;
-  exportPhotos: (captureIds: number[], options: PhotoExportOptions) => Promise<PhoneShareExport>;
+  exportPhotos: (captureIds: number[], options: PhotoExportOptions) => Promise<PhotoExportResult>;
   changePage: (offset: number) => void;
   changePageSize: (limit: number) => void;
   changeAlbumPage: (offset: number) => void;
