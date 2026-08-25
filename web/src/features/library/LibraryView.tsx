@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getJson } from "../../api";
 import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
@@ -208,9 +208,32 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     } catch { return []; }
   });
   const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
+  const savedViewsMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => window.localStorage.setItem("tangerine-photo-layout", layout), [layout]);
   useEffect(() => window.localStorage.setItem("tangerine-saved-library-views", JSON.stringify(savedViews)), [savedViews]);
+  useEffect(() => {
+    if (!savedViewsOpen) return;
+    const closeMenu = (event: PointerEvent) => {
+      if (!savedViewsMenuRef.current?.contains(event.target as Node)) {
+        setSavedViewsOpen(false);
+        setSaveViewOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSavedViewsOpen(false);
+        setSaveViewOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [savedViewsOpen]);
   const toggle = (captureIds: number[]) => setSelected((current) => {
     const next = new Set(current);
     const remove = captureIds.every((captureId) => next.has(captureId));
@@ -261,6 +284,12 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     ]);
     setSaveViewName("");
     setSaveViewOpen(false);
+    setSavedViewsOpen(false);
+  };
+  const savedViewSummary = (viewQuery: LibraryQuery) => {
+    const filtersInView = [viewQuery.albumId, viewQuery.category, viewQuery.camera, viewQuery.lens, viewQuery.rating, viewQuery.selection, viewQuery.quality, viewQuery.tagSubject, viewQuery.tagStatus, viewQuery.tagProblem, viewQuery.tagLocation, viewQuery.selectionReason, viewQuery.modelProblem, viewQuery.reviewCondition, viewQuery.dateFrom, viewQuery.dateTo, viewQuery.search].filter(Boolean).length;
+    const sortLabel = ({ newest: "最新拍摄", oldest: "最早拍摄", name: "文件名称", rating: "人工星级" } as Record<string, string>)[viewQuery.sort] ?? "自定义排序";
+    return `${filtersInView ? `${filtersInView} 项条件` : "全部照片"} · ${sortLabel}`;
   };
   const activeFilters: Array<{ key: keyof LibraryQuery; label: string }> = [
     ...(!albumContext && query.albumId ? [{ key: "albumId" as const, label: query.albumId === "__unassigned__" ? "未归入相册" : filters?.albums.find((album) => String(album.id) === query.albumId)?.name ?? "相册" }] : []),
@@ -286,10 +315,16 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
         <label className="library-search"><span aria-hidden="true">⌕</span><input aria-label="搜索照片" value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="搜索文件名、相册或目录" /></label>
         <button className={`toolbar-button filter-toggle ${filtersOpen ? "active" : ""}`} onClick={() => setFiltersOpen((current) => !current)}>筛选{activeFilters.length ? <b>{activeFilters.length}</b> : null}</button>
         <label className="sort-control"><select aria-label="照片排序" value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
-        <button className="toolbar-button" onClick={() => setSaveViewOpen((current) => !current)}>保存视图</button>
+        <div className="saved-view-menu" ref={savedViewsMenuRef}>
+          <button className={`toolbar-button ${savedViewsOpen ? "active" : ""}`} aria-haspopup="menu" aria-expanded={savedViewsOpen} onClick={() => { setSavedViewsOpen((current) => !current); setSaveViewOpen(false); }}>常用视图{savedViews.length ? <b>{savedViews.length}</b> : null}</button>
+          {savedViewsOpen && <div className="saved-view-popover" role="menu">
+            <div className="saved-view-heading"><span>常用视图</span><small>保存并快速恢复筛选</small></div>
+            {savedViews.length > 0 ? <div className="saved-view-list">{savedViews.map((view) => <div className="saved-view-row" key={view.id}><button role="menuitem" onClick={() => { updateQuery(view.query); setSavedViewsOpen(false); }}><strong>{view.name}</strong><small>{savedViewSummary(view.query)}</small></button><button className="saved-view-delete" aria-label={`删除视图 ${view.name}`} title="删除" onClick={() => setSavedViews((current) => current.filter((item) => item.id !== view.id))}>×</button></div>)}</div> : <p className="saved-view-empty">还没有保存的视图。</p>}
+            {saveViewOpen ? <form onSubmit={(event) => { event.preventDefault(); saveCurrentView(); }}><input autoFocus value={saveViewName} maxLength={40} placeholder="例如：最近未评分" onChange={(event) => setSaveViewName(event.target.value)} /><div><button type="button" onClick={() => setSaveViewOpen(false)}>取消</button><button className="primary" disabled={!saveViewName.trim()}>保存</button></div></form> : <button className="saved-view-create" onClick={() => setSaveViewOpen(true)}>＋ 保存当前筛选</button>}
+          </div>}
+        </div>
         {(activeFilters.length > 0 || query.search) && <button className="filter-clear" onClick={clearFilters}>全部清除</button>}
       </div>
-      {(savedViews.length > 0 || saveViewOpen) && <div className="saved-view-bar"><span>常用视图</span>{savedViews.map((view) => <span key={view.id}><button onClick={() => updateQuery(view.query)}>{view.name}</button><button aria-label={`删除视图 ${view.name}`} onClick={() => setSavedViews((current) => current.filter((item) => item.id !== view.id))}>×</button></span>)}{saveViewOpen && <form onSubmit={(event) => { event.preventDefault(); saveCurrentView(); }}><input autoFocus value={saveViewName} maxLength={40} placeholder="例如：最近未评分" onChange={(event) => setSaveViewName(event.target.value)} /><button disabled={!saveViewName.trim()}>保存</button><button type="button" onClick={() => setSaveViewOpen(false)}>取消</button></form>}</div>}
       {activeFilters.length > 0 && <div className="active-filter-chips">{activeFilters.map((filter) => <button key={filter.key} onClick={() => updateQuery({ [filter.key]: "" })}>{filter.label}<span>×</span></button>)}</div>}
       {filtersOpen && <div className="library-filter-drawer"><div className="filter-drawer-heading"><span>筛选照片</span><button type="button" onClick={() => setTagManagerOpen(true)}>管理分类与状态</button></div>
         {!albumContext && <fieldset><legend>归属</legend><label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option><option value="__unassigned__">未归入相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label></fieldset>}

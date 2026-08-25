@@ -117,6 +117,51 @@ class WebAppQueryTests(unittest.TestCase):
                     400,
                 )
 
+    def test_confirming_quality_work_item_removes_it_from_open_queue(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            with TestClient(create_app(config_path), base_url="http://localhost") as client:
+                session = client.get("/api/session").json()
+                connection = connect(settings.database_path)
+                connection.execute(
+                    "INSERT INTO scan_runs(id,started_at,root_path,status) VALUES (1,'now','TEST','complete')"
+                )
+                connection.execute(
+                    """INSERT INTO files(
+                           id,path,relative_path,parent_relative,file_name,stem,extension,
+                           media_kind,size_bytes,modified_ns,first_seen_run_id,last_seen_run_id
+                       ) VALUES (1,'TEST:a.jpg','a.jpg','','a.jpg','a','.jpg','jpeg',1,1,1,1)"""
+                )
+                connection.execute(
+                    "INSERT INTO captures(id,capture_key,parent_relative,stem,pairing_status) VALUES (1,'a','','a','jpeg_only')"
+                )
+                connection.execute("INSERT INTO capture_files VALUES (1,1,'jpeg')")
+                connection.execute(
+                    """INSERT INTO quality_metrics(
+                           capture_id,source_file_id,algorithm_version,technical_score,
+                           issue_json,size_bytes,modified_ns,computed_at
+                       ) VALUES (1,1,'v1',60,'[{"code":"blur","severity":"medium","message":"需复核"}]',1,1,'now')"""
+                )
+                connection.commit()
+                connection.close()
+
+                response = client.put(
+                    "/api/work-items/quality/1",
+                    headers={session["header"]: session["token"]},
+                    json={"status": "confirmed"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["status"], "confirmed")
+                page = client.get(
+                    "/api/quality?review_filter=problems&workflow_filter=open"
+                ).json()
+                self.assertEqual(page["count"], 0)
+
     def test_windows_file_actions_only_delegate_to_desktop_shell(self) -> None:
         source = Path(r"D:\Photos\sample.jpg")
         with patch("tangerine_photo_assistant.webapp.os.name", "nt"), patch(

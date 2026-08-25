@@ -64,11 +64,64 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [analysisTab, setAnalysisTab] = useState<"quality" | "model" | "history">("quality");
   const [qualityBrowseMode, setQualityBrowseMode] = useState<CollectionScope>("all");
   const [qualitySelected, setQualitySelected] = useState<Set<number>>(new Set());
+  const [qualitySaving, setQualitySaving] = useState<Set<number>>(new Set());
+  const [qualityHidden, setQualityHidden] = useState<Set<number>>(new Set());
+  const [qualityStatusOverrides, setQualityStatusOverrides] = useState<Map<number, WorkItemStatus>>(new Map());
+  const [qualityBatchSaving, setQualityBatchSaving] = useState(false);
   const selectedQualityAlbum = quality?.albums.find((album) => String(album.id) === qualityAlbumId) ?? null;
   useEffect(() => {
     if (qualityAlbumId) setAnalysisTab("quality");
   }, [qualityAlbumId]);
   useEffect(() => setQualitySelected(new Set()), [qualityAlbumId, qualityFilter, qualitySearch, qualityWorkflowFilter]);
+  useEffect(() => {
+    setQualityHidden(new Set());
+    setQualityStatusOverrides(new Map());
+  }, [quality]);
+  const visibleQualityItems = (quality?.items ?? []).filter((item) => !qualityHidden.has(item.capture_id));
+  const statusMatchesQualityFilter = (status: WorkItemStatus) => qualityWorkflowFilter === "all"
+    || (qualityWorkflowFilter === "open" && ["new", "reappeared", "pending"].includes(status))
+    || qualityWorkflowFilter === status;
+  const updateQualityWorkItem = async (captureId: number, status: Exclude<WorkItemStatus, "new" | "reappeared">) => {
+    setQualitySaving((current) => new Set(current).add(captureId));
+    try {
+      await saveWorkItem("quality", captureId, status);
+      setQualityStatusOverrides((current) => new Map(current).set(captureId, status));
+      if (!statusMatchesQualityFilter(status)) setQualityHidden((current) => new Set(current).add(captureId));
+      setQualitySelected((current) => {
+        const next = new Set(current);
+        next.delete(captureId);
+        return next;
+      });
+    } catch {
+      // The application-level error banner contains the API error. Keep the card
+      // in place so the user can retry without losing context.
+    } finally {
+      setQualitySaving((current) => {
+        const next = new Set(current);
+        next.delete(captureId);
+        return next;
+      });
+    }
+  };
+  const updateSelectedQualityItems = async (status: "confirmed" | "snoozed") => {
+    const captureIds = [...qualitySelected];
+    if (!captureIds.length) return;
+    setQualityBatchSaving(true);
+    try {
+      await saveWorkItems("quality", captureIds, status);
+      setQualityStatusOverrides((current) => {
+        const next = new Map(current);
+        captureIds.forEach((captureId) => next.set(captureId, status));
+        return next;
+      });
+      if (!statusMatchesQualityFilter(status)) setQualityHidden((current) => new Set([...current, ...captureIds]));
+      setQualitySelected(new Set());
+    } catch {
+      // Keep the selection on failure so retrying does not require selecting again.
+    } finally {
+      setQualityBatchSaving(false);
+    }
+  };
   const estimatedBatchSeconds = ai?.latest_run?.average_seconds_per_photo
     ? ai.latest_run.average_seconds_per_photo * batchSize
     : null;
@@ -215,11 +268,12 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           <select value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as QualityReviewFilter)}><option value="problems">发现问题（建议优先）</option><option value="low_score">技术健康度低于 70</option><option value="with_model">已有模型结果</option><option value="without_model">等待模型分析</option><option value="unrated">尚未评分</option><option value="all">全部已分析</option></select>
           <select aria-label="待办处理状态" value={qualityWorkflowFilter} onChange={(event) => setQualityWorkflowFilter(event.target.value as WorkItemFilter)}><option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option></select>
         </div>
-        {!!quality?.items.some((item) => item.issues.length > 0) && <div className="quality-batch-review"><span>已选 {qualitySelected.size} 项</span><button onClick={() => setQualitySelected(new Set(quality.items.filter((item) => item.issues.length > 0).map((item) => item.capture_id)))}>选择本页</button><button disabled={!qualitySelected.size} onClick={() => setQualitySelected(new Set())}>清空</button><button disabled={!qualitySelected.size} onClick={async () => { await saveWorkItems("quality", [...qualitySelected], "confirmed"); setQualitySelected(new Set()); }}>批量核对</button><button disabled={!qualitySelected.size} onClick={async () => { await saveWorkItems("quality", [...qualitySelected], "snoozed"); setQualitySelected(new Set()); }}>7天后处理</button></div>}
+        {!!visibleQualityItems.some((item) => item.issues.length > 0) && <div className="quality-batch-review"><span>{qualityBatchSaving ? "正在更新…" : `已选 ${qualitySelected.size} 项`}</span><button disabled={qualityBatchSaving} onClick={() => setQualitySelected(new Set(visibleQualityItems.filter((item) => item.issues.length > 0).map((item) => item.capture_id)))}>选择本页</button><button disabled={!qualitySelected.size || qualityBatchSaving} onClick={() => setQualitySelected(new Set())}>清空</button><button disabled={!qualitySelected.size || qualityBatchSaving} onClick={() => void updateSelectedQualityItems("confirmed")}>批量核对</button><button disabled={!qualitySelected.size || qualityBatchSaving} onClick={() => void updateSelectedQualityItems("snoozed")}>7天后处理</button></div>}
         <div className="quality-review-grid">
-          {(quality?.items ?? []).map((item) => {
+          {visibleQualityItems.map((item) => {
             const technicalSummary = item.issues[0]?.message || "未发现明确技术问题";
             const technicalSuggestion = item.issues[0] ? technicalAdvice(item.issues[0].code) : "当前技术指标正常，可结合构图和表达继续人工判断。";
+            const workflowStatus = qualityStatusOverrides.get(item.capture_id) ?? item.workflow_status;
             return (
             <article className="quality-review-card" key={item.capture_id}>
               {item.issues.length > 0 && <label className="quality-work-select"><input type="checkbox" checked={qualitySelected.has(item.capture_id)} onChange={(event) => setQualitySelected((current) => { const next = new Set(current); event.target.checked ? next.add(item.capture_id) : next.delete(item.capture_id); return next; })} /><span>选择待办</span></label>}
@@ -230,10 +284,10 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
                   <option value="">人工星级</option><option value="1">1 星</option><option value="2">2 星</option><option value="3">3 星</option><option value="4">4 星</option><option value="5">5 星</option>
                 </select>
               </div>
-              {item.issues.length > 0 && <div className="work-item-actions"><b>{({ new: "新发现", reappeared: "重新出现", pending: "待处理", confirmed: "已核对", ignored: "已忽略", snoozed: "稍后处理", resolved: "已解决" } as Record<string, string>)[item.workflow_status]}</b>{["new", "reappeared", "pending"].includes(item.workflow_status) ? <><button onClick={() => void saveWorkItem("quality", item.capture_id, "confirmed")}>已核对</button><button onClick={() => void saveWorkItem("quality", item.capture_id, "snoozed")}>7天后</button><button onClick={() => void saveWorkItem("quality", item.capture_id, "ignored")}>忽略</button></> : <button onClick={() => void saveWorkItem("quality", item.capture_id, "pending")}>重新打开</button>}</div>}
+              {item.issues.length > 0 && <div className="work-item-actions"><b>{qualitySaving.has(item.capture_id) ? "正在更新…" : ({ new: "新发现", reappeared: "重新出现", pending: "待处理", confirmed: "已核对", ignored: "已忽略", snoozed: "稍后处理", resolved: "已解决" } as Record<string, string>)[workflowStatus]}</b>{["new", "reappeared", "pending"].includes(workflowStatus) ? <><button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "confirmed")}>{qualitySaving.has(item.capture_id) ? "保存中…" : "已核对"}</button><button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "snoozed")}>7天后</button><button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "ignored")}>忽略</button></> : <button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "pending")}>{qualitySaving.has(item.capture_id) ? "保存中…" : "重新打开"}</button>}</div>}
             </article>
           );})}
-          {!quality?.items.length && <div className="empty-state">当前筛选条件没有照片。尚未分析时，请先运行技术检测。</div>}
+          {!visibleQualityItems.length && <div className="empty-state">{qualityHidden.size ? "本页待办已处理，正在刷新队列。" : "当前筛选条件没有照片。尚未分析时，请先运行技术检测。"}</div>}
         </div>
         {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
       </section>}
