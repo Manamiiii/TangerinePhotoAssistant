@@ -891,7 +891,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: start;
   gap: 14px;
   padding: 0 18px 22px;
 }
@@ -915,10 +914,11 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .photo-card-copy { display: flex; flex-direction: column; gap: 4px; padding: 11px 12px 7px; }
 .photo-card-copy strong { font-size: 11px; }
 .photo-card-copy span { color: #7f786f; font-size: 11px; }
-.photo-review { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 6px 10px 12px; }
+.photo-review { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 6px 10px 12px; }
 .photo-review select, .photo-review button { width: 100%; min-width: 0; min-height: 32px; padding: 0 6px; border: 1px solid var(--line); border-radius: 7px; color: inherit; background: var(--surface-soft); font: inherit; font-size: 10px; cursor: pointer; }
 .photo-review button.selected { border-color: #77aa85; color: #477c56; background: rgba(119, 170, 133, .12); }
 .photo-review button.rejected { border-color: #d7887b; color: #b95f51; background: rgba(215, 136, 123, .12); }
+.photo-review button:disabled { cursor: not-allowed; opacity: .38; }
 
 .detail-backdrop {
   position: fixed;
@@ -1592,7 +1592,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   .group-export-tools, .statistics-view-toolbar, .settings-folder-actions { align-items: stretch; flex-direction: column; }
   .group-export-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.selection-reason-row,
 .detail-selection-reasons {
   display: flex;
   align-items: center;
@@ -1600,18 +1599,12 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   gap: 6px;
 }
 
-.selection-reason-row {
-  padding: 0 14px 14px;
-}
-
-.selection-reason-row span,
 .detail-selection-reasons > span {
   color: var(--muted);
   font-size: 12px;
   margin-right: 2px;
 }
 
-.selection-reason-row button,
 .detail-selection-reasons button {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1621,7 +1614,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
   font-size: 12px;
 }
 
-.selection-reason-row button.selected,
 .detail-selection-reasons button.selected {
   border-color: var(--orange);
   background: rgba(255, 122, 26, .14);
@@ -1631,6 +1623,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .detail-selection-reasons {
   margin: -2px 0 12px;
 }
+.selection-reason-editor { padding: 18px 20px 8px; }
+.selection-reason-editor p { margin: 0 0 14px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.selection-reason-editor .detail-selection-reasons { margin: 0; }
 
 .selection-reason-summary {
   display: flex;
@@ -1816,9 +1811,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .tag-manager-list button { padding: 5px 7px; border: 0; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }
 .tag-manager-list button:hover { color: var(--orange-soft); }
 .photo-flag, .similarity-picker-photo span { color: #fff8f1; background: #a64f18; box-shadow: 0 1px 5px rgba(0,0,0,.3); font-size: 11px; }
-.selection-reason-row { padding: 4px 10px 10px; gap: 4px; }
-.selection-reason-row span { flex-basis: 100%; margin: 0 0 2px; font-size: 11px; }
-.selection-reason-row button { padding: 3px 6px; font-size: 10px; }
 .toolbar-button, .collection-scope-tabs button, .section-tabs button, .album-workspace-header nav button { font-size: 11px; }
 .photo-card-copy span, .photo-card-copy p, .batch-count, .panel-heading > span { font-size: 11px; }
 

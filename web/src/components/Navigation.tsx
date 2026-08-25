@@ -57,9 +57,9 @@ export function AlbumWorkspaceHeader({ name, category, summary, counts, current,
   openQuality: () => void;
 }) {
   const destinations = [
-    ["library", "照片", counts.photos, openPhotos],
-    ["bursts", "相似组", counts.similarityGroups, openBursts],
-    ["analysis", "质量", counts.qualityResults, openQuality],
+    ["library", "相册照片", counts.photos, openPhotos],
+    ["bursts", "相似选片", counts.similarityGroups, openBursts],
+    ["analysis", "质量结果", counts.qualityResults, openQuality],
   ] as const;
   return <section className="album-workspace-header">
     <button className="album-back" onClick={back}>← 返回相册列表</button>

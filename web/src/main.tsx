@@ -1035,7 +1035,7 @@ function App() {
   const pageMeta = {
     home: ["OVERVIEW", "首页概览", ""],
     library: ["LIBRARY", "照片图库", "浏览、整理并管理全部拍摄单元"],
-    bursts: ["REVIEW", "相似组", "比较连拍与相似画面，留下真正需要的版本"],
+    bursts: ["REVIEW", "相似选片", "比较连拍与相似画面，留下真正需要的版本"],
     analysis: ["ANALYSIS / REVIEW", "质量分析", "批量运行技术检测与本地模型，在单张详情中复核结果"],
     statistics: ["STATISTICS", "摄影统计", "从器材、参数和选片结果理解拍摄习惯"],
     equipment: ["EQUIPMENT", "设备管理", "器材档案与实际使用统计"],
@@ -1052,7 +1052,7 @@ function App() {
           <span className="nav-group-label">照片管理</span>
           <button aria-current={view === "home" ? "page" : undefined} title="首页概览" className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => requestView("home")}><span>首</span>首页概览</button>
           <button aria-current={view === "library" ? "page" : undefined} title="照片图库" className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { if (requestView("library")) setLibraryLandingSection("photos"); }}><span>图</span>照片图库</button>
-          <button aria-current={view === "bursts" ? "page" : undefined} title="相似组" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => requestView("bursts")}><span>选</span>相似组</button>
+          <button aria-current={view === "bursts" ? "page" : undefined} title="相似选片" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => requestView("bursts")}><span>选</span>相似选片</button>
           <span className="nav-group-label system-label">分析学习</span>
           <button aria-current={view === "analysis" ? "page" : undefined} title="质量分析" className={`nav-item ${view === "analysis" ? "active" : ""}`} onClick={() => requestView("analysis")}><span>析</span>质量分析</button>
           <button aria-current={view === "statistics" ? "page" : undefined} title="摄影统计" className={`nav-item ${view === "statistics" ? "active" : ""}`} onClick={() => requestView("statistics")}><span>统</span>摄影统计</button>
@@ -1078,7 +1078,7 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} filters={libraryFilters} similarity={similarityGroups} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似组", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} filters={libraryFilters} similarity={similarityGroups} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} equipment={equipment} query={libraryQuery}
           requestedSection={libraryLandingSection}

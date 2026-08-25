@@ -1,5 +1,6 @@
 import { useEffect, useState, type DragEvent } from "react";
 import { getJson } from "../../api";
+import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatExposure, numberFormat } from "../../formatters";
@@ -99,6 +100,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
 }) {
   const [browseMode, setBrowseMode] = useState<CollectionScope>("all");
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [reasonEditorCaptureId, setReasonEditorCaptureId] = useState<number | null>(null);
   const [comparisonOrder, setComparisonOrder] = useState<"recommended" | "balanced" | "capture">("recommended");
   const [albumUndo, setAlbumUndo] = useState<SimilarityRevision | null>(null);
   const groupItems = groups?.items ?? [];
@@ -110,6 +112,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   const completedCount = Math.max(0, (groups?.total_count ?? 0) - (groups?.pending_count ?? 0));
   const completionPercent = groups?.total_count ? Math.round(completedCount / groups.total_count * 100) : 0;
   const selectedAlbum = groups?.albums.find((album) => String(album.id) === albumId) ?? null;
+  const reasonEditorItem = selectedGroup?.items.find((item) => item.capture_id === reasonEditorCaptureId) ?? null;
   const comparisonItems = selectedGroup ? [...selectedGroup.items].sort((left, right) => (
     comparisonOrder === "capture"
       ? left.sequence_index - right.sequence_index
@@ -131,6 +134,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
   }, [albumId, groups, selectedGroup]);
   useEffect(() => {
     setEditingGroupId(null);
+    setReasonEditorCaptureId(null);
   }, [selectedGroup?.id]);
   return (
     <>
@@ -163,8 +167,8 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
                   </select>
                   <button className={item.user_pick ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: !item.user_pick, user_reject: false, user_note: item.user_note })}>保留</button>
                   <button className={item.user_reject ? "rejected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: false, user_reject: !item.user_reject, user_note: item.user_note })}>排除</button>
+                  <button disabled={!item.user_pick} title={item.user_pick ? "编辑保留依据" : "先将照片标记为保留"} onClick={() => setReasonEditorCaptureId(item.capture_id)}>依据{item.selection_reasons.length ? ` ${item.selection_reasons.length}` : ""}</button>
                 </div>
-                {item.user_pick ? <div className="selection-reason-row" onClick={(event) => event.stopPropagation()}><span title="记录人工入选原因，用于复盘选片偏好和统计">保留依据</span>{selectionReasonOptions.map((reason) => <button key={reason} className={item.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => saveReview(item.capture_id, { user_rating: item.user_rating, user_pick: true, user_reject: false, user_note: item.user_note, selection_reasons: item.selection_reasons.includes(reason) ? item.selection_reasons.filter((itemReason) => itemReason !== reason) : [...item.selection_reasons, reason] })}>{reason}</button>)}</div> : null}
               </article>
             ))}
           </div></>}
@@ -192,6 +196,10 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
           {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
         </section>
       </>)}
+      {reasonEditorItem && <ModalShell title={`${reasonEditorItem.stem} · 保留依据`} close={() => setReasonEditorCaptureId(null)}>
+        <div className="selection-reason-editor"><p>可多选，用于复盘你的选片偏好，不会修改照片文件。</p><div className="detail-selection-reasons">{selectionReasonOptions.map((reason) => <button key={reason} className={reasonEditorItem.selection_reasons.includes(reason) ? "selected" : ""} onClick={() => saveReview(reasonEditorItem.capture_id, { user_rating: reasonEditorItem.user_rating, user_pick: true, user_reject: false, user_note: reasonEditorItem.user_note, selection_reasons: reasonEditorItem.selection_reasons.includes(reason) ? reasonEditorItem.selection_reasons.filter((itemReason) => itemReason !== reason) : [...reasonEditorItem.selection_reasons, reason] })}>{reason}</button>)}</div></div>
+        <footer className="editor-footer"><button className="primary" onClick={() => setReasonEditorCaptureId(null)}>完成</button></footer>
+      </ModalShell>}
     </>
   );
 }
