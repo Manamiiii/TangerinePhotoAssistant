@@ -193,6 +193,8 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchDraft, setSearchDraft] = useState(query.search);
+  const updateQueryRef = useRef(updateQuery);
   const [layout, setLayout] = useState<PhotoLayout>(() => {
     const saved = window.localStorage.getItem("tangerine-photo-layout");
     return saved === "list" || saved === "small" || saved === "large" ? saved : "medium";
@@ -223,6 +225,13 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
   const savedViewsMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { updateQueryRef.current = updateQuery; }, [updateQuery]);
+  useEffect(() => { setSearchDraft(query.search); }, [query.search]);
+  useEffect(() => {
+    if (searchDraft === query.search) return;
+    const timeout = window.setTimeout(() => updateQueryRef.current({ search: searchDraft }), 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchDraft, query.search]);
   useEffect(() => window.localStorage.setItem("tangerine-photo-layout", layout), [layout]);
   useEffect(() => window.localStorage.setItem("tangerine-saved-library-views", JSON.stringify(savedViews)), [savedViews]);
   useEffect(() => {
@@ -340,7 +349,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   return <>
     <section className="library-filter-shell">
       <div className="library-filter-toolbar">
-        <label className="library-search"><span aria-hidden="true">⌕</span><input aria-label="搜索照片" value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="搜索文件名、相册或目录" /></label>
+        <label className="library-search"><span aria-hidden="true">⌕</span><input aria-label="搜索照片" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="搜索文件名、相册或目录" /></label>
         <button className={`toolbar-button filter-toggle ${filtersOpen ? "active" : ""}`} onClick={() => setFiltersOpen((current) => !current)}>筛选{activeFilters.length ? <b>{activeFilters.length}</b> : null}</button>
         <label className="sort-control"><select aria-label="照片排序" value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
         <div className="saved-view-menu" ref={savedViewsMenuRef}>
