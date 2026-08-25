@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -589,6 +589,30 @@ def connect(path: Path) -> sqlite3.Connection:
             status TEXT NOT NULL CHECK(status IN ('missing', 'changed', 'new', 'unreadable')),
             PRIMARY KEY (check_id, status, relative_path)
         );
+
+        CREATE INDEX IF NOT EXISTS idx_archive_check_differences_path_check
+            ON archive_check_differences(relative_path, check_id);
+
+        CREATE TABLE IF NOT EXISTS integrity_investigations (
+            scope TEXT NOT NULL CHECK(scope IN ('archive', 'active')),
+            relative_path TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN (
+                'pending', 'confirmed', 'ignored', 'snoozed', 'resolved'
+            )),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            due_at TEXT,
+            note TEXT,
+            occurrence_count INTEGER NOT NULL DEFAULT 1,
+            last_seen_check_id INTEGER NOT NULL,
+            reappeared INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (scope, relative_path)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_integrity_investigations_status_due
+            ON integrity_investigations(scope, status, due_at, relative_path);
 
         CREATE TABLE IF NOT EXISTS migration_plans (
             id INTEGER PRIMARY KEY,

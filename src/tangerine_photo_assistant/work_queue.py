@@ -211,11 +211,55 @@ def work_queue_summary(
           )
         """
     ).fetchone()
+    integrity = connection.execute(
+        """WITH latest_checks AS (
+               SELECT ab.scope, MAX(ac.id) AS check_id
+               FROM archive_checks ac
+               JOIN archive_baselines ab ON ab.id=ac.baseline_id
+               GROUP BY ab.scope
+           ), current_findings AS (
+               SELECT lc.scope, ac.checked_at, acd.relative_path, acd.status,
+                      ii.fingerprint, ii.status AS saved_status, ii.due_at,
+                      COALESCE(ii.first_seen_at, (
+                          SELECT MIN(ac_seen.checked_at)
+                          FROM archive_check_differences acd_seen
+                          JOIN archive_checks ac_seen ON ac_seen.id=acd_seen.check_id
+                          JOIN archive_baselines ab_seen ON ab_seen.id=ac_seen.baseline_id
+                          WHERE ab_seen.scope=lc.scope
+                            AND acd_seen.relative_path=acd.relative_path
+                      )) AS first_seen_at,
+                      ii.reappeared
+               FROM latest_checks lc
+               JOIN archive_checks ac ON ac.id=lc.check_id
+               JOIN archive_check_differences acd ON acd.check_id=lc.check_id
+               LEFT JOIN integrity_investigations ii
+                 ON ii.scope=lc.scope AND ii.relative_path=acd.relative_path
+           )
+           SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN fingerprint IS NULL THEN 1 ELSE 0 END) AS new_count,
+                  SUM(CASE WHEN reappeared=1 OR
+                                    fingerprint <> ('integrity:' || status)
+                           THEN 1 ELSE 0 END) AS reappeared_count,
+                  MIN(COALESCE(first_seen_at, checked_at)) AS oldest_seen_at
+           FROM current_findings
+           WHERE fingerprint IS NULL
+              OR reappeared=1
+              OR fingerprint <> ('integrity:' || status)
+              OR saved_status='pending'
+              OR (saved_status='snoozed' AND due_at <= CURRENT_TIMESTAMP)"""
+    ).fetchone()
     quality_total = int(quality["total"] or 0)
     ai_total = int(ai["total"] or 0)
+    integrity_total = int(integrity["total"] or 0)
+    open_total = quality_total + ai_total + integrity_total
     daily_limit = max(5, min(int(daily_limit), 200))
+    integrity_today = min(integrity_total, daily_limit)
+    analysis_today = min(quality_total + ai_total, daily_limit - integrity_today)
     oldest_candidates = [
-        str(value) for value in (quality["oldest_seen_at"], ai["oldest_seen_at"])
+        str(value) for value in (
+            quality["oldest_seen_at"], ai["oldest_seen_at"],
+            integrity["oldest_seen_at"],
+        )
         if value
     ]
     oldest_seen_at = min(oldest_candidates) if oldest_candidates else None
@@ -229,10 +273,12 @@ def work_queue_summary(
         except ValueError:
             oldest_age_days = None
     return {
-        "open_count": quality_total + ai_total,
-        "today_count": min(daily_limit, quality_total + ai_total),
+        "open_count": open_total,
+        "today_count": min(daily_limit, open_total),
+        "analysis_today_count": analysis_today,
+        "integrity_today_count": integrity_today,
         "daily_limit": daily_limit,
-        "estimated_minutes": min(daily_limit, quality_total + ai_total) * 2,
+        "estimated_minutes": min(daily_limit, open_total) * 2,
         "oldest_seen_at": oldest_seen_at,
         "oldest_age_days": oldest_age_days,
         "quality": {
@@ -244,5 +290,10 @@ def work_queue_summary(
         "ai": {
             "open_count": ai_total,
             "new_count": int(ai["new_count"] or 0),
+        },
+        "integrity": {
+            "open_count": integrity_total,
+            "new_count": int(integrity["new_count"] or 0),
+            "reappeared_count": int(integrity["reappeared_count"] or 0),
         },
     }

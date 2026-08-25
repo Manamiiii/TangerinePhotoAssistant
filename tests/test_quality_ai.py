@@ -33,6 +33,7 @@ from tangerine_photo_assistant.archive import (
     integrity_differences,
     recorded_archive_status,
     run_integrity_check,
+    save_integrity_investigation,
 )
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
@@ -63,6 +64,7 @@ from tangerine_photo_assistant.webapp import (
     _query_similarity_group,
     _query_similarity_groups,
 )
+from tangerine_photo_assistant.work_queue import work_queue_summary
 
 
 def settings_for(root: Path) -> Settings:
@@ -406,10 +408,43 @@ class QualityAndAiTests(unittest.TestCase):
             self.assertEqual(recorded["comparison"]["missing"], 1)
             differences = integrity_differences(connection, "archive", limit=1)
             self.assertEqual(differences["count"], 1)
+            self.assertEqual(
+                work_queue_summary(connection)["integrity"]["open_count"], 1
+            )
             self.assertEqual(differences["items"][0]["status"], "missing")
             self.assertEqual(
                 Path(differences["items"][0]["relative_path"]).parts,
                 ("MyPhoto", "宝贝", "2026.8.6_测试", "DSCF0003.JPG"),
+            )
+            relative_path = differences["items"][0]["relative_path"]
+            save_integrity_investigation(
+                connection, "archive", relative_path, "confirmed"
+            )
+            self.assertEqual(
+                integrity_differences(
+                    connection, "archive", workflow="open"
+                )["count"],
+                0,
+            )
+            self.assertEqual(
+                work_queue_summary(connection)["integrity"]["open_count"], 0
+            )
+            run_integrity_check(connection, "archive")
+            self.assertEqual(
+                integrity_differences(
+                    connection, "archive", workflow="confirmed"
+                )["count"],
+                1,
+            )
+            photo(event / "DSCF0003.JPG", 4)
+            run_integrity_check(connection, "archive")
+            reappeared = integrity_differences(
+                connection, "archive", workflow="reappeared"
+            )
+            self.assertEqual(reappeared["count"], 1)
+            self.assertEqual(reappeared["items"][0]["status"], "changed")
+            self.assertEqual(
+                work_queue_summary(connection)["integrity"]["reappeared_count"], 1
             )
             connection.close()
 

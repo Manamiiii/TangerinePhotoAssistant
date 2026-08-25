@@ -1125,6 +1125,23 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .integrity-guidance { margin-top: 14px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: baseline; }
 .integrity-guidance strong { font-size: 11px; }
 .integrity-guidance span { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.integrity-investigation-toolbar { display: flex; align-items: center; gap: 7px; }
+.integrity-investigation-toolbar select { min-height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-soft); font: inherit; font-size: 11px; }
+.integrity-investigation-list { border-top: 1px solid var(--line); }
+.integrity-investigation-list article { min-height: 54px; padding: 8px 18px; display: grid; grid-template-columns: 58px minmax(0, 1fr) 150px auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+.integrity-investigation-list .integrity-kind { color: var(--orange-soft); font-size: 10px; font-weight: 700; }
+.integrity-investigation-list strong { min-width: 0; overflow: hidden; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.integrity-investigation-list small { color: var(--muted); font-size: 10px; }
+.integrity-investigation-list article > div { display: flex; gap: 6px; }
+.integrity-investigation-list button { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: var(--surface-soft); font-size: 10px; cursor: pointer; white-space: nowrap; }
+.integrity-investigation-list button:disabled { opacity: .5; cursor: progress; }
+@media (max-width: 850px) {
+  .integrity-investigation-toolbar { align-items: stretch; flex-direction: column; }
+  .integrity-investigation-list article { grid-template-columns: 54px minmax(0, 1fr); }
+  .integrity-investigation-list article > small,
+  .integrity-investigation-list article > div { grid-column: 2; }
+  .integrity-investigation-list article > div { flex-wrap: wrap; }
+}
 .month-panel { margin-top: 20px; overflow: hidden; }
 .month-strip { height: 240px; padding: 20px 24px 24px; display: flex; align-items: flex-end; gap: 8px; overflow-x: auto; }
 .month-strip > div, .month-strip > button { flex: 1 0 42px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 5px; }

@@ -1075,6 +1075,26 @@ function App() {
     return true;
   };
 
+  const saveIntegrityInvestigation = async (
+    scope: "archive" | "active",
+    relativePath: string,
+    status: "pending" | "confirmed" | "ignored" | "snoozed" | "resolved",
+  ) => {
+    setError(null);
+    try {
+      await getJson("/api/integrity/investigations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, relative_path: relativePath, status, ...(status === "snoozed" ? { snooze_days: 7 } : {}) }),
+      });
+      setOverview(await getJson<Overview>("/api/overview"));
+      pushToast("success", status === "snoozed" ? "完整性差异已推迟 7 天" : "调查状态已更新");
+    } catch (reason) {
+      setError((reason as Error).message);
+      throw reason;
+    }
+  };
+
   const albumWorkspaceCounts = (albumId: string | number) => {
     const id = Number(albumId);
     return {
@@ -1149,7 +1169,7 @@ function App() {
         {view === "analysis" && <AnalysisView analysis={analysis} preflight={aiPreflight} quality={quality} qualityFilter={qualityFilter} qualityWorkflowFilter={qualityWorkflowFilter} qualitySearch={qualitySearch} setQualityFilter={(filter) => { setQualityOffset(0); setQualityFilter(filter); }} setQualityWorkflowFilter={(filter) => { setQualityOffset(0); setQualityWorkflowFilter(filter); }} setQualitySearch={(search) => { setQualityOffset(0); setQualitySearch(search); }} qualityAlbumId={qualityAlbumId} setQualityAlbumId={(albumId) => { setQualityOffset(0); setQualityAlbumId(albumId); }} albumWorkspaceCounts={albumWorkspaceCounts(qualityAlbumId)} openAlbumPhotos={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openAlbumBursts={(albumId) => { setGroupOffset(0); setGroupReviewFilter("pending"); setGroupAlbumId(String(albumId)); setSelectedGroup(null); setView("bursts"); }} task={task} startQuality={startQuality} startDetailBackfill={startDetailBackfill} resumeDetailBackfill={resumeDetailBackfill} startAi={startAi} syncAnalysisSubjectTags={syncAnalysisSubjectTags} clearAnalysisSubjectTags={clearAnalysisSubjectTags} saveReview={saveReview} saveWorkItem={saveWorkItem} saveWorkItems={saveWorkItems} workQueueRevision={workQueueRevision} cancelTask={cancelTask} pauseTask={pauseTask} resumeAi={resumeAi} retryAiFailures={retryAiFailures} openCapture={openCapture} changeQualityPage={setQualityOffset} changeQualityPageSize={(limit) => { setQualityOffset(0); setQualityPageSize(limit); }} />}
         {view === "statistics" && <StatisticsView statistics={statistics} openLibraryWith={openLibraryWith} />}
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
-        {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} />}
+        {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} saveInvestigation={saveIntegrityInvestigation} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} onDirtyChange={setSettingsDirty} />}
         {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => { captureRequestSequence.current += 1; setCaptureDetail(null); setUrlCaptureId(null); }} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}

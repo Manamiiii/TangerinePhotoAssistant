@@ -61,6 +61,7 @@ from .archive import (
     recorded_active_library_status,
     recorded_archive_status,
     run_integrity_check,
+    save_integrity_investigation,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .diagnostics import write_diagnostic_bundle
@@ -261,6 +262,13 @@ class WorkItemStateRequest(BaseModel):
 class BatchWorkItemStateRequest(BaseModel):
     source_kind: Literal["quality", "ai"]
     subject_ids: list[int] = Field(min_length=1, max_length=200)
+    status: Literal["pending", "confirmed", "ignored", "snoozed", "resolved"]
+    snooze_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class IntegrityInvestigationRequest(BaseModel):
+    scope: Literal["archive", "active"]
+    relative_path: str = Field(min_length=1, max_length=2048)
     status: Literal["pending", "confirmed", "ignored", "snoozed", "resolved"]
     snooze_days: int | None = Field(default=None, ge=1, le=365)
 
@@ -2744,10 +2752,32 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
         status: Literal["missing", "changed", "new", "unreadable"] | None = None,
+        workflow: Literal[
+            "all", "open", "new", "reappeared", "pending", "confirmed",
+            "ignored", "snoozed", "resolved",
+        ] = "all",
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
-            return integrity_differences(connection, scope, limit, offset, status)
+            return integrity_differences(
+                connection, scope, limit, offset, status, workflow
+            )
+        finally:
+            connection.close()
+
+    @app.put("/api/integrity/investigations")
+    def update_integrity_investigation(
+        request: IntegrityInvestigationRequest,
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            try:
+                return save_integrity_investigation(
+                    connection, request.scope, request.relative_path, request.status,
+                    snooze_days=request.snooze_days,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
 

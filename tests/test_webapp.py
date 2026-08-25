@@ -162,6 +162,57 @@ class WebAppQueryTests(unittest.TestCase):
                 ).json()
                 self.assertEqual(page["count"], 0)
 
+    def test_integrity_investigation_endpoint_converges_latest_difference(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(
+                config_path, settings.originals, settings.workspace, settings.cache_root
+            )
+            with TestClient(create_app(config_path), base_url="http://localhost") as client:
+                session = client.get("/api/session").json()
+                connection = connect(settings.database_path)
+                connection.execute(
+                    """INSERT INTO archive_baselines(
+                           id,name,created_at,file_count,total_bytes,scope,root_path
+                       ) VALUES (1,'test','2026-01-01T00:00:00+00:00',1,1,'active','TEST')"""
+                )
+                connection.execute(
+                    """INSERT INTO archive_checks(
+                           id,baseline_id,scan_run_id,checked_at,missing_count,
+                           changed_count,new_count,healthy,sample_json
+                       ) VALUES (1,1,NULL,'2026-01-02T00:00:00+00:00',1,0,0,0,'[]')"""
+                )
+                connection.execute(
+                    "INSERT INTO archive_check_differences VALUES (1,'album/a.jpg','missing')"
+                )
+                connection.commit()
+                connection.close()
+
+                response = client.put(
+                    "/api/integrity/investigations",
+                    headers={session["header"]: session["token"]},
+                    json={
+                        "scope": "active",
+                        "relative_path": "album/a.jpg",
+                        "status": "confirmed",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(
+                    client.get(
+                        "/api/integrity/differences/active?workflow=open"
+                    ).json()["count"],
+                    0,
+                )
+                self.assertEqual(
+                    client.get(
+                        "/api/integrity/differences/active?workflow=confirmed"
+                    ).json()["count"],
+                    1,
+                )
+
     def test_windows_file_actions_only_delegate_to_desktop_shell(self) -> None:
         source = Path(r"D:\Photos\sample.jpg")
         with patch("tangerine_photo_assistant.webapp.os.name", "nt"), patch(

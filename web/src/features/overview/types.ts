@@ -34,12 +34,15 @@ export type Overview = {
   work_queue: {
     open_count: number;
     today_count: number;
+    analysis_today_count: number;
+    integrity_today_count: number;
     daily_limit: number;
     estimated_minutes: number;
     oldest_seen_at: string | null;
     oldest_age_days: number | null;
     quality: { open_count: number; new_count: number; reappeared_count: number; error_count: number };
     ai: { open_count: number; new_count: number };
+    integrity: { open_count: number; new_count: number; reappeared_count: number };
   };
   latest_scan: {
     id: number;

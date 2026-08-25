@@ -64,12 +64,13 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
       <div className="home-dashboard-column home-dashboard-secondary">
         {overview && overview.capture_total > 0 && <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>}
         <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
-          {!!reviewQueue?.today_count && <button onClick={openAnalysis}><span><strong>{numberFormat.format(reviewQueue.today_count)}</strong> 项今日建议复核<small>技术 {numberFormat.format(reviewQueue.quality.open_count)}{reviewQueue.quality.error_count ? `（读取失败 ${numberFormat.format(reviewQueue.quality.error_count)}）` : ""} · 模型高风险 {numberFormat.format(reviewQueue.ai.open_count)} · 约 {reviewQueue.estimated_minutes} 分钟{reviewQueue.oldest_age_days ? ` · 最早已积压 ${reviewQueue.oldest_age_days} 天` : ""}</small></span><b>开始复核</b></button>}
+          {!!reviewQueue?.analysis_today_count && <button onClick={openAnalysis}><span><strong>{numberFormat.format(reviewQueue.analysis_today_count)}</strong> 项今日建议复核<small>技术 {numberFormat.format(reviewQueue.quality.open_count)}{reviewQueue.quality.error_count ? `（读取失败 ${numberFormat.format(reviewQueue.quality.error_count)}）` : ""} · 模型 {numberFormat.format(reviewQueue.ai.open_count)}{reviewQueue.oldest_age_days ? ` · 最早已积压 ${reviewQueue.oldest_age_days} 天` : ""}</small></span><b>开始复核</b></button>}
+          {!!reviewQueue?.integrity_today_count && <button onClick={openMaintenance}><span><strong>{numberFormat.format(reviewQueue.integrity_today_count)}</strong> 项完整性差异待调查<small>全部积压 {numberFormat.format(reviewQueue.integrity.open_count)} 项 · 检查只读，不自动修复照片</small></span><b>调查差异</b></button>}
           {pendingEvents > 0 && <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>}
           {pendingSimilarity > 0 && <button onClick={openBursts}><span><strong>{numberFormat.format(pendingSimilarity)}</strong> 组相似照片待挑选<small>预计约 {similarity?.estimated_review_minutes ?? 0} 分钟</small></span><b>继续选片</b></button>}
           {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
-          {archiveIssue && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
-          {activeIssue && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
+          {archiveIssue && !reviewQueue?.integrity.open_count && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
+          {activeIssue && !reviewQueue?.integrity.open_count && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
           {!hasPending && <div className="empty-state">当前没有需要及时处理的项目。</div>}
         </div></section>
       </div>
