@@ -57,6 +57,7 @@ from .albums import (
 )
 from .archive import (
     create_archive_baseline,
+    integrity_check_history,
     integrity_directory_summary,
     integrity_differences,
     recorded_active_library_status,
@@ -2878,6 +2879,17 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.get("/api/integrity/history/{scope}")
+    def list_integrity_history(
+        scope: Literal["archive", "active"],
+        limit: int = Query(default=12, ge=2, le=50),
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            return integrity_check_history(connection, scope, limit)
         finally:
             connection.close()
 

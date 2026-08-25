@@ -616,6 +616,75 @@ def write_integrity_difference_report(
     }
 
 
+def integrity_check_history(
+    connection: sqlite3.Connection,
+    scope: str,
+    limit: int = 12,
+) -> dict[str, Any]:
+    if scope not in {"archive", "active"}:
+        raise ValueError("Integrity scope must be archive or active")
+    limit = max(2, min(int(limit), 50))
+    checks = connection.execute(
+        """SELECT ac.id, ac.checked_at, ac.missing_count, ac.changed_count,
+                  ac.new_count, ac.healthy
+           FROM archive_checks ac
+           JOIN archive_baselines ab ON ab.id=ac.baseline_id
+           WHERE ab.scope=? ORDER BY ac.id DESC LIMIT ?""",
+        (scope, limit),
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for index, check in enumerate(checks):
+        item = dict(check)
+        item["difference_count"] = (
+            int(check["missing_count"]) + int(check["changed_count"])
+            + int(check["new_count"])
+        )
+        previous = checks[index + 1] if index + 1 < len(checks) else None
+        if previous is None:
+            item.update(
+                introduced_since_previous=None,
+                resolved_since_previous=None,
+                type_changed_since_previous=None,
+                difference_delta=None,
+            )
+        else:
+            comparison = connection.execute(
+                """SELECT
+                       SUM(CASE WHEN previous.relative_path IS NULL THEN 1 ELSE 0 END)
+                           AS introduced,
+                       SUM(CASE WHEN previous.relative_path IS NOT NULL
+                                     AND previous.status <> current.status THEN 1 ELSE 0 END)
+                           AS type_changed
+                   FROM archive_check_differences current
+                   LEFT JOIN archive_check_differences previous
+                     ON previous.check_id=?
+                    AND previous.relative_path=current.relative_path
+                   WHERE current.check_id=?""",
+                (previous["id"], check["id"]),
+            ).fetchone()
+            resolved = connection.execute(
+                """SELECT COUNT(*)
+                   FROM archive_check_differences previous
+                   LEFT JOIN archive_check_differences current
+                     ON current.check_id=?
+                    AND current.relative_path=previous.relative_path
+                   WHERE previous.check_id=? AND current.relative_path IS NULL""",
+                (check["id"], previous["id"]),
+            ).fetchone()[0]
+            previous_total = (
+                int(previous["missing_count"]) + int(previous["changed_count"])
+                + int(previous["new_count"])
+            )
+            item.update(
+                introduced_since_previous=int(comparison["introduced"] or 0),
+                resolved_since_previous=int(resolved or 0),
+                type_changed_since_previous=int(comparison["type_changed"] or 0),
+                difference_delta=item["difference_count"] - previous_total,
+            )
+        items.append(item)
+    return {"scope": scope, "count": len(items), "items": items}
+
+
 def save_integrity_investigation(
     connection: sqlite3.Connection,
     scope: str,

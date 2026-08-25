@@ -1147,6 +1147,14 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .integrity-directory-grid strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .integrity-directory-grid small { color: var(--muted); font-size: 9px; white-space: nowrap; }
 .integrity-directory-grid b { color: var(--orange-soft); font-size: 11px; }
+.integrity-history-panel { margin-top: 14px; }
+.integrity-history-grid { padding: 0 18px 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.integrity-history-grid article { min-width: 0; display: grid; align-content: start; }
+.integrity-history-grid article > strong { padding-bottom: 7px; font-size: 11px; }
+.integrity-history-grid article > div { min-height: 38px; padding: 6px 0; display: grid; grid-template-columns: 86px 54px minmax(0, 1fr); align-items: center; gap: 8px; border-top: 1px solid var(--line); }
+.integrity-history-grid span, .integrity-history-grid small { color: var(--muted); font-size: 9px; }
+.integrity-history-grid b { font-size: 10px; }
+@media (max-width: 760px) { .integrity-history-grid { grid-template-columns: 1fr; } .integrity-history-grid article > div { grid-template-columns: 76px 48px minmax(0, 1fr); } }
 @media (max-width: 850px) {
   .integrity-investigation-toolbar { align-items: stretch; flex-direction: column; }
   .integrity-investigation-list article { grid-template-columns: 54px minmax(0, 1fr); }

@@ -243,6 +243,25 @@ class WebAppQueryTests(unittest.TestCase):
                     ).json()["count"],
                     1,
                 )
+                connection = connect(settings.database_path)
+                connection.execute(
+                    """INSERT INTO archive_checks(
+                           id,baseline_id,scan_run_id,checked_at,missing_count,
+                           changed_count,new_count,healthy,sample_json
+                       ) VALUES (2,1,NULL,'2026-01-03T00:00:00+00:00',0,1,0,0,'[]')"""
+                )
+                connection.execute(
+                    "INSERT INTO archive_check_differences VALUES (2,?,'changed')",
+                    (r"album\a.jpg",),
+                )
+                connection.commit()
+                connection.close()
+                history = client.get("/api/integrity/history/active").json()
+                self.assertEqual(history["count"], 2)
+                self.assertEqual(history["items"][0]["difference_delta"], 0)
+                self.assertEqual(
+                    history["items"][0]["type_changed_since_previous"], 1
+                )
 
     def test_task_incident_endpoint_updates_persistent_recovery_state(self) -> None:
         with TemporaryDirectory() as directory:

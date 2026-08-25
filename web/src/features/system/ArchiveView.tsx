@@ -36,6 +36,7 @@ type IntegrityDirectoryPage = {
   directories: Array<{ name: string; prefix: string; count: number; missing: number; changed: number; new: number; unreadable: number; open_count: number }>;
 };
 type IntegrityExport = { count: number; csv_url: string; json_url: string };
+type IntegrityHistory = { scope: string; count: number; items: Array<{ id: number; checked_at: string; difference_count: number; difference_delta: number | null; introduced_since_previous: number | null; resolved_since_previous: number | null; type_changed_since_previous: number | null }> };
 type TaskIncident = {
   task_kind: string;
   task_label: string;
@@ -73,6 +74,7 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   const [integrityExport, setIntegrityExport] = useState<IntegrityExport | null>(null);
   const [exportingIntegrity, setExportingIntegrity] = useState(false);
   const [integrityExportError, setIntegrityExportError] = useState<string | null>(null);
+  const [integrityHistories, setIntegrityHistories] = useState<Record<string, IntegrityHistory | null>>({ archive: null, active: null });
   const [taskIncidents, setTaskIncidents] = useState<TaskIncidentPage | null>(null);
   const [taskWorkflow, setTaskWorkflow] = useState("open");
   const [savingTask, setSavingTask] = useState<string | null>(null);
@@ -83,7 +85,13 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
       setTaskIncidents(await getJson<TaskIncidentPage>(`/api/task-incidents?workflow=${workflow}`));
     } catch (reason) { setTaskIncidentError((reason as Error).message); }
   };
-  useEffect(() => { void loadTaskIncidents("open"); }, []);
+  useEffect(() => {
+    void loadTaskIncidents("open");
+    void Promise.all([
+      getJson<IntegrityHistory>("/api/integrity/history/archive"),
+      getJson<IntegrityHistory>("/api/integrity/history/active"),
+    ]).then(([archiveHistory, activeHistory]) => setIntegrityHistories({ archive: archiveHistory, active: activeHistory })).catch(() => { /* Baseline cards still expose the latest saved result. */ });
+  }, []);
   const updateTaskIncident = async (taskKind: string, status: "pending" | "confirmed" | "ignored" | "snoozed") => {
     setSavingTask(taskKind);
     try {
@@ -123,7 +131,11 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   };
   const runCheck = async (scope: "archive" | "active") => {
     setChecking(scope);
-    try { await checkIntegrity(scope); } finally { setChecking(null); }
+    try {
+      await checkIntegrity(scope);
+      const history = await getJson<IntegrityHistory>(`/api/integrity/history/${scope}`);
+      setIntegrityHistories((current) => ({ ...current, [scope]: history }));
+    } finally { setChecking(null); }
   };
   const exportDifferences = async () => {
     if (!differenceScope) return;
@@ -193,6 +205,7 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
       {baselineCard("历史存档", archive, createBaseline, "archive")}
       {baselineCard("活动图库", activeLibrary, createActiveBaseline, "active")}
     </section>
+    {Object.values(integrityHistories).some((history) => (history?.count ?? 0) >= 2) && <section className="panel archive-panel integrity-history-panel"><div className="panel-heading"><div><span className="section-kicker">跨检查比较</span><h3>最近完整性变化</h3></div></div><div className="integrity-history-grid">{(["archive", "active"] as const).map((scope) => { const history = integrityHistories[scope]; if (!history || history.count < 2) return null; return <article key={scope}><strong>{scope === "archive" ? "历史存档" : "活动图库"}</strong>{history.items.slice(0, 6).map((item) => <div key={item.id}><span>{formatDate(item.checked_at)}</span><b>{item.difference_count} 项</b><small>{item.difference_delta == null ? "首次记录" : `${item.difference_delta > 0 ? "+" : ""}${item.difference_delta} 净变化 · 新出现 ${item.introduced_since_previous} · 已恢复 ${item.resolved_since_previous}${item.type_changed_since_previous ? ` · 类型变化 ${item.type_changed_since_previous}` : ""}`}</small></div>)}</article>; })}</div></section>}
     {differenceScope && differences && <section className="panel archive-panel">
       <div className="panel-heading"><div><span className="section-kicker">完整差异清单</span><h3>{differenceScope === "archive" ? "历史存档" : "活动图库"} · {numberFormat.format(differences.count)} 项</h3></div><div className="integrity-investigation-toolbar"><select aria-label="调查状态" value={differenceWorkflow} onChange={(event) => { const workflow = event.target.value; setDifferenceWorkflow(workflow); void loadDifferences(differenceScope, 0, workflow, directoryPrefix); }}><option value="open">当前待调查</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option></select><button className="toolbar-button" disabled={exportingIntegrity} onClick={() => void exportDifferences()}>{exportingIntegrity ? "正在导出" : "导出当前结果"}</button><button className="toolbar-button" onClick={() => { setDifferenceScope(null); setDifferences(null); setDirectorySummary(null); }}>关闭</button></div></div>
       <div className="integrity-directory-breadcrumb"><button onClick={() => void loadDifferences(differenceScope, 0, differenceWorkflow, "")}>全部目录</button>{directoryPrefix.split("/").filter(Boolean).map((part, index, parts) => { const prefix = parts.slice(0, index + 1).join("/"); return <button key={prefix} onClick={() => void loadDifferences(differenceScope, 0, differenceWorkflow, prefix)}>› {part}</button>; })}</div>
