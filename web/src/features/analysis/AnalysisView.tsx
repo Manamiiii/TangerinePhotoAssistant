@@ -4,7 +4,7 @@ import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice } from "../../formatters";
-import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload } from "./types";
+import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityResponse, QualityReviewFilter, ReviewPayload } from "./types";
 
 type CollectionScope = "all" | "albums";
 
@@ -12,14 +12,6 @@ function isAnalysisTask(task: Task | null) {
   if (!task || task.status === "idle") return false;
   const stage = task.stage.toLocaleLowerCase();
   return stage === "quality" || stage.startsWith("detail-") || stage.startsWith("ai-") || /技术质量|详情数据|扩展拍摄信息|直方图|模型任务|本地模型|Qwen/.test(task.message);
-}
-
-function modelAdvice(result: QualityItem["ai_result"]) {
-  const shooting = result?.shooting_advice?.[0];
-  if (shooting) return [shooting.suggestion, shooting.reason].filter(Boolean).join("：");
-  const lightroom = result?.lightroom_suggestions?.[0];
-  if (lightroom) return [lightroom.adjustment, lightroom.direction, lightroom.reason].filter(Boolean).join(" · ");
-  return "打开详情查看完整模型分析。";
 }
 
 export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
@@ -205,10 +197,10 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         {!quality?.albums.length && <div className="empty-state">还没有可按相册查看的质量结果，请先运行技术检测。</div>}
       </section>}
       {analysisTab === "quality" && (Boolean(qualityAlbumId) || qualityBrowseMode === "all") && <section className="panel quality-review-panel">
-        <div className="panel-heading"><div><span className="section-kicker">照片复核</span><h3>问题与改进建议</h3></div><span className="batch-count">点击照片查看完整分析</span></div>
+        <div className="panel-heading"><div><span className="section-kicker">照片复核</span><h3>问题与改进建议</h3></div><span className="batch-count">优先处理当前筛选，无需逐张查看</span></div>
         <div className="quality-review-toolbar">
           <input value={qualitySearch} onChange={(event) => setQualitySearch(event.target.value)} placeholder="搜索照片或相册" />
-          <select value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as QualityReviewFilter)}><option value="all">全部已分析</option><option value="problems">发现问题</option><option value="low_score">技术健康度低于 70</option><option value="with_model">已有模型结果</option><option value="without_model">等待模型分析</option><option value="unrated">尚未评分</option></select>
+          <select value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as QualityReviewFilter)}><option value="problems">发现问题（建议优先）</option><option value="low_score">技术健康度低于 70</option><option value="with_model">已有模型结果</option><option value="without_model">等待模型分析</option><option value="unrated">尚未评分</option><option value="all">全部已分析</option></select>
         </div>
         <div className="quality-review-grid">
           {(quality?.items ?? []).map((item) => {
@@ -217,7 +209,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
             return (
             <article className="quality-review-card" key={item.capture_id}>
               <button className="quality-review-photo" onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /><span>技术健康度 {Math.round(item.technical_score)} · {item.issues.length ? `${item.issues.length} 项需复核` : "未见明显故障"}</span></button>
-              <div className="quality-review-copy"><div><strong>{item.stem}</strong><small>{item.event_name} · {item.category}{item.auto_pick ? " · 组内推荐" : ""}</small></div><div className="quality-source technical"><b>技术检测</b><span>{technicalSummary}</span><small>{technicalSuggestion}</small></div>{item.ai_result && <div className="quality-source model"><b>模型补充</b><span>{item.ai_result.quality_summary ?? "模型已完成分析"}</span><small>{modelAdvice(item.ai_result)}</small></div>}</div>
+              <div className="quality-review-copy"><div><strong>{item.stem}</strong><small>{item.event_name} · {item.category}{item.auto_pick ? " · 组内推荐" : ""}</small></div><div className="quality-source technical"><b>技术检测</b><span title={technicalSummary}>{technicalSummary}</span><small title={technicalSuggestion}>{technicalSuggestion}</small></div><div className={`quality-source model ${item.ai_result ? "" : "empty"}`}><b>模型分析</b><span title={item.ai_result?.quality_summary ?? undefined}>{item.ai_result?.quality_summary ?? "尚无模型结果"}</span></div></div>
               <div className="review-controls"><button onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}>查看详情</button>
                 <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                   <option value="">人工星级</option><option value="1">1 星</option><option value="2">2 星</option><option value="3">3 星</option><option value="4">4 星</option><option value="5">5 星</option>

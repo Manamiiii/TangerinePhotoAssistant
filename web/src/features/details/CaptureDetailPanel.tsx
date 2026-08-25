@@ -297,7 +297,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <div><strong>{exif?.focal_length_mm ? `${exif.focal_length_mm}mm` : "—"}</strong><span>焦距{exif?.focal_length_35mm ? ` · 等效${exif.focal_length_35mm}mm` : ""} <ParameterHelp kind="focal" /></span></div>
           </div>
           <div className="detail-context-bar">
-            <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断组内保留、排除与保留依据" : mode === "analyze" ? "优先复核技术检测、模型结论与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
+            <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断组内保留、排除与保留依据" : mode === "analyze" ? "优先复核技术检测、模型分析与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
             <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "完整详情与后期建议"}</button>
           </div>
           <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
@@ -340,21 +340,21 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
               <div><dt>曝光警告</dt><dd>{metadataText(exif?.exposure_warning)}</dd></div>
             </dl></details></>}
           </div>
-          <div className={`detail-section ${sectionClass(["analyze"])}`}><h3>技术面板</h3>
+          <div className={`detail-section ${sectionClass(["analyze"])}`}><h3>技术检测</h3>
             {detail.histogram && detail.histogram.length > 0 && <LuminanceHistogram histogram={detail.histogram} shadowClip={detail.shadow_clip_pct} highlightClip={detail.highlight_clip_pct} />}
             {detail.technical_score == null ? <p>尚未运行技术质量分析。</p> : <div className="score-bars">
-              <ScoreBar label={`总分 ${Math.round(detail.technical_score)}`} score={detail.technical_score} />
+              <ScoreBar label={`技术健康度 ${Math.round(detail.technical_score)}`} score={detail.technical_score} />
               <ScoreBar label="曝光" score={detail.exposure_score} />
               <ScoreBar label="清晰度" score={detail.sharpness_score} />
               <ScoreBar label="参数" score={detail.exif_score} />
             </div>}
+            {!!shootingReview.technical_evidence.length && <details className="technical-evidence-details"><summary>检测证据 · {shootingReview.technical_evidence.length} 项</summary><ul>{shootingReview.technical_evidence.map((issue) => <li key={issue.code}><span>{issue.inference ? "规则推测" : "测量结果"}</span><p>{issue.message}</p></li>)}</ul></details>}
           </div>
-          <div className={`detail-section shooting-review-section ${sectionClass(["analyze"])}`}><div className="detail-section-heading"><h3>拍摄复盘</h3><span className={`review-source-badge ${shootingReview.has_model_result ? "model" : "technical"}`}>{shootingReview.has_model_result ? "本地模型 + 技术证据" : "仅技术证据"}</span></div>
-            <p className="shooting-review-summary">{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "当前只有基础技术检测，尚未形成画面语义复盘。" : "尚未发现明确问题，也没有本地模型复盘。")}</p>
+          <div className={`detail-section shooting-review-section ${sectionClass(["analyze"])}`}><div className="detail-section-heading"><h3>模型分析</h3><span className={`review-source-badge ${shootingReview.has_model_result ? "model" : "technical"}`}>{shootingReview.has_model_result ? "模型结果已完成" : "尚无模型结果"}</span></div>
+            <p className="shooting-review-summary">{shootingReview.has_model_result ? (shootingReview.summary ?? "模型没有提供摘要，请结合下方内容人工复核。") : "尚未运行本地模型分析；技术检测结果请查看上方模块。"}</p>
             {latestAnalysis && <small className="ai-result-version">{latestAnalysis.model_id} · {latestAnalysis.prompt_version} · {formatDate(latestAnalysis.finished_at)}{shootingReview.overall_confidence == null ? "" : ` · 整体置信度 ${Math.round(shootingReview.overall_confidence * 100)}%`}</small>}
             {!!shootingReview.observations.length && <div className="critique-block"><h4>观察到什么</h4><div className="critique-card-list">{shootingReview.observations.map((observation, index) => <article className="critique-card" key={`${observation.phenomenon}-${index}`}><header><strong>{observation.phenomenon}</strong><span className={`repairability ${observation.repairability}`}>{observation.repairability_label}</span></header><p>{observation.evidence ?? "模型没有提供可核对的画面证据。"}</p><small>{observation.severity ? `程度 ${observation.severity}` : "程度未标注"}{observation.confidence == null ? "" : ` · 置信度 ${Math.round(observation.confidence * 100)}%`} · 模型观察，需人工确认</small></article>)}</div></div>}
             {!!shootingReview.next_time.length && <div className="critique-block"><h4>下次怎么拍</h4><div className="critique-card-list">{shootingReview.next_time.map((advice, index) => <article className="critique-card next-time" key={`${advice.suggestion}-${index}`}><strong>{advice.suggestion}</strong>{advice.reason && <p>{advice.reason}</p>}{advice.exif_basis && <small>参数依据：{advice.exif_basis}</small>}</article>)}</div></div>}
-            {!!shootingReview.technical_evidence.length && <details className="technical-evidence-details"><summary>基础技术证据 · {shootingReview.technical_evidence.length} 项</summary><ul>{shootingReview.technical_evidence.map((issue) => <li key={issue.code}><span>{issue.inference ? "规则推测" : "测量结果"}</span><p>{issue.message}</p></li>)}</ul></details>}
             {latestAnalysis && <div className="ai-review-controls">
               <div className="ai-review-verdict"><span>分析可信度</span>
                 <button className={latestAnalysis.user_verdict === "accurate" ? "selected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "accurate", aiNote)}>准确</button>
@@ -365,7 +365,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             </div>}
           </div>
           <div className={`detail-section editing-review-section ${sectionClass(["analyze"])}`}><h3>后期建议</h3>
-            {shootingReview.editing.length ? <div className="editing-suggestion-list">{shootingReview.editing.map((advice, index) => <article key={`${advice.adjustment}-${index}`}><span>{advice.tool}</span><strong>{advice.adjustment}{advice.direction ? ` · ${advice.direction}` : ""}</strong>{advice.reason && <p>{advice.reason}</p>}</article>)}</div> : <p>{shootingReview.has_model_result ? "当前结果没有建议基础调整。" : "运行本地模型复盘后才会生成后期建议。"}</p>}
+            {shootingReview.editing.length ? <div className="editing-suggestion-list">{shootingReview.editing.map((advice, index) => <article key={`${advice.adjustment}-${index}`}><span>{advice.tool}</span><strong>{advice.adjustment}{advice.direction ? ` · ${advice.direction}` : ""}</strong>{advice.reason && <p>{advice.reason}</p>}</article>)}</div> : <p>{shootingReview.has_model_result ? "当前结果没有建议基础调整。" : "运行本地模型分析后才会生成后期建议。"}</p>}
             {shootingReview.photoshop && <div className="photoshop-decision"><span>Photoshop</span><strong>{shootingReview.photoshop.needed ? "建议列入精修待办" : "当前不需要"}</strong><p>{shootingReview.photoshop.reason ?? "模型未说明原因"}</p></div>}
             <small className="advice-safety-note">建议仅供预览和人工判断，不会自动写入 XMP 或修改照片。</small>
             <details className="edit-recipe-details"><summary>参数预览与方案记录</summary><EditRecipePanel detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>

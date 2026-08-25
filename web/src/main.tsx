@@ -55,7 +55,7 @@ function App() {
   const [quality, setQuality] = useState<QualityResponse | null>(null);
   const [qualityOffset, setQualityOffset] = useState(0);
   const [qualityPageSize, setQualityPageSize] = useState(40);
-  const [qualityFilter, setQualityFilter] = useState<QualityReviewFilter>("all");
+  const [qualityFilter, setQualityFilter] = useState<QualityReviewFilter>("problems");
   const [qualitySearch, setQualitySearch] = useState("");
   const [qualityAlbumId, setQualityAlbumId] = useState("");
   const [similarityGroups, setSimilarityGroups] = useState<SimilarityGroupsResponse | null>(null);
