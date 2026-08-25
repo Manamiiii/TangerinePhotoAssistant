@@ -57,11 +57,13 @@ from .albums import (
 )
 from .archive import (
     create_archive_baseline,
+    integrity_directory_summary,
     integrity_differences,
     recorded_active_library_status,
     recorded_archive_status,
     run_integrity_check,
     save_integrity_investigation,
+    write_integrity_difference_report,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
 from .diagnostics import write_diagnostic_bundle
@@ -2780,7 +2782,13 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         )
         is_human_data = bool(re.fullmatch(r"tangerine-human-data-\d{8}-\d{6}-\d{6}\.json", filename))
         is_diagnostics = bool(re.fullmatch(r"tangerine-diagnostics-\d{8}-\d{6}-\d{6}\.zip", filename))
-        if filename not in allowed and not is_migration_report and not is_phone_share and not is_human_data and not is_diagnostics:
+        is_integrity_report = bool(
+            re.fullmatch(
+                r"integrity-(?:archive|active)-\d{8}-\d{6}-\d{6}\.(?:csv|json)",
+                filename,
+            )
+        )
+        if filename not in allowed and not is_migration_report and not is_phone_share and not is_human_data and not is_diagnostics and not is_integrity_report:
             raise HTTPException(status_code=404, detail="报告不存在")
         path = (settings.reports_path / filename).resolve()
         if not path.is_file() or not path.is_relative_to(settings.reports_path.resolve()):
@@ -2840,14 +2848,64 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             "all", "open", "new", "reappeared", "pending", "confirmed",
             "ignored", "snoozed", "resolved",
         ] = "all",
+        prefix: str | None = Query(default=None, max_length=2048),
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
-            return integrity_differences(
-                connection, scope, limit, offset, status, workflow
-            )
+            try:
+                return integrity_differences(
+                    connection, scope, limit, offset, status, workflow, prefix
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
+
+    @app.get("/api/integrity/directories/{scope}")
+    def list_integrity_directories(
+        scope: Literal["archive", "active"],
+        workflow: Literal[
+            "all", "open", "new", "reappeared", "pending", "confirmed",
+            "ignored", "snoozed", "resolved",
+        ] = "all",
+        prefix: str | None = Query(default=None, max_length=2048),
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            try:
+                return integrity_directory_summary(
+                    connection, scope, workflow=workflow, prefix=prefix
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.post("/api/integrity/differences/{scope}/export")
+    def export_integrity_differences(
+        scope: Literal["archive", "active"],
+        workflow: Literal[
+            "all", "open", "new", "reappeared", "pending", "confirmed",
+            "ignored", "snoozed", "resolved",
+        ] = "all",
+        prefix: str | None = Query(default=None, max_length=2048),
+    ) -> dict[str, Any]:
+        connection = connect_readonly(settings.database_path)
+        try:
+            try:
+                result = write_integrity_difference_report(
+                    connection, settings.reports_path, scope,
+                    workflow=workflow, prefix=prefix,
+                )
+            except (OSError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+        return {
+            **result,
+            "csv_url": f"/api/reports/{result['csv_name']}",
+            "json_url": f"/api/reports/{result['json_name']}",
+        }
 
     @app.put("/api/integrity/investigations")
     def update_integrity_investigation(

@@ -46,7 +46,8 @@ def query_quality(
             WHEN wis.subject_id IS NULL THEN 'new'
             WHEN qm.error IS NULL AND qm.issue_json = '[]' THEN 'resolved'
             WHEN wis.fingerprint <> {current_fingerprint} THEN 'reappeared'
-            WHEN wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP THEN 'pending'
+            WHEN wis.status='snoozed' AND julianday(wis.due_at) <= julianday('now')
+                THEN 'pending'
             ELSE wis.status END"""
         if workflow_filter == "open":
             conditions.append("(qm.error IS NOT NULL OR qm.issue_json <> '[]')")

@@ -708,7 +708,8 @@ def ai_results_page(
     workflow_status = """CASE
         WHEN aa.user_verdict IS NOT NULL THEN 'confirmed'
         WHEN wis.subject_id IS NULL THEN 'new'
-        WHEN wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP THEN 'pending'
+        WHEN wis.status='snoozed' AND julianday(wis.due_at) <= julianday('now')
+            THEN 'pending'
         ELSE wis.status END"""
     if workflow == "open":
         filters.append(f"({workflow_status}) IN ('new', 'reappeared', 'pending')")

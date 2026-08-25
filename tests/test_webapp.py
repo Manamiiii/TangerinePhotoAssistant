@@ -186,17 +186,47 @@ class WebAppQueryTests(unittest.TestCase):
                        ) VALUES (1,1,NULL,'2026-01-02T00:00:00+00:00',1,0,0,0,'[]')"""
                 )
                 connection.execute(
-                    "INSERT INTO archive_check_differences VALUES (1,'album/a.jpg','missing')"
+                    "INSERT INTO archive_check_differences VALUES (1,?,'missing')",
+                    (r"album\a.jpg",),
                 )
                 connection.commit()
                 connection.close()
+
+                directories = client.get(
+                    "/api/integrity/directories/active?workflow=open"
+                ).json()
+                self.assertEqual(directories["count"], 1)
+                self.assertEqual(directories["directories"][0]["prefix"], "album")
+                album_directory = client.get(
+                    "/api/integrity/directories/active?workflow=open&prefix=album"
+                ).json()
+                self.assertEqual(album_directory["direct_count"], 1)
+                self.assertEqual(
+                    client.get(
+                        "/api/integrity/differences/active?workflow=open&prefix=album"
+                    ).json()["count"],
+                    1,
+                )
+                exported = client.post(
+                    "/api/integrity/differences/active/export?workflow=open",
+                    headers={session["header"]: session["token"]},
+                )
+                self.assertEqual(exported.status_code, 200, exported.text)
+                export_payload = exported.json()
+                self.assertEqual(export_payload["count"], 1)
+                self.assertIn(
+                    r"album\a.jpg", client.get(export_payload["csv_url"]).text
+                )
+                self.assertEqual(
+                    client.get(export_payload["json_url"]).json()["count"], 1
+                )
 
                 response = client.put(
                     "/api/integrity/investigations",
                     headers={session["header"]: session["token"]},
                     json={
                         "scope": "active",
-                        "relative_path": "album/a.jpg",
+                        "relative_path": r"album\a.jpg",
                         "status": "confirmed",
                     },
                 )

@@ -192,7 +192,7 @@ def work_queue_summary(
             wis.subject_id IS NULL
             OR wis.fingerprint <> ({current_quality_fingerprint})
             OR wis.status='pending'
-            OR (wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP)
+            OR (wis.status='snoozed' AND julianday(wis.due_at) <= julianday('now'))
           )
         """
     ).fetchone()
@@ -209,7 +209,7 @@ def work_queue_summary(
           AND (aa.audit_bits IS NULL OR aa.audit_flags_json <> '[]')
           AND (
             wis.subject_id IS NULL OR wis.status='pending'
-            OR (wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP)
+            OR (wis.status='snoozed' AND julianday(wis.due_at) <= julianday('now'))
           )
         """
     ).fetchone()
@@ -248,7 +248,7 @@ def work_queue_summary(
               OR reappeared=1
               OR fingerprint <> ('integrity:' || status)
               OR saved_status='pending'
-              OR (saved_status='snoozed' AND due_at <= CURRENT_TIMESTAMP)"""
+              OR (saved_status='snoozed' AND julianday(due_at) <= julianday('now'))"""
     ).fetchone()
     task = task_incident_summary(connection)
     quality_total = int(quality["total"] or 0)

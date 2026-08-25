@@ -1138,6 +1138,15 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .task-incident-panel { margin-bottom: 14px; }
 .task-incident-intro { margin: 0; padding: 0 18px 14px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .task-incident-list article { grid-template-columns: 90px minmax(140px, .75fr) minmax(220px, 1.25fr) auto; }
+.integrity-directory-breadcrumb { padding: 0 18px 10px; display: flex; flex-wrap: wrap; gap: 4px; }
+.integrity-directory-breadcrumb button { padding: 3px 5px; border: 0; color: var(--muted); background: transparent; font-size: 10px; cursor: pointer; }
+.integrity-directory-breadcrumb button:last-child { color: var(--text); font-weight: 700; }
+.integrity-directory-grid { padding: 0 18px 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 7px; }
+.integrity-directory-grid > button { min-width: 0; padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--surface-soft); text-align: left; cursor: pointer; }
+.integrity-directory-grid span { min-width: 0; display: grid; gap: 3px; }
+.integrity-directory-grid strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.integrity-directory-grid small { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.integrity-directory-grid b { color: var(--orange-soft); font-size: 11px; }
 @media (max-width: 850px) {
   .integrity-investigation-toolbar { align-items: stretch; flex-direction: column; }
   .integrity-investigation-list article { grid-template-columns: 54px minmax(0, 1fr); }

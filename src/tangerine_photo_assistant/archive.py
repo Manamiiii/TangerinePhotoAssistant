@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import sqlite3
@@ -14,6 +15,19 @@ from .inventory import utc_now
 INTEGRITY_INVESTIGATION_STATUSES = frozenset(
     {"pending", "confirmed", "ignored", "snoozed", "resolved"}
 )
+
+
+def _clean_integrity_prefix(prefix: str | None) -> str:
+    clean = (prefix or "").strip().replace("\\", "/").strip("/")
+    if len(clean) > 2048 or (
+        clean and any(part in {"", ".", ".."} for part in clean.split("/"))
+    ):
+        raise ValueError("Integrity directory prefix is invalid")
+    return clean
+
+
+def _like_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def create_archive_baseline(
@@ -351,14 +365,14 @@ def run_integrity_check(
     return {"baseline": baseline, "comparison": result}
 
 
-def integrity_differences(
+def _integrity_difference_query(
     connection: sqlite3.Connection,
     scope: str,
-    limit: int = 100,
-    offset: int = 0,
-    status: str | None = None,
-    workflow: str = "all",
-) -> dict[str, Any]:
+    status: str | None,
+    workflow: str,
+    prefix: str | None,
+) -> tuple[sqlite3.Row | None, str, str, str, list[Any]]:
+    clean_prefix = _clean_integrity_prefix(prefix)
     if scope not in {"archive", "active"}:
         raise ValueError("Integrity scope must be archive or active")
     if status not in {None, "missing", "changed", "new", "unreadable"}:
@@ -376,12 +390,13 @@ def integrity_differences(
         (scope,),
     ).fetchone()
     if check is None:
-        return {"check_id": None, "count": 0, "limit": limit, "offset": offset, "items": []}
+        return None, "", "", "", []
     workflow_status = """CASE
         WHEN ii.relative_path IS NULL THEN 'new'
         WHEN ii.reappeared=1 OR ii.fingerprint <> ('integrity:' || acd.status)
             THEN 'reappeared'
-        WHEN ii.status='snoozed' AND ii.due_at <= CURRENT_TIMESTAMP THEN 'pending'
+        WHEN ii.status='snoozed' AND julianday(ii.due_at) <= julianday('now')
+            THEN 'pending'
         ELSE ii.status END"""
     first_seen_sql = """(SELECT MIN(ac_seen.checked_at)
         FROM archive_check_differences acd_seen
@@ -399,14 +414,40 @@ def integrity_differences(
     elif workflow != "all":
         where += f" AND ({workflow_status})=?"
         parameters.append(workflow)
+    if clean_prefix:
+        where += (
+            " AND REPLACE(acd.relative_path, CHAR(92), '/') LIKE ? ESCAPE '\\'"
+        )
+        parameters.append(f"{_like_escape(clean_prefix)}/%")
     from_sql = """FROM archive_check_differences acd
         JOIN archive_checks current_ac ON current_ac.id=acd.check_id
         JOIN archive_baselines current_ab ON current_ab.id=current_ac.baseline_id
         LEFT JOIN integrity_investigations ii
           ON ii.scope=? AND ii.relative_path=acd.relative_path"""
-    query_parameters: list[Any] = [scope, *parameters]
+    return check, workflow_status, first_seen_sql, f"{from_sql} WHERE {where}", [
+        scope, *parameters,
+    ]
+
+
+def integrity_differences(
+    connection: sqlite3.Connection,
+    scope: str,
+    limit: int = 100,
+    offset: int = 0,
+    status: str | None = None,
+    workflow: str = "all",
+    prefix: str | None = None,
+) -> dict[str, Any]:
+    check, workflow_status, first_seen_sql, filtered_from, query_parameters = (
+        _integrity_difference_query(connection, scope, status, workflow, prefix)
+    )
+    if check is None:
+        return {
+            "check_id": None, "prefix": _clean_integrity_prefix(prefix),
+            "count": 0, "limit": limit, "offset": offset, "items": [],
+        }
     count = connection.execute(
-        f"SELECT COUNT(*) {from_sql} WHERE {where}", query_parameters
+        f"SELECT COUNT(*) {filtered_from}", query_parameters
     ).fetchone()[0]
     rows = connection.execute(
         f"""SELECT acd.relative_path, acd.status,
@@ -416,21 +457,162 @@ def integrity_differences(
                    MAX(0, CAST(julianday('now') - julianday(
                        COALESCE(ii.first_seen_at, {first_seen_sql})
                    ) AS INTEGER)) AS workflow_age_days
-            {from_sql} WHERE {where}
+            {filtered_from}
             ORDER BY CASE ({workflow_status})
                          WHEN 'reappeared' THEN 0 WHEN 'new' THEN 1
                          WHEN 'pending' THEN 2 ELSE 3 END,
                      COALESCE(ii.first_seen_at, {first_seen_sql}) ASC,
                      acd.status, acd.relative_path LIMIT ? OFFSET ?""",
-        (scope, *parameters, limit, offset),
+        (*query_parameters, limit, offset),
     ).fetchall()
     return {
         "check_id": check["id"],
         "checked_at": check["checked_at"],
+        "prefix": _clean_integrity_prefix(prefix),
         "count": count,
         "limit": limit,
         "offset": offset,
         "items": [dict(row) for row in rows],
+    }
+
+
+def integrity_directory_summary(
+    connection: sqlite3.Connection,
+    scope: str,
+    *,
+    status: str | None = None,
+    workflow: str = "all",
+    prefix: str | None = None,
+) -> dict[str, Any]:
+    check, workflow_status, _, filtered_from, parameters = _integrity_difference_query(
+        connection, scope, status, workflow, prefix
+    )
+    clean_prefix = _clean_integrity_prefix(prefix)
+    if check is None:
+        return {
+            "check_id": None, "prefix": clean_prefix, "count": 0,
+            "direct_count": 0, "directories": [],
+        }
+    directories: dict[str, dict[str, Any]] = {}
+    direct_count = 0
+    total = 0
+    rows = connection.execute(
+        f"""SELECT acd.relative_path, acd.status,
+                   ({workflow_status}) AS workflow_status
+            {filtered_from} ORDER BY acd.relative_path""",
+        parameters,
+    )
+    prefix_length = len(clean_prefix) + 1 if clean_prefix else 0
+    for row in rows:
+        total += 1
+        normalized_path = str(row["relative_path"]).replace("\\", "/")
+        remainder = normalized_path[prefix_length:]
+        if "/" not in remainder:
+            direct_count += 1
+            continue
+        name = remainder.split("/", 1)[0]
+        item = directories.setdefault(
+            name,
+            {
+                "name": name,
+                "prefix": f"{clean_prefix}/{name}" if clean_prefix else name,
+                "count": 0,
+                "missing": 0,
+                "changed": 0,
+                "new": 0,
+                "unreadable": 0,
+                "open_count": 0,
+            },
+        )
+        item["count"] += 1
+        item[str(row["status"])] += 1
+        if row["workflow_status"] in {"new", "reappeared", "pending"}:
+            item["open_count"] += 1
+    return {
+        "check_id": check["id"],
+        "checked_at": check["checked_at"],
+        "prefix": clean_prefix,
+        "count": total,
+        "direct_count": direct_count,
+        "directories": sorted(
+            directories.values(), key=lambda item: (-item["count"], item["name"].lower())
+        ),
+    }
+
+
+def write_integrity_difference_report(
+    connection: sqlite3.Connection,
+    reports_path: Path,
+    scope: str,
+    *,
+    workflow: str = "all",
+    prefix: str | None = None,
+) -> dict[str, Any]:
+    check, workflow_status, first_seen_sql, filtered_from, parameters = (
+        _integrity_difference_query(connection, scope, None, workflow, prefix)
+    )
+    clean_prefix = _clean_integrity_prefix(prefix)
+    count = 0 if check is None else int(
+        connection.execute(
+            f"SELECT COUNT(*) {filtered_from}", parameters
+        ).fetchone()[0]
+    )
+    reports_path.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
+    stem = f"integrity-{scope}-{stamp}"
+    csv_path = reports_path / f"{stem}.csv"
+    json_path = reports_path / f"{stem}.json"
+    csv_temporary = csv_path.with_suffix(".csv.tmp")
+    json_temporary = json_path.with_suffix(".json.tmp")
+    fields = [
+        "relative_path", "status", "workflow_status",
+        "workflow_first_seen_at", "workflow_age_days",
+    ]
+    rows = [] if check is None else connection.execute(
+        f"""SELECT acd.relative_path, acd.status,
+                   ({workflow_status}) AS workflow_status,
+                   COALESCE(ii.first_seen_at, {first_seen_sql})
+                       AS workflow_first_seen_at,
+                   MAX(0, CAST(julianday('now') - julianday(
+                       COALESCE(ii.first_seen_at, {first_seen_sql})
+                   ) AS INTEGER)) AS workflow_age_days
+            {filtered_from} ORDER BY acd.relative_path""",
+        parameters,
+    )
+    try:
+        with csv_temporary.open(
+            "w", encoding="utf-8-sig", newline=""
+        ) as csv_output, json_temporary.open("w", encoding="utf-8") as json_output:
+            writer = csv.DictWriter(csv_output, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            metadata = {
+                "scope": scope,
+                "checked_at": check["checked_at"] if check else None,
+                "workflow": workflow,
+                "prefix": clean_prefix,
+                "count": count,
+            }
+            json_output.write(json.dumps(metadata, ensure_ascii=False)[:-1])
+            json_output.write(', "items": [')
+            first = True
+            for row in rows:
+                item = dict(row)
+                writer.writerow(item)
+                if not first:
+                    json_output.write(",")
+                json.dump(item, json_output, ensure_ascii=False)
+                first = False
+            json_output.write("]}")
+        csv_temporary.replace(csv_path)
+        json_temporary.replace(json_path)
+    except Exception:
+        csv_temporary.unlink(missing_ok=True)
+        json_temporary.unlink(missing_ok=True)
+        raise
+    return {
+        "count": count,
+        "csv_name": csv_path.name,
+        "json_name": json_path.name,
     }
 
 
