@@ -65,6 +65,32 @@ function Test-LocalPort {
     }
 }
 
+function Get-TrackedTangerineProcess {
+    if (-not (Test-Path -LiteralPath $PidFile -PathType Leaf)) { return $null }
+    $savedPid = 0
+    $rawPid = (Get-Content -LiteralPath $PidFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if (-not [int]::TryParse($rawPid, [ref]$savedPid)) {
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    $tracked = Get-Process -Id $savedPid -ErrorAction SilentlyContinue
+    if ($null -eq $tracked) {
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    $trackedPath = $null
+    try { $trackedPath = $tracked.Path } catch {}
+    if ($trackedPath -and $trackedPath -ne $Executable) {
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    if (-not $trackedPath -and $tracked.ProcessName -notlike "tangerine-photo*") {
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    return $tracked
+}
+
 function Open-Tangerine {
     if (-not $NoBrowser) { Start-Process $AppUrl }
 }
@@ -134,37 +160,64 @@ try {
                 }
                 exit 0
             }
+            if ($null -ne (Get-TrackedTangerineProcess)) {
+                if ($Console) { Write-Host "TangerinePhotoAssistant is starting." }
+                exit 0
+            }
             if ($Console) { Write-Host "TangerinePhotoAssistant is not running." }
             exit 2
         }
     }
 
     Assert-LauncherFiles
-    $health = Get-TangerineHealth
-    if ($null -ne $health) {
+    New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
+    $mutexSuffix = ($ProjectRoot -replace '[^A-Za-z0-9]', '_')
+    $launchMutex = New-Object System.Threading.Mutex(
+        $false, "Local\TangerinePhotoAssistant_$mutexSuffix"
+    )
+    $lockTaken = $false
+    $process = $null
+    $alreadyReady = $false
+    try {
+        try { $lockTaken = $launchMutex.WaitOne(10000) }
+        catch [System.Threading.AbandonedMutexException] { $lockTaken = $true }
+        if (-not $lockTaken) { throw "Another launcher is preparing the local service." }
+
+        $health = Get-TangerineHealth
+        if ($null -ne $health) {
+            $alreadyReady = $true
+        } else {
+            $process = Get-TrackedTangerineProcess
+            if ($null -eq $process) {
+                if (Test-LocalPort) {
+                    throw "Port $Port is used by another local application. No process was stopped."
+                }
+                $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                $stdoutLog = Join-Path $RuntimeRoot "server-$timestamp.log"
+                $stderrLog = Join-Path $RuntimeRoot "server-$timestamp-error.log"
+                # Start-Process joins ArgumentList values with spaces. Keep the config
+                # path quoted so installations under a directory with spaces work.
+                $arguments = "serve --config `"$ConfigFile`" --host 127.0.0.1 --port $Port"
+                $process = Start-Process -WindowStyle Hidden -PassThru -FilePath $Executable `
+                    -ArgumentList $arguments -WorkingDirectory $ProjectRoot `
+                    -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+                Set-Content -LiteralPath $PidFile -Value $process.Id -Encoding ascii
+            }
+        }
+    } finally {
+        if ($lockTaken) { $launchMutex.ReleaseMutex() }
+        $launchMutex.Dispose()
+    }
+    if ($alreadyReady) {
         Open-Tangerine
         exit 0
     }
-    if (Test-LocalPort) {
-        throw "Port $Port is used by another local application. No process was stopped."
-    }
 
-    New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
-    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $stdoutLog = Join-Path $RuntimeRoot "server-$timestamp.log"
-    $stderrLog = Join-Path $RuntimeRoot "server-$timestamp-error.log"
-    # Start-Process joins ArgumentList values with spaces. Keep the config path
-    # explicitly quoted so installations under a directory with spaces work.
-    $arguments = "serve --config `"$ConfigFile`" --host 127.0.0.1 --port $Port"
-    $process = Start-Process -WindowStyle Hidden -PassThru -FilePath $Executable `
-        -ArgumentList $arguments -WorkingDirectory $ProjectRoot `
-        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-    Set-Content -LiteralPath $PidFile -Value $process.Id -Encoding ascii
-
-    for ($attempt = 0; $attempt -lt 180; $attempt++) {
+    for ($attempt = 0; $attempt -lt 900; $attempt++) {
         Start-Sleep -Seconds 1
         $process.Refresh()
         if ($process.HasExited) {
+            Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
             throw "The local service stopped during startup. See runtime\launcher for its log."
         }
         $health = Get-TangerineHealth
@@ -173,7 +226,7 @@ try {
             exit 0
         }
     }
-    throw "The local service did not become ready within 3 minutes. See runtime\launcher for its log."
+    throw "The local service did not become ready within 15 minutes. See runtime\launcher for its log."
 } catch {
     Show-LauncherMessage $_.Exception.Message $true
     exit 1

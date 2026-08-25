@@ -19,6 +19,10 @@ class WindowsLauncherTests(unittest.TestCase):
         self.assertIn("windows_launcher.ps1", command_entry)
         self.assertIn("-Mode Install", installer)
         self.assertNotIn("config.example.toml", command_entry)
+        controller_text = controller.read_text(encoding="utf-8")
+        self.assertIn("Get-TrackedTangerineProcess", controller_text)
+        self.assertIn("$attempt -lt 900", controller_text)
+        self.assertIn("System.Threading.Mutex", controller_text)
 
     @unittest.skipUnless(os.name == "nt", "PowerShell launcher validation is Windows-only")
     def test_current_checkout_passes_launcher_validation(self) -> None:
