@@ -481,7 +481,7 @@ class WebAppQueryTests(unittest.TestCase):
                 item for item in group_detail["items"] if item["technical_score"] is not None
             ]
             recommended = max(scored_items, key=lambda item: item["technical_score"])
-            self.assertIn("组内技术分最高", recommended["recommendation_reason"])
+            self.assertIn("组内技术健康度最高", recommended["recommendation_reason"])
             self.assertEqual(recommended["recommendation_tier"], "best")
             self.assertTrue(all("recommendation_reason" in item for item in group_detail["items"]))
             self.assertTrue(all("balanced_rank" in item for item in group_detail["items"]))

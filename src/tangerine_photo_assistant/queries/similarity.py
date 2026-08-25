@@ -226,8 +226,8 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
                 ]
                 strongest = max(advantages, default=(0.0, ""))
                 item["recommendation_reason"] = (
-                    f"组内技术分最高，{strongest[1]}领先 {strongest[0]:.0f} 分"
-                    if strongest[0] >= 1 else "组内技术分最高"
+                    f"组内技术健康度最高，{strongest[1]}领先 {strongest[0]:.0f} 分"
+                    if strongest[0] >= 1 else "组内技术健康度最高"
                 )
                 continue
             gap = max(0.0, float(best["technical_score"]) - float(item["technical_score"]))
@@ -245,7 +245,7 @@ def query_similarity_group(database_path: Path, group_id: int) -> dict[str, Any]
             strongest = max(differences, default=(0.0, ""))
             item["recommendation_reason"] = (
                 f"较推荐片{strongest[1]}低 {strongest[0]:.0f} 分"
-                if strongest[0] >= 1 else f"较推荐片技术分低 {gap:.1f} 分"
+                if strongest[0] >= 1 else f"较推荐片技术健康度低 {gap:.1f} 分"
             )
         _add_diversity_recommendations(items, best)
         for item in items:

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJson } from "../../api";
+import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice } from "../../formatters";
@@ -18,7 +19,7 @@ function modelAdvice(result: QualityItem["ai_result"]) {
   if (shooting) return [shooting.suggestion, shooting.reason].filter(Boolean).join("：");
   const lightroom = result?.lightroom_suggestions?.[0];
   if (lightroom) return [lightroom.adjustment, lightroom.direction, lightroom.reason].filter(Boolean).join(" · ");
-  return result?.quality_summary ?? "打开详情查看完整模型建议。";
+  return "打开详情查看完整模型分析。";
 }
 
 export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
@@ -61,6 +62,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [resultAudit, setResultAudit] = useState("risk");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
+  const [healthHelpOpen, setHealthHelpOpen] = useState(false);
   const [analysisTab, setAnalysisTab] = useState<"quality" | "model" | "history">("quality");
   const [qualityBrowseMode, setQualityBrowseMode] = useState<CollectionScope>("all");
   const selectedQualityAlbum = quality?.albums.find((album) => String(album.id) === qualityAlbumId) ?? null;
@@ -120,14 +122,13 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
       {ai?.latest_run && ai.latest_run.status === "complete" && ai.latest_run.failed_count > 0 && <section className="analysis-recovery"><span>上次任务有 {ai.latest_run.failed_count} 张失败。</span><button className="toolbar-button" onClick={() => retryAiFailures(ai.latest_run!.id)} disabled={running || !preflight?.ready}>重试失败项</button></section>}
       <section className="metric-grid">
         <article><span>技术分析完成</span><strong>{summary ? numberFormat.format(summary.analyzed) : "—"}</strong><small>{summary?.errors ?? 0} 个读取错误</small></article>
-        <article><span>平均基础技术分</span><strong>{summary?.average_score ?? "—"}</strong><small>只衡量曝光、全局细节与参数风险</small></article>
+        <article><span className="metric-label-with-help">平均技术健康度<button type="button" aria-label="解释技术健康度" onClick={() => setHealthHelpOpen(true)}>?</button></span><strong>{summary?.average_score ?? "—"}</strong><small>低于 70 时建议优先复核</small></article>
         <article><span>组内推荐</span><strong>{summary ? numberFormat.format(summary.recommended_picks) : "—"}</strong><small>每个相似组一个候选</small></article>
         <article><span>模型分析完成</span><strong>{ai ? numberFormat.format(ai.analyzed_capture_count) : "—"}</strong><small>{ai?.latest_run ? `${ai.latest_run.model_id} · ${ai.latest_run.status}${ai.latest_run.average_seconds_per_photo ? ` · ${ai.latest_run.average_seconds_per_photo.toFixed(1)}秒/张` : ""}` : "尚未启动"}</small></article>
       </section>
-      <section className="quality-score-note"><strong>为什么技术分普遍较高？</strong><span>它表示文件在基础曝光、全局细节和手持参数上是否明显异常，不评价构图、表情、时机、主体价值或你的审美。高分只代表“没有检测到明显基础故障”，不代表这是一张好照片；具体画面仍以人工选片和模型复盘为准。</span></section>
       <div className="workspace-view-nav analysis-content-nav">
         <nav className="analysis-tabs" aria-label="质量分析内容">
-          {([['quality', '照片质量'], ['model', '模型建议'], ['history', '运行记录']] as const).map(([value, label]) => <button role="tab" aria-selected={analysisTab === value} key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
+          {([['quality', '照片复核'], ['model', '模型结果'], ['history', '运行记录']] as const).map(([value, label]) => <button role="tab" aria-selected={analysisTab === value} key={value} className={analysisTab === value ? "active" : ""} onClick={() => setAnalysisTab(value)}>{label}</button>)}
         </nav>
         {analysisTab === "quality" && !qualityAlbumId && <CollectionScopeTabs scope={qualityBrowseMode} setScope={setQualityBrowseMode} allLabel="全部照片" />}
       </div>
@@ -207,24 +208,31 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <div className="panel-heading"><div><span className="section-kicker">照片复核</span><h3>问题与改进建议</h3></div><span className="batch-count">点击照片查看完整分析</span></div>
         <div className="quality-review-toolbar">
           <input value={qualitySearch} onChange={(event) => setQualitySearch(event.target.value)} placeholder="搜索照片或相册" />
-          <select value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as QualityReviewFilter)}><option value="all">全部已分析</option><option value="problems">发现问题</option><option value="low_score">技术分低于 70</option><option value="with_model">已有模型建议</option><option value="without_model">等待模型建议</option><option value="unrated">尚未评分</option></select>
+          <select value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as QualityReviewFilter)}><option value="all">全部已分析</option><option value="problems">发现问题</option><option value="low_score">技术健康度低于 70</option><option value="with_model">已有模型结果</option><option value="without_model">等待模型分析</option><option value="unrated">尚未评分</option></select>
         </div>
         <div className="quality-review-grid">
-          {(quality?.items ?? []).map((item) => (
+          {(quality?.items ?? []).map((item) => {
+            const technicalSummary = item.issues[0]?.message || "未发现明确技术问题";
+            const technicalSuggestion = item.issues[0] ? technicalAdvice(item.issues[0].code) : "当前技术指标正常，可结合构图和表达继续人工判断。";
+            return (
             <article className="quality-review-card" key={item.capture_id}>
-              <button className="quality-review-photo" onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /><span>基础技术 {Math.round(item.technical_score)} · {item.issues.length ? `${item.issues.length} 项需复核` : "未见明显故障"}</span></button>
-              <div className="quality-review-copy"><div><strong>{item.stem}</strong><small>{item.event_name} · {item.category}{item.auto_pick ? " · 组内推荐" : ""}</small></div><p>{item.ai_result?.quality_summary ?? (item.issues[0]?.message || "未发现明确技术问题")}</p><div className="quality-advice"><b>{item.ai_result ? "模型建议" : "技术建议"}</b><span>{item.ai_result ? modelAdvice(item.ai_result) : (item.issues[0] ? technicalAdvice(item.issues[0].code) : "当前技术指标正常，可结合构图和表达继续人工判断。")}</span></div></div>
+              <button className="quality-review-photo" onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /><span>技术健康度 {Math.round(item.technical_score)} · {item.issues.length ? `${item.issues.length} 项需复核` : "未见明显故障"}</span></button>
+              <div className="quality-review-copy"><div><strong>{item.stem}</strong><small>{item.event_name} · {item.category}{item.auto_pick ? " · 组内推荐" : ""}</small></div><div className="quality-source technical"><b>技术检测</b><span>{technicalSummary}</span><small>{technicalSuggestion}</small></div>{item.ai_result && <div className="quality-source model"><b>模型补充</b><span>{item.ai_result.quality_summary ?? "模型已完成分析"}</span><small>{modelAdvice(item.ai_result)}</small></div>}</div>
               <div className="review-controls"><button onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}>查看详情</button>
                 <select aria-label={`${item.stem} 人工星级`} value={item.user_rating ?? ""} onChange={(event) => saveReview(item.capture_id, { user_rating: event.target.value ? Number(event.target.value) : null, user_pick: Boolean(item.user_pick), user_reject: Boolean(item.user_reject), user_note: item.user_note })}>
                   <option value="">人工星级</option><option value="1">1 星</option><option value="2">2 星</option><option value="3">3 星</option><option value="4">4 星</option><option value="5">5 星</option>
                 </select>
               </div>
             </article>
-          ))}
+          );})}
           {!quality?.items.length && <div className="empty-state">当前筛选条件没有照片。尚未分析时，请先运行技术检测。</div>}
         </div>
         {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
       </section>}
+      {healthHelpOpen && <ModalShell title="技术健康度是什么？" close={() => setHealthHelpOpen(false)}>
+        <div className="technical-health-help"><p>它用于发现明显的基础技术风险，不是照片的综合质量或审美评分。</p><dl><div><dt>曝光 34%</dt><dd>检查整体亮度以及大面积亮部、暗部裁切。</dd></div><div><dt>全局细节 46%</dt><dd>检查画面整体边缘信息；浅景深、柔焦和运动画面仍需人工判断。</dd></div><div><dt>参数风险 20%</dt><dd>结合焦距、快门和 ISO 提示手抖、动作模糊或高感风险。</dd></div></dl><strong>不评价</strong><p>构图、表情、时机、主体价值和个人审美。高分只表示没有检测到明显基础故障。</p></div>
+        <footer className="editor-footer"><button className="primary" onClick={() => setHealthHelpOpen(false)}>知道了</button></footer>
+      </ModalShell>}
     </div>
   );
 }

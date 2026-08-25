@@ -339,6 +339,9 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .metric-grid article:last-child { border: 0; }.metric-grid span { color: var(--muted); font-size: 11px; }
 .metric-grid strong { margin-top: auto; font-size: 29px; font-weight: 500; letter-spacing: -.04em; }
 .metric-grid small { color: #716b63; font-size: 11px; margin-top: 2px; }
+.metric-label-with-help { display: inline-flex; align-items: center; gap: 5px; }
+.metric-label-with-help button { width: 15px; height: 15px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: transparent; font: inherit; font-size: 10px; line-height: 13px; cursor: pointer; }
+.metric-label-with-help button:hover { border-color: var(--orange); color: var(--orange-soft); }
 .content-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .75fr); gap: 22px; }
 .panel { border: 1px solid var(--line); border-radius: 18px; background: rgba(24,22,19,.88); overflow: hidden; }
 .panel-heading { padding: 22px 24px 18px; display: flex; align-items: center; justify-content: space-between; }
@@ -725,10 +728,12 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .quality-review-copy > div:first-child { display: grid; gap: 3px; }
 .quality-review-copy strong { font-size: 11px; }
 .quality-review-copy small { color: var(--muted); font-size: 10px; }
-.quality-review-copy p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.quality-advice { padding: 8px; border-radius: 8px; background: var(--surface-soft); display: grid; gap: 4px; }
-.quality-advice b { color: var(--orange-soft); font-size: 10px; }
-.quality-advice span { font-size: 10px; line-height: 1.5; }
+.quality-source { padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); display: grid; gap: 4px; }
+.quality-source b { color: var(--text); font-size: 10px; }
+.quality-source span { font-size: 10px; line-height: 1.5; }
+.quality-source small { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.quality-source.model { border-left: 2px solid var(--orange); background: rgba(255, 122, 26, .05); }
+.quality-source.model b { color: var(--orange-soft); }
 .quality-review-card > .review-controls { grid-column: 2; padding: 0 12px 12px; }
 .home-dashboard { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr); gap: 16px; align-items: start; }
 .home-dashboard-column { min-width: 0; display: grid; gap: 16px; align-content: start; }
@@ -1770,7 +1775,6 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .ai-result-card img { background: var(--surface-soft); }
 .ai-result-card small { color: var(--muted); }
 .quality-review-card, .ai-result-card { border-radius: 11px; }
-.quality-review-copy p { font-size: 11px; }
 .quality-review-grid, .ai-result-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .quality-review-card { display: flex; flex-direction: column; }
 .quality-review-photo img { width: 100%; min-height: 0; aspect-ratio: 4 / 3; object-fit: cover; }
@@ -1791,9 +1795,14 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .equipment-editor-form label > small { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .manifest-scope-controls .primary-action { min-width: 0; min-height: 36px; padding: 7px 11px; border: 1px solid #68452e; border-radius: 9px; color: var(--orange-soft); background: var(--surface-raised); gap: 8px; font-size: 11px; }
 .manifest-scope-controls .primary-action b { font-size: 13px; }
-.quality-score-note { margin: -2px 0 16px; padding: 10px 14px; border-left: 2px solid var(--orange); display: flex; align-items: baseline; gap: 9px; background: var(--surface-soft); }
-.quality-score-note strong { flex: 0 0 auto; font-size: 11px; }
-.quality-score-note span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.technical-health-help { padding: 18px 20px 8px; }
+.technical-health-help p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.technical-health-help > strong { display: block; margin: 16px 0 5px; font-size: 11px; }
+.technical-health-help dl { margin: 16px 0 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.technical-health-help dl div { padding: 10px 12px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 10px; }
+.technical-health-help dl div:first-child { border-top: 0; }
+.technical-health-help dt { font-size: 11px; font-weight: 700; }
+.technical-health-help dd { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .tag-manager-entry { white-space: nowrap; }
 .tag-manager { padding: 0 20px 20px; }
 .tag-manager > p { margin: 0 0 12px; color: var(--muted); font-size: 11px; line-height: 1.6; }

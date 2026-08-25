@@ -301,7 +301,7 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
             <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "完整详情与后期建议"}</button>
           </div>
           <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
-          {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未技术评分" : `基础技术分 ${Math.round(detail.technical_score)}`}{shootingReview.editing.length ? ` · 后期建议 ${shootingReview.editing.length} 项` : ""}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
+          {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.technical_score == null ? "尚未检测技术健康度" : `技术健康度 ${Math.round(detail.technical_score)}`}{shootingReview.editing.length ? ` · 后期建议 ${shootingReview.editing.length} 项` : ""}</span><p>{shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
           <div className={`detail-section detail-exif-section ${sectionClass(["browse"])}`}>
             <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
             <dl className="exif-grid">
