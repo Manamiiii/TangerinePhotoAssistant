@@ -75,6 +75,7 @@ class SettingsTests(unittest.TestCase):
             changes["cache"]["thumbnail_max_size_gb"] = 6
             changes["analysis"]["raw_extensions"] = [".RAF", ".CR3"]
             changes["analysis"]["metadata_batch_size"] = 64
+            changes["workflow"]["daily_review_budget"] = 20
             changes["lightroom"]["catalog_root"] = str(root / "Lightroom")
             changes["lightroom"]["catalog_backup_root"] = str(root / "LightroomBackups")
             backup = save_editable_config(config, changes)
@@ -83,6 +84,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(Settings.load(config).cache_max_size_gb, 30)
             self.assertEqual(Settings.load(config).raw_extensions, (".raf", ".cr3"))
             self.assertEqual(editable_config(config)["analysis"]["metadata_batch_size"], 64)
+            self.assertEqual(Settings.load(config).daily_review_budget, 20)
             self.assertEqual(
                 Settings.load(config).lightroom_catalog_root, root / "Lightroom"
             )

@@ -4,7 +4,7 @@ import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
 import { TaskCard, type Task } from "../../components/TaskCard";
 import { formatDate, formatDuration, formatFileSize, numberFormat, technicalAdvice } from "../../formatters";
-import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityResponse, QualityReviewFilter, ReviewPayload } from "./types";
+import type { AiPreflight, AiResultsResponse, AnalysisOverview, GpuStatus, QualityResponse, QualityReviewFilter, ReviewPayload, WorkItemFilter, WorkItemStatus } from "./types";
 
 type CollectionScope = "all" | "albums";
 
@@ -14,13 +14,15 @@ function isAnalysisTask(task: Task | null) {
   return stage === "quality" || stage.startsWith("detail-") || stage.startsWith("ai-") || /技术质量|详情数据|扩展拍摄信息|直方图|模型任务|本地模型|Qwen/.test(task.message);
 }
 
-export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualitySearch, setQualityFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
+export function AnalysisView({ analysis, preflight, quality, qualityFilter, qualityWorkflowFilter, qualitySearch, setQualityFilter, setQualityWorkflowFilter, setQualitySearch, qualityAlbumId, setQualityAlbumId, albumWorkspaceCounts, openAlbumPhotos, openAlbumBursts, task, startQuality, startDetailBackfill, resumeDetailBackfill, startAi, syncAnalysisSubjectTags, clearAnalysisSubjectTags, saveReview, saveWorkItem, saveWorkItems, workQueueRevision, cancelTask, pauseTask, resumeAi, retryAiFailures, openCapture, changeQualityPage, changeQualityPageSize }: {
   analysis: AnalysisOverview | null;
   preflight: AiPreflight | null;
   quality: QualityResponse | null;
   qualityFilter: QualityReviewFilter;
+  qualityWorkflowFilter: WorkItemFilter;
   qualitySearch: string;
   setQualityFilter: (filter: QualityReviewFilter) => void;
+  setQualityWorkflowFilter: (filter: WorkItemFilter) => void;
   setQualitySearch: (search: string) => void;
   qualityAlbumId: string;
   setQualityAlbumId: (albumId: string) => void;
@@ -35,6 +37,9 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   syncAnalysisSubjectTags: () => void;
   clearAnalysisSubjectTags: () => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
+  saveWorkItem: (sourceKind: "quality" | "ai", subjectId: number, status: Exclude<WorkItemStatus, "new" | "reappeared">) => Promise<void>;
+  saveWorkItems: (sourceKind: "quality" | "ai", subjectIds: number[], status: Exclude<WorkItemStatus, "new" | "reappeared">) => Promise<void>;
+  workQueueRevision: number;
   cancelTask: () => void;
   pauseTask: () => void;
   resumeAi: (runId: number) => void;
@@ -52,15 +57,18 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [resultVersion, setResultVersion] = useState("all");
   const [resultVerdict, setResultVerdict] = useState("all");
   const [resultAudit, setResultAudit] = useState("risk");
+  const [resultWorkflow, setResultWorkflow] = useState("open");
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
   const [healthHelpOpen, setHealthHelpOpen] = useState(false);
   const [analysisTab, setAnalysisTab] = useState<"quality" | "model" | "history">("quality");
   const [qualityBrowseMode, setQualityBrowseMode] = useState<CollectionScope>("all");
+  const [qualitySelected, setQualitySelected] = useState<Set<number>>(new Set());
   const selectedQualityAlbum = quality?.albums.find((album) => String(album.id) === qualityAlbumId) ?? null;
   useEffect(() => {
     if (qualityAlbumId) setAnalysisTab("quality");
   }, [qualityAlbumId]);
+  useEffect(() => setQualitySelected(new Set()), [qualityAlbumId, qualityFilter, qualitySearch, qualityWorkflowFilter]);
   const estimatedBatchSeconds = ai?.latest_run?.average_seconds_per_photo
     ? ai.latest_run.average_seconds_per_photo * batchSize
     : null;
@@ -70,11 +78,12 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
     if (resultVersion !== "all") parameters.set("prompt_version", resultVersion);
     if (resultVerdict !== "all") parameters.set("verdict", resultVerdict);
     if (resultAudit !== "all") parameters.set("audit", resultAudit);
+    if (resultWorkflow !== "all") parameters.set("workflow", resultWorkflow);
     getJson<AiResultsResponse>(`/api/ai/results?${parameters.toString()}`)
       .then((page) => { if (active) setResultPage(page); })
       .catch(() => { if (active) setResultPage(null); });
     return () => { active = false; };
-  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, ai?.completed_analysis_count]);
+  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, resultWorkflow, ai?.completed_analysis_count, workQueueRevision]);
   useEffect(() => {
     let active = true;
     const refresh = () => getJson<GpuStatus>("/api/system/gpu")
@@ -156,12 +165,15 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           <label>审计队列<select value={resultAudit} onChange={(event) => { setResultAudit(event.target.value); setResultOffset(0); }}>
             <option value="risk">高风险优先</option><option value="sample">5% 稳定抽样</option><option value="all">全部记录</option>
           </select></label>
+          <label>处理状态<select value={resultWorkflow} onChange={(event) => { setResultWorkflow(event.target.value); setResultOffset(0); }}>
+            <option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option>
+          </select></label>
         </div>
         {!!resultPage?.items.length && <div className="ai-result-grid">
-          {resultPage.items.map((result) => <button key={result.id} className="ai-result-card" onClick={() => openCapture(result.capture_id, resultPage.items.map((entry) => entry.capture_id))}>
-            <img src={result.thumbnail_url} loading="lazy" alt={`${result.stem} 缩略图`} />
-            <span><strong>{result.stem} · {result.subject_type ?? "未分类"}</strong><small>{result.quality_summary ?? "没有摘要"}</small><em className={result.review_flags?.length ? "result-review-warning" : ""}>{result.review_flags?.length ? "需优先人工复核" : `${result.visible_problem_count} 个问题`} · {result.prompt_version} · {result.user_verdict ?? "未复核"}</em></span>
-          </button>)}
+          {resultPage.items.map((result) => <article key={result.id} className="ai-result-card">
+            <button className="ai-result-open" onClick={() => openCapture(result.capture_id, resultPage.items.map((entry) => entry.capture_id))}><img src={result.thumbnail_url} loading="lazy" alt={`${result.stem} 缩略图`} /><span><strong>{result.stem} · {result.subject_type ?? "未分类"}</strong><small>{result.quality_summary ?? "没有摘要"}</small><em className={result.review_flags?.length ? "result-review-warning" : ""}>{result.review_flags?.length ? "需优先人工复核" : `${result.visible_problem_count} 个问题`} · {result.prompt_version} · {result.user_verdict ?? "未复核"}</em></span></button>
+            <div className="work-item-actions"><b>{({ new: "新发现", reappeared: "重新出现", pending: "待处理", confirmed: "已核对", ignored: "已忽略", snoozed: "稍后处理", resolved: "已解决" } as Record<string, string>)[result.workflow_status ?? "new"]}</b>{["new", "reappeared", "pending"].includes(result.workflow_status ?? "new") ? <><button onClick={() => void saveWorkItem("ai", result.id, "snoozed")}>7天后</button><button onClick={() => void saveWorkItem("ai", result.id, "ignored")}>忽略</button></> : <button onClick={() => void saveWorkItem("ai", result.id, "pending")}>重新打开</button>}</div>
+          </article>)}
         </div>}
         {resultPage && !resultPage.items.length && <div className="empty-state">当前筛选条件没有模型结果。</div>}
         {resultPage && <Pagination count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
@@ -201,13 +213,16 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
         <div className="quality-review-toolbar">
           <input value={qualitySearch} onChange={(event) => setQualitySearch(event.target.value)} placeholder="搜索照片或相册" />
           <select value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as QualityReviewFilter)}><option value="problems">发现问题（建议优先）</option><option value="low_score">技术健康度低于 70</option><option value="with_model">已有模型结果</option><option value="without_model">等待模型分析</option><option value="unrated">尚未评分</option><option value="all">全部已分析</option></select>
+          <select aria-label="待办处理状态" value={qualityWorkflowFilter} onChange={(event) => setQualityWorkflowFilter(event.target.value as WorkItemFilter)}><option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option></select>
         </div>
+        {!!quality?.items.some((item) => item.issues.length > 0) && <div className="quality-batch-review"><span>已选 {qualitySelected.size} 项</span><button onClick={() => setQualitySelected(new Set(quality.items.filter((item) => item.issues.length > 0).map((item) => item.capture_id)))}>选择本页</button><button disabled={!qualitySelected.size} onClick={() => setQualitySelected(new Set())}>清空</button><button disabled={!qualitySelected.size} onClick={async () => { await saveWorkItems("quality", [...qualitySelected], "confirmed"); setQualitySelected(new Set()); }}>批量核对</button><button disabled={!qualitySelected.size} onClick={async () => { await saveWorkItems("quality", [...qualitySelected], "snoozed"); setQualitySelected(new Set()); }}>7天后处理</button></div>}
         <div className="quality-review-grid">
           {(quality?.items ?? []).map((item) => {
             const technicalSummary = item.issues[0]?.message || "未发现明确技术问题";
             const technicalSuggestion = item.issues[0] ? technicalAdvice(item.issues[0].code) : "当前技术指标正常，可结合构图和表达继续人工判断。";
             return (
             <article className="quality-review-card" key={item.capture_id}>
+              {item.issues.length > 0 && <label className="quality-work-select"><input type="checkbox" checked={qualitySelected.has(item.capture_id)} onChange={(event) => setQualitySelected((current) => { const next = new Set(current); event.target.checked ? next.add(item.capture_id) : next.delete(item.capture_id); return next; })} /><span>选择待办</span></label>}
               <button className="quality-review-photo" onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} /><span>技术健康度 {Math.round(item.technical_score)} · {item.issues.length ? `${item.issues.length} 项需复核` : "未见明显故障"}</span></button>
               <div className="quality-review-copy"><div><strong>{item.stem}</strong><small>{item.event_name} · {item.category}{item.auto_pick ? " · 组内推荐" : ""}</small></div><div className="quality-source technical"><b>技术检测</b><span title={technicalSummary}>{technicalSummary}</span><small title={technicalSuggestion}>{technicalSuggestion}</small></div><div className={`quality-source model ${item.ai_result ? "" : "empty"}`}><b>模型分析</b><span title={item.ai_result?.quality_summary ?? undefined}>{item.ai_result?.quality_summary ?? "尚无模型结果"}</span></div></div>
               <div className="review-controls"><button onClick={() => openCapture(item.capture_id, (quality?.items ?? []).map((entry) => entry.capture_id))}>查看详情</button>
@@ -215,6 +230,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
                   <option value="">人工星级</option><option value="1">1 星</option><option value="2">2 星</option><option value="3">3 星</option><option value="4">4 星</option><option value="5">5 星</option>
                 </select>
               </div>
+              {item.issues.length > 0 && <div className="work-item-actions"><b>{({ new: "新发现", reappeared: "重新出现", pending: "待处理", confirmed: "已核对", ignored: "已忽略", snoozed: "稍后处理", resolved: "已解决" } as Record<string, string>)[item.workflow_status]}</b>{["new", "reappeared", "pending"].includes(item.workflow_status) ? <><button onClick={() => void saveWorkItem("quality", item.capture_id, "confirmed")}>已核对</button><button onClick={() => void saveWorkItem("quality", item.capture_id, "snoozed")}>7天后</button><button onClick={() => void saveWorkItem("quality", item.capture_id, "ignored")}>忽略</button></> : <button onClick={() => void saveWorkItem("quality", item.capture_id, "pending")}>重新打开</button>}</div>}
             </article>
           );})}
           {!quality?.items.length && <div className="empty-state">当前筛选条件没有照片。尚未分析时，请先运行技术检测。</div>}

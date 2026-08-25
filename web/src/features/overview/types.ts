@@ -31,6 +31,14 @@ export type Overview = {
     fingerprint_count: number;
     fingerprint_error_count: number;
   };
+  work_queue: {
+    open_count: number;
+    today_count: number;
+    daily_limit: number;
+    estimated_minutes: number;
+    quality: { open_count: number; new_count: number; reappeared_count: number };
+    ai: { open_count: number; new_count: number };
+  };
   latest_scan: {
     id: number;
     started_at: string;

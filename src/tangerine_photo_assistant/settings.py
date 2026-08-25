@@ -35,6 +35,7 @@ class Settings:
     lightroom_catalog_root: Path | None = None
     lightroom_catalog_backup_root: Path | None = None
     lightroom_write_xmp: bool = False
+    daily_review_budget: int = 30
 
     @classmethod
     def load(cls, path: Path) -> Settings:
@@ -44,6 +45,7 @@ class Settings:
         tools = data.get("tools", {})
         models = data.get("models", {})
         lightroom = data.get("lightroom", {})
+        workflow = data.get("workflow", {})
         exiftool_value = str(tools.get("exiftool", "")).strip()
         return cls(
             originals=Path(data["library"]["originals"]),
@@ -87,6 +89,7 @@ class Settings:
                 if str(lightroom.get("catalog_backup_root", "")).strip() else None
             ),
             lightroom_write_xmp=bool(lightroom.get("write_xmp", False)),
+            daily_review_budget=int(workflow.get("daily_review_budget", 30)),
         )
 
     def validate(self) -> list[str]:
@@ -132,6 +135,8 @@ class Settings:
             errors.append("AI GPU memory limit must be positive")
         if not 0 <= self.ai_json_retry_count <= 3:
             errors.append("AI JSON retry count must be between 0 and 3")
+        if not 5 <= self.daily_review_budget <= 200:
+            errors.append("Daily review budget must be between 5 and 200")
         return errors
 
     def ai_runtime_status(self) -> tuple[bool, str]:
@@ -194,6 +199,9 @@ burst_time_gap_seconds = 3.0
 generate_full_resolution_previews = false
 metadata_batch_size = 32
 
+[workflow]
+daily_review_budget = 30
+
 [tools]
 exiftool = ""
 
@@ -240,6 +248,11 @@ def editable_config(path: Path) -> dict[str, object]:
             "burst_time_gap_seconds": float(data["analysis"].get("burst_time_gap_seconds", 3.0)),
             "metadata_batch_size": int(data["analysis"].get("metadata_batch_size", 32)),
         },
+        "workflow": {
+            "daily_review_budget": int(
+                data.get("workflow", {}).get("daily_review_budget", 30)
+            ),
+        },
         "tools": {"exiftool": str(data.get("tools", {}).get("exiftool", ""))},
         "models": {
             "python": str(data.get("models", {}).get("python", "")),
@@ -270,12 +283,14 @@ def save_editable_config(path: Path, changes: dict[str, object]) -> Path:
     analysis = changes["analysis"]
     tools = changes["tools"]
     models = changes["models"]
+    workflow = changes["workflow"]
     assert isinstance(library, dict)
     assert isinstance(cache, dict)
     assert isinstance(lightroom, dict)
     assert isinstance(analysis, dict)
     assert isinstance(tools, dict)
     assert isinstance(models, dict)
+    assert isinstance(workflow, dict)
     for label, value in (
         ("Photo library", library["originals"]),
         ("Workspace", library["workspace"]),
@@ -315,6 +330,9 @@ raw_extensions = [{", ".join(_toml_string(item) for item in raw_extensions)}]
 burst_time_gap_seconds = {float(analysis["burst_time_gap_seconds"])}
 generate_full_resolution_previews = false
 metadata_batch_size = {int(analysis["metadata_batch_size"])}
+
+[workflow]
+daily_review_budget = {int(workflow["daily_review_budget"])}
 
 [tools]
 exiftool = {_toml_string(tools.get("exiftool", ""))}

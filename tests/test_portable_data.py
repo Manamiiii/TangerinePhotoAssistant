@@ -10,6 +10,7 @@ from tangerine_photo_assistant.portable_data import (
     preflight_restore,
     restore_portable_backup,
 )
+from tangerine_photo_assistant.work_queue import save_work_item_state
 
 
 class PortableDataTests(unittest.TestCase):
@@ -18,6 +19,16 @@ class PortableDataTests(unittest.TestCase):
         connection.execute("INSERT INTO captures(capture_key,parent_relative,stem,captured_at,pairing_status) VALUES ('album/IMG_1','album','IMG_1',NULL,'jpeg_only')")
         connection.commit()
         return connection
+
+    def _add_ai_result(self, connection):
+        capture_id = connection.execute("SELECT id FROM captures").fetchone()[0]
+        connection.execute("""INSERT INTO ai_runs(
+            id,mode,model_id,prompt_version,status,requested_count,completed_count,started_at
+        ) VALUES (1,'benchmark','model','v1','complete',1,1,'now')""")
+        connection.execute("""INSERT INTO ai_analyses(
+            id,run_id,capture_id,model_id,prompt_version,status,selection_reason,result_json
+        ) VALUES (1,1,?,'model','v1','complete','test','{}')""", (capture_id,))
+        connection.commit()
 
     def test_backup_is_path_free_and_restore_is_preflighted(self) -> None:
         with TemporaryDirectory() as directory:
@@ -31,6 +42,8 @@ class PortableDataTests(unittest.TestCase):
             source.execute("INSERT INTO similarity_group_overrides(capture_id,action,created_at,updated_at,manual_batch_key,manual_group_key) VALUES (?,'exclude','now','now','batch','group')", (capture_id,))
             source.execute("INSERT INTO edit_recipe_revisions(capture_id,parameter_space,parameters_json,status,note,created_at) VALUES (?,'tangerine-preview-v2','{}','accepted','采用','now')", (capture_id,))
             source.commit()
+            self._add_ai_result(source)
+            save_work_item_state(source, "ai", 1, "ignored")
             inventory = root / "inventory.json"
             inventory.write_text(json.dumps({"version": 2, "ownership": {"camera": {"X": True}, "lens": {}, "accessory": {}}}), encoding="utf-8")
 
@@ -42,6 +55,7 @@ class PortableDataTests(unittest.TestCase):
             source.close()
 
             target = self._catalog(root / "target.sqlite3")
+            self._add_ai_result(target)
             preflight = preflight_restore(target, backup)
             self.assertEqual(preflight["matched_captures"], 1)
             with self.assertRaises(ValueError):
@@ -52,6 +66,7 @@ class PortableDataTests(unittest.TestCase):
             self.assertEqual(target.execute("SELECT COUNT(*) FROM capture_tags").fetchone()[0], 1)
             self.assertEqual(target.execute("SELECT COUNT(*) FROM similarity_group_overrides").fetchone()[0], 1)
             self.assertEqual(target.execute("SELECT COUNT(*) FROM edit_recipe_revisions").fetchone()[0], 1)
+            self.assertEqual(target.execute("SELECT status FROM work_item_states").fetchone()[0], "ignored")
             self.assertEqual(len(list((root / "backups").glob("*.sqlite3"))), 1)
             self.assertEqual(json.loads((root / "target-inventory.json").read_text(encoding="utf-8"))["ownership"]["camera"]["X"], True)
             target.close()

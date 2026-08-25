@@ -30,6 +30,7 @@ export type EditableSettings = {
   cache: { root: string; max_size_gb: number; thumbnail_max_size_gb: number };
   lightroom: { catalog_root: string; catalog_backup_root: string };
   analysis: { raw_extensions: string[]; burst_time_gap_seconds: number; metadata_batch_size: number };
+  workflow: { daily_review_budget: number };
   tools: { exiftool: string };
   models: {
     python: string;

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -524,6 +524,25 @@ def connect(path: Path) -> sqlite3.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_edit_recipe_revisions_capture
             ON edit_recipe_revisions(capture_id, id DESC);
+
+        CREATE TABLE IF NOT EXISTS work_item_states (
+            source_kind TEXT NOT NULL CHECK(source_kind IN ('quality', 'ai')),
+            subject_id INTEGER NOT NULL,
+            fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN (
+                'pending', 'confirmed', 'ignored', 'snoozed', 'resolved'
+            )),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            due_at TEXT,
+            note TEXT,
+            occurrence_count INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (source_kind, subject_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_work_item_states_status_due
+            ON work_item_states(source_kind, status, due_at, subject_id);
 
         CREATE TABLE IF NOT EXISTS archive_baselines (
             id INTEGER PRIMARY KEY,

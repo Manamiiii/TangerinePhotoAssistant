@@ -126,6 +126,7 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
 }
 
 type ManagedTag = { id: number; dimension: CaptureTagDimension; name: string; built_in: number; active: number; capture_count: number };
+type SavedLibraryView = { id: string; name: string; query: LibraryQuery };
 const tagDimensionLabels: Record<CaptureTagDimension, string> = { subject: "题材", status: "工作状态", problem: "人工问题", location: "地点" };
 
 function TagManager({ close, changed }: { close: () => void; changed: () => void }) {
@@ -200,7 +201,16 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   const [batchTagAction, setBatchTagAction] = useState<"add" | "remove">("add");
   const [batchTagSaving, setBatchTagSaving] = useState(false);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedLibraryView[]>(() => {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem("tangerine-saved-library-views") ?? "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  });
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [saveViewName, setSaveViewName] = useState("");
   useEffect(() => window.localStorage.setItem("tangerine-photo-layout", layout), [layout]);
+  useEffect(() => window.localStorage.setItem("tangerine-saved-library-views", JSON.stringify(savedViews)), [savedViews]);
   const toggle = (captureIds: number[]) => setSelected((current) => {
     const next = new Set(current);
     const remove = captureIds.every((captureId) => next.has(captureId));
@@ -242,6 +252,16 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
     setSelectionGroup(null);
   };
   const clearFilters = () => updateQuery({ albumId: albumContext ? query.albumId : "", category: "", camera: "", lens: "", rating: "", selection: "", quality: "", tagSubject: "", tagStatus: "", tagProblem: "", tagLocation: "", selectionReason: "", modelProblem: "", reviewCondition: "", dateFrom: "", dateTo: "", search: "", sort: "newest" });
+  const saveCurrentView = () => {
+    const name = saveViewName.trim();
+    if (!name) return;
+    setSavedViews((current) => [
+      ...current.filter((view) => view.name.toLocaleLowerCase() !== name.toLocaleLowerCase()),
+      { id: `${Date.now()}`, name, query: { ...query } },
+    ]);
+    setSaveViewName("");
+    setSaveViewOpen(false);
+  };
   const activeFilters: Array<{ key: keyof LibraryQuery; label: string }> = [
     ...(!albumContext && query.albumId ? [{ key: "albumId" as const, label: query.albumId === "__unassigned__" ? "未归入相册" : filters?.albums.find((album) => String(album.id) === query.albumId)?.name ?? "相册" }] : []),
     ...(query.category ? [{ key: "category" as const, label: `类型：${query.category}` }] : []),
@@ -266,8 +286,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
         <label className="library-search"><span aria-hidden="true">⌕</span><input aria-label="搜索照片" value={query.search} onChange={(event) => updateQuery({ search: event.target.value })} placeholder="搜索文件名、相册或目录" /></label>
         <button className={`toolbar-button filter-toggle ${filtersOpen ? "active" : ""}`} onClick={() => setFiltersOpen((current) => !current)}>筛选{activeFilters.length ? <b>{activeFilters.length}</b> : null}</button>
         <label className="sort-control"><select aria-label="照片排序" value={query.sort} onChange={(event) => updateQuery({ sort: event.target.value })}><option value="newest">最新拍摄</option><option value="oldest">最早拍摄</option><option value="name">文件名称</option><option value="rating">人工星级</option></select></label>
+        <button className="toolbar-button" onClick={() => setSaveViewOpen((current) => !current)}>保存视图</button>
         {(activeFilters.length > 0 || query.search) && <button className="filter-clear" onClick={clearFilters}>全部清除</button>}
       </div>
+      {(savedViews.length > 0 || saveViewOpen) && <div className="saved-view-bar"><span>常用视图</span>{savedViews.map((view) => <span key={view.id}><button onClick={() => updateQuery(view.query)}>{view.name}</button><button aria-label={`删除视图 ${view.name}`} onClick={() => setSavedViews((current) => current.filter((item) => item.id !== view.id))}>×</button></span>)}{saveViewOpen && <form onSubmit={(event) => { event.preventDefault(); saveCurrentView(); }}><input autoFocus value={saveViewName} maxLength={40} placeholder="例如：最近未评分" onChange={(event) => setSaveViewName(event.target.value)} /><button disabled={!saveViewName.trim()}>保存</button><button type="button" onClick={() => setSaveViewOpen(false)}>取消</button></form>}</div>}
       {activeFilters.length > 0 && <div className="active-filter-chips">{activeFilters.map((filter) => <button key={filter.key} onClick={() => updateQuery({ [filter.key]: "" })}>{filter.label}<span>×</span></button>)}</div>}
       {filtersOpen && <div className="library-filter-drawer"><div className="filter-drawer-heading"><span>筛选照片</span><button type="button" onClick={() => setTagManagerOpen(true)}>管理分类与状态</button></div>
         {!albumContext && <fieldset><legend>归属</legend><label><span>相册</span><select value={query.albumId} onChange={(event) => updateQuery({ albumId: event.target.value })}><option value="">全部相册</option><option value="__unassigned__">未归入相册</option>{(filters?.albums ?? []).map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select></label><label><span>类型</span><select value={query.category} onChange={(event) => updateQuery({ category: event.target.value })}><option value="">全部类型</option>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label></fieldset>}

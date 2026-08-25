@@ -139,6 +139,7 @@ from .tags import (
 )
 from .thumbnails import ThumbnailCache
 from .visual import analyze_visuals
+from .work_queue import save_work_item_state, save_work_item_states
 
 SESSION_TOKEN_HEADER = "X-Tangerine-Session"
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -249,6 +250,19 @@ class LightroomManifestRequest(BaseModel):
 class AiReviewUpdateRequest(BaseModel):
     user_verdict: Literal["accurate", "partial", "inaccurate"] | None = None
     user_note: str | None = Field(default=None, max_length=2000)
+
+
+class WorkItemStateRequest(BaseModel):
+    status: Literal["pending", "confirmed", "ignored", "snoozed", "resolved"]
+    snooze_days: int | None = Field(default=None, ge=1, le=365)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class BatchWorkItemStateRequest(BaseModel):
+    source_kind: Literal["quality", "ai"]
+    subject_ids: list[int] = Field(min_length=1, max_length=200)
+    status: Literal["pending", "confirmed", "ignored", "snoozed", "resolved"]
+    snooze_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class EditRecipeRequest(BaseModel):
@@ -1209,7 +1223,7 @@ class ScanTaskManager:
 
 
 def _query_overview(settings: Settings) -> dict[str, Any]:
-    return query_overview(settings.database_path)
+    return query_overview(settings.database_path, settings.daily_review_budget)
 
 
 def _query_inbox(settings: Settings, limit: int) -> dict[str, Any]:
@@ -1362,6 +1376,7 @@ def _query_quality(
     review_filter: str = "all",
     search: str | None = None,
     album_id: int | None = None,
+    workflow_filter: str = "all",
 ) -> dict[str, Any]:
     return query_quality(
         settings.database_path,
@@ -1370,6 +1385,7 @@ def _query_quality(
         review_filter,
         search,
         album_id,
+        workflow_filter,
     )
 
 
@@ -1906,11 +1922,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         prompt_version: str | None = Query(default=None, max_length=100),
         verdict: Literal["accurate", "partial", "inaccurate", "unreviewed"] | None = None,
         audit: Literal["risk", "sample"] | None = None,
+        workflow: Literal[
+            "open", "new", "reappeared", "pending", "confirmed",
+            "ignored", "snoozed", "resolved"
+        ] | None = None,
     ) -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
             return ai_results_page(
-                connection, limit, offset, prompt_version, verdict, audit
+                connection, limit, offset, prompt_version, verdict, audit, workflow
             )
         finally:
             connection.close()
@@ -1962,8 +1982,44 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         ] = "all",
         search: str | None = Query(default=None, max_length=120),
         album_id: int | None = Query(default=None, ge=1),
+        workflow_filter: Literal[
+            "all", "open", "new", "reappeared", "pending", "confirmed",
+            "ignored", "snoozed", "resolved"
+        ] = "all",
     ) -> dict[str, Any]:
-        return _query_quality(settings, limit, offset, review_filter, search, album_id)
+        return _query_quality(
+            settings, limit, offset, review_filter, search, album_id, workflow_filter
+        )
+
+    @app.put("/api/work-items/{source_kind}/{subject_id}")
+    def update_work_item(
+        source_kind: Literal["quality", "ai"],
+        subject_id: int,
+        request: WorkItemStateRequest,
+    ) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return save_work_item_state(
+                connection, source_kind, subject_id, request.status,
+                snooze_days=request.snooze_days, note=request.note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
+
+    @app.put("/api/work-items/batch")
+    def update_work_items(request: BatchWorkItemStateRequest) -> dict[str, Any]:
+        connection = connect(settings.database_path)
+        try:
+            return save_work_item_states(
+                connection, request.source_kind, request.subject_ids, request.status,
+                snooze_days=request.snooze_days,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            connection.close()
 
     @app.get("/api/similarity-groups")
     def similarity_groups(
@@ -2958,9 +3014,15 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     ) -> dict[str, Any]:
         connection = connect(settings.database_path)
         try:
-            return update_ai_review(
+            result = update_ai_review(
                 connection, analysis_id, request.user_verdict, request.user_note
             )
+            save_work_item_state(
+                connection, "ai", analysis_id,
+                "confirmed" if request.user_verdict is not None else "pending",
+                note=request.user_note,
+            )
+            return result
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:

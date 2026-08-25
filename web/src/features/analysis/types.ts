@@ -72,6 +72,9 @@ export type AiRecentResult = {
   photoshop_needed: boolean;
   thumbnail_url: string;
   review_flags?: string[];
+  workflow_status?: WorkItemStatus;
+  workflow_due_at?: string | null;
+  workflow_reviewed_at?: string | null;
 };
 
 export type AiResultsResponse = {
@@ -157,6 +160,9 @@ export type QualityItem = {
   selection_reasons?: string[];
   thumbnail_url: string;
   issues: Array<{ code: string; severity: string; message: string }>;
+  workflow_status: WorkItemStatus;
+  workflow_due_at: string | null;
+  workflow_reviewed_at: string | null;
   ai_result: {
     subject_type?: string;
     quality_summary?: string;
@@ -168,6 +174,8 @@ export type QualityItem = {
 export type QualityAlbumSummary = { id: number; name: string; category: string; analyzed_count: number; problem_count: number; model_count: number };
 export type QualityResponse = { count: number; limit: number; offset: number; items: QualityItem[]; albums: QualityAlbumSummary[] };
 export type QualityReviewFilter = "all" | "problems" | "low_score" | "with_model" | "without_model" | "unrated";
+export type WorkItemStatus = "new" | "reappeared" | "pending" | "confirmed" | "ignored" | "snoozed" | "resolved";
+export type WorkItemFilter = "all" | "open" | WorkItemStatus;
 
 export type ReviewPayload = {
   user_rating: number | null;

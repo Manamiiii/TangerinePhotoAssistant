@@ -7,6 +7,7 @@ from typing import Any
 from ..database import connect_readonly
 from ..reporting import build_report
 from ..structure import structure_summary
+from ..work_queue import work_queue_summary
 
 
 def _visual_summary(connection: sqlite3.Connection) -> dict[str, int]:
@@ -34,7 +35,7 @@ def _visual_summary(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
-def query_overview(database_path: Path) -> dict[str, Any]:
+def query_overview(database_path: Path, daily_review_budget: int = 30) -> dict[str, Any]:
     connection = connect_readonly(database_path)
     try:
         report = build_report(connection)
@@ -57,6 +58,7 @@ def query_overview(database_path: Path) -> dict[str, Any]:
             "lenses": report["lenses"][:8],
             "structure": structure_summary(connection),
             "visual": _visual_summary(connection),
+            "work_queue": work_queue_summary(connection, daily_review_budget),
         }
     finally:
         connection.close()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from typing import Any
 from .database import SCHEMA_VERSION
 from .equipment import _empty_inventory, _load_inventory, _write_inventory
 from .inventory import utc_now
+from .work_queue import current_work_item_fingerprint
 
 FORMAT = "tangerine-human-data"
 FORMAT_VERSION = 1
@@ -20,6 +22,20 @@ def _rows(connection: sqlite3.Connection, sql: str) -> list[dict[str, Any]]:
 
 
 def build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) -> dict[str, Any]:
+    work_items = _rows(connection, """SELECT s.source_kind, c.capture_key,
+        NULL AS model_id, NULL AS prompt_version, s.status, s.due_at, s.note,
+        s.first_seen_at, s.last_seen_at, s.reviewed_at, s.occurrence_count,
+        s.fingerprint FROM work_item_states s
+        JOIN captures c ON c.id=s.subject_id WHERE s.source_kind='quality'""")
+    work_items.extend(_rows(connection, """SELECT s.source_kind, c.capture_key,
+        a.model_id, a.prompt_version, s.status, s.due_at, s.note,
+        s.first_seen_at, s.last_seen_at, s.reviewed_at, s.occurrence_count,
+        s.fingerprint FROM work_item_states s JOIN ai_analyses a ON a.id=s.subject_id
+        JOIN captures c ON c.id=a.capture_id WHERE s.source_kind='ai'"""))
+    for item in work_items:
+        item["fingerprint_sha256"] = hashlib.sha256(
+            item.pop("fingerprint").encode("utf-8")
+        ).hexdigest()
     return {
         "format": FORMAT, "format_version": FORMAT_VERSION,
         "source_schema": SCHEMA_VERSION, "created_at": utc_now(),
@@ -44,6 +60,7 @@ def build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) 
             a.prompt_version, a.user_verdict, a.user_note, a.reviewed_at
             FROM ai_analyses a JOIN captures c ON c.id=a.capture_id
             WHERE a.user_verdict IS NOT NULL OR a.user_note IS NOT NULL"""),
+        "work_items": work_items,
         "equipment": _load_inventory(inventory_path),
     }
 
@@ -61,7 +78,8 @@ def _validate(data: dict[str, Any]) -> None:
     if data.get("format") != FORMAT or data.get("format_version") != FORMAT_VERSION:
         raise ValueError("不是受支持的 Tangerine 人工数据备份")
     data.setdefault("ai_reviews", [])
-    for key in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews"):
+    data.setdefault("work_items", [])
+    for key in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews", "work_items"):
         if not isinstance(data.get(key), list) or len(data[key]) > 1_000_000:
             raise ValueError(f"备份字段无效：{key}")
     if not isinstance(data.get("equipment", {}), dict):
@@ -69,12 +87,12 @@ def _validate(data: dict[str, Any]) -> None:
 
 
 def backup_summary(data: dict[str, Any]) -> dict[str, int]:
-    return {key: len(data.get(key, [])) for key in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews")}
+    return {key: len(data.get(key, [])) for key in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews", "work_items")}
 
 
 def preflight_restore(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     _validate(data)
-    keys = {str(row.get("capture_key", "")) for section in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews") for row in data[section]}
+    keys = {str(row.get("capture_key", "")) for section in ("reviews", "tags", "grouping", "edit_recipes", "ai_reviews", "work_items") for row in data[section]}
     existing = set()
     for batch_start in range(0, len(keys), 500):
         batch = list(keys)[batch_start:batch_start + 500]
@@ -138,6 +156,35 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
                 ORDER BY finished_at DESC,id DESC LIMIT 1""", (capture_id,row.get("model_id"),row.get("prompt_version"))).fetchone()
             if match is not None:
                 connection.execute("UPDATE ai_analyses SET user_verdict=?,user_note=?,reviewed_at=? WHERE id=?", (row.get("user_verdict"),row.get("user_note"),row.get("reviewed_at") or now,match[0]))
+        for row in data["work_items"]:
+            capture_id = capture_ids.get(row.get("capture_key")); source_kind = row.get("source_kind")
+            if capture_id is None or source_kind not in {"quality", "ai"}: continue
+            subject_id = capture_id
+            if source_kind == "ai":
+                match = connection.execute("""SELECT id FROM ai_analyses
+                    WHERE capture_id=? AND model_id=? AND prompt_version=?
+                    ORDER BY finished_at DESC,id DESC LIMIT 1""",
+                    (capture_id,row.get("model_id"),row.get("prompt_version"))).fetchone()
+                if match is None: continue
+                subject_id = match[0]
+            try:
+                fingerprint = current_work_item_fingerprint(connection, source_kind, subject_id)
+            except ValueError:
+                continue
+            if hashlib.sha256(fingerprint.encode("utf-8")).hexdigest() != row.get("fingerprint_sha256"):
+                continue
+            status = row.get("status")
+            if status not in {"pending", "confirmed", "ignored", "snoozed", "resolved"}: continue
+            connection.execute("""INSERT INTO work_item_states(
+                source_kind,subject_id,fingerprint,status,first_seen_at,last_seen_at,
+                reviewed_at,due_at,note,occurrence_count) VALUES (?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(source_kind,subject_id) DO UPDATE SET fingerprint=excluded.fingerprint,
+                status=excluded.status,last_seen_at=excluded.last_seen_at,
+                reviewed_at=excluded.reviewed_at,due_at=excluded.due_at,note=excluded.note,
+                occurrence_count=excluded.occurrence_count""",
+                (source_kind,subject_id,fingerprint,status,row.get("first_seen_at") or now,
+                 row.get("last_seen_at") or now,row.get("reviewed_at") or now,
+                 row.get("due_at"),row.get("note"),max(1,int(row.get("occurrence_count") or 1))))
         inventory = _empty_inventory(); supplied = data.get("equipment", {})
         for container in inventory:
             if container == "version": continue

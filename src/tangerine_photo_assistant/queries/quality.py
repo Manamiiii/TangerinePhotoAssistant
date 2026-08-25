@@ -14,6 +14,7 @@ def query_quality(
     review_filter: str = "all",
     search: str | None = None,
     album_id: int | None = None,
+    workflow_filter: str = "all",
 ) -> dict[str, Any]:
     connection = connect_readonly(database_path)
     try:
@@ -36,12 +37,33 @@ def query_quality(
             conditions.append("(c.stem LIKE ? OR e.proposed_name LIKE ?)")
             term = f"%{search.strip()}%"
             parameters.extend((term, term))
+        current_fingerprint = "(qm.algorithm_version || ':' || qm.issue_json)"
+        workflow_status = f"""CASE
+            WHEN wis.subject_id IS NULL THEN 'new'
+            WHEN qm.issue_json = '[]' THEN 'resolved'
+            WHEN wis.fingerprint <> {current_fingerprint} THEN 'reappeared'
+            WHEN wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP THEN 'pending'
+            ELSE wis.status END"""
+        if workflow_filter == "open":
+            conditions.append("qm.issue_json <> '[]'")
+            conditions.append(
+                f"({workflow_status}) IN ('new', 'reappeared', 'pending')"
+            )
+        elif workflow_filter in {
+            "new", "reappeared", "pending", "confirmed", "ignored", "snoozed", "resolved"
+        }:
+            conditions.append(f"({workflow_status}) = ?")
+            parameters.append(workflow_filter)
+        elif workflow_filter != "all":
+            raise ValueError("质量复核状态无效")
         from_sql = """
             FROM quality_metrics qm
             JOIN captures c ON c.id = qm.capture_id
             JOIN event_captures ec ON ec.capture_id = c.id
             JOIN events e ON e.id = ec.event_id
             LEFT JOIN capture_reviews cr ON cr.capture_id = c.id
+            LEFT JOIN work_item_states wis
+              ON wis.source_kind='quality' AND wis.subject_id=qm.capture_id
             LEFT JOIN ai_analyses aa ON aa.id = (
                 SELECT aa2.id FROM ai_analyses aa2
                 WHERE aa2.capture_id = c.id AND aa2.status = 'complete'
@@ -54,16 +76,23 @@ def query_quality(
         ).fetchone()[0]
         rows = connection.execute(
             f"""
-            SELECT qm.capture_id, c.stem, c.captured_at, e.id AS event_id,
+            SELECT qm.capture_id, qm.algorithm_version, c.stem, c.captured_at, e.id AS event_id,
                    e.proposed_name AS event_name,
                    e.category, qm.technical_score, qm.exposure_score, qm.sharpness_score,
                    qm.exif_score, qm.highlight_clip_pct, qm.shadow_clip_pct,
                    qm.issue_json, qm.error, cr.auto_rating, cr.auto_pick,
                    cr.similarity_rank, cr.user_rating, cr.user_pick,
                    cr.user_reject, cr.user_note, aa.result_json AS ai_result_json
+                   , ({workflow_status}) AS workflow_status,
+                   wis.due_at AS workflow_due_at,
+                   wis.reviewed_at AS workflow_reviewed_at
             {from_sql}
             WHERE {where_sql}
-            ORDER BY qm.error IS NOT NULL, qm.technical_score ASC, qm.capture_id
+            ORDER BY CASE ({workflow_status})
+                         WHEN 'reappeared' THEN 0 WHEN 'new' THEN 1
+                         WHEN 'pending' THEN 2 ELSE 3 END,
+                     qm.error IS NOT NULL, qm.technical_score ASC, qm.computed_at DESC,
+                     qm.capture_id
             LIMIT ? OFFSET ?
             """,
             (*parameters, limit, offset),

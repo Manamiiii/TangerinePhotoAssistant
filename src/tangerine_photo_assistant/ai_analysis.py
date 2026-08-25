@@ -676,6 +676,7 @@ def ai_results_page(
     prompt_version: str | None = None,
     verdict: str | None = None,
     audit: str | None = None,
+    workflow: str | None = None,
 ) -> dict[str, Any]:
     if limit <= 0 or limit > 200 or offset < 0:
         raise ValueError("AI result page bounds are invalid")
@@ -683,6 +684,11 @@ def ai_results_page(
         raise ValueError("AI result verdict filter is invalid")
     if audit not in {None, "risk", "sample"}:
         raise ValueError("AI result audit filter is invalid")
+    if workflow not in {
+        None, "open", "new", "reappeared", "pending", "confirmed",
+        "ignored", "snoozed", "resolved",
+    }:
+        raise ValueError("AI result workflow filter is invalid")
     filters = ["aa.status='complete'", "aa.result_json IS NOT NULL"]
     parameters: list[Any] = []
     if prompt_version:
@@ -699,9 +705,22 @@ def ai_results_page(
         )
     elif audit == "sample":
         filters.append("aa.user_verdict IS NULL AND aa.id % 20 = 0")
+    workflow_status = """CASE
+        WHEN aa.user_verdict IS NOT NULL THEN 'confirmed'
+        WHEN wis.subject_id IS NULL THEN 'new'
+        WHEN wis.status='snoozed' AND wis.due_at <= CURRENT_TIMESTAMP THEN 'pending'
+        ELSE wis.status END"""
+    if workflow == "open":
+        filters.append(f"({workflow_status}) IN ('new', 'reappeared', 'pending')")
+    elif workflow:
+        filters.append(f"({workflow_status}) = ?")
+        parameters.append(workflow)
     where = " AND ".join(filters)
+    from_sql = """FROM ai_analyses aa
+        LEFT JOIN work_item_states wis
+          ON wis.source_kind='ai' AND wis.subject_id=aa.id"""
     total = connection.execute(
-        f"SELECT COUNT(*) FROM ai_analyses aa WHERE {where}", parameters
+        f"SELECT COUNT(*) {from_sql} WHERE {where}", parameters
     ).fetchone()[0]
     rows = connection.execute(
         f"""
@@ -710,7 +729,10 @@ def ai_results_page(
                aa.audit_flags_json, aa.audit_confidence,
                c.stem, e.proposed_name AS event_name, e.category,
                qm.technical_score, aa.result_json
-        FROM ai_analyses aa
+               , ({workflow_status}) AS workflow_status,
+               wis.due_at AS workflow_due_at,
+               wis.reviewed_at AS workflow_reviewed_at
+        {from_sql}
         JOIN captures c ON c.id=aa.capture_id
         LEFT JOIN event_captures ec ON ec.capture_id=c.id
         LEFT JOIN events e ON e.id=ec.event_id

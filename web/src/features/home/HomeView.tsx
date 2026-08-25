@@ -7,7 +7,7 @@ import type { SimilarityGroupsResponse } from "../similarity/types";
 import type { LibraryCapturesResponse, LibraryFilters } from "../library/types";
 import type { Overview } from "../overview/types";
 
-export function HomeView({ overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+export function HomeView({ overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openAnalysis, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
@@ -23,6 +23,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   openAlbums: () => void;
   openAlbum: (albumId: number) => void;
   openBursts: () => void;
+  openAnalysis: () => void;
   openStatistics: () => void;
   continueLabel: string;
   continueWork: () => void;
@@ -35,9 +36,10 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   const archiveIssue = archive?.comparison && !archive.comparison.healthy;
   const activeIssue = activeBaseline?.comparison && !activeBaseline.comparison.healthy;
   const pendingSimilarity = similarity?.pending_count ?? 0;
+  const reviewQueue = overview?.work_queue;
   const monthRows = statistics?.months ?? [];
   const latestMonth = monthRows[monthRows.length - 1] ?? null;
-  const hasPending = pendingEvents > 0 || unassigned > 0 || pendingSimilarity > 0 || Boolean(archiveIssue) || Boolean(activeIssue);
+  const hasPending = pendingEvents > 0 || unassigned > 0 || pendingSimilarity > 0 || Boolean(reviewQueue?.open_count) || Boolean(archiveIssue) || Boolean(activeIssue);
   const recentAlbums = (filters?.albums ?? []).slice(0, 4);
   const topCamera = statistics?.cameras[0];
   const topLens = statistics?.lenses[0];
@@ -62,6 +64,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
       <div className="home-dashboard-column home-dashboard-secondary">
         {overview && overview.capture_total > 0 && <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>}
         <section className="panel pending-panel"><div className="panel-heading"><div><h3>待处理</h3></div></div><div className="pending-list">
+          {!!reviewQueue?.today_count && <button onClick={openAnalysis}><span><strong>{numberFormat.format(reviewQueue.today_count)}</strong> 项今日建议复核<small>技术 {numberFormat.format(reviewQueue.quality.open_count)} · 模型高风险 {numberFormat.format(reviewQueue.ai.open_count)} · 约 {reviewQueue.estimated_minutes} 分钟</small></span><b>开始复核</b></button>}
           {pendingEvents > 0 && <button onClick={openAlbums}><span><strong>{pendingEvents}</strong> 个相册名称待确认</span><b>整理相册</b></button>}
           {pendingSimilarity > 0 && <button onClick={openBursts}><span><strong>{numberFormat.format(pendingSimilarity)}</strong> 组相似照片待挑选<small>预计约 {similarity?.estimated_review_minutes ?? 0} 分钟</small></span><b>继续选片</b></button>}
           {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
