@@ -1,7 +1,7 @@
 import type { LibraryCapture, LibraryCapturesResponse } from "../library/types";
 
 export function captureContext(items: LibraryCapture[]): number[] {
-  return items.flatMap((item) => item.selection_capture_ids);
+  return items.map((item) => item.id);
 }
 
 export function adjacentLibraryOffset(

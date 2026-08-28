@@ -399,7 +399,7 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       {items.map((item) => {
         const itemSelected = item.selection_capture_ids.every((captureId) => selected.has(captureId));
         const isGroup = item.item_type === "group" && item.similarity_group_id != null;
-        return <article className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={isGroup ? `group-${item.similarity_group_id}` : `photo-${item.id}`}>
+        return <article data-capture-id={item.id} tabIndex={-1} className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={isGroup ? `group-${item.similarity_group_id}` : `photo-${item.id}`}>
         {selectionMode && <button className="photo-select" aria-label={`${isGroup ? "选择组内照片" : itemSelected ? "取消选择" : "选择"} ${item.stem}`} onClick={() => isGroup ? void openGroupSelection(item.similarity_group_id!) : toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : isGroup ? "…" : ""}</span></button>}
         <button className="photo-open" onClick={() => isGroup && selectionMode ? void openGroupSelection(item.similarity_group_id!) : openCapture(item.id, captureContext(items), undefined, true)}><img src={item.thumbnail_url} loading="lazy" decoding="async" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张{selectionMode ? " · 选择组内" : ""}</span>}</button>
         {isGroup && !selectionMode && openGroup && <button className="group-expand-button" onClick={() => openGroup(item.similarity_group_id!)}>展开组</button>}

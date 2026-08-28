@@ -565,6 +565,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .photo-library-grid.layout-list { grid-template-columns: 1fr; gap: 7px; }
 .library-photo-card { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); transition: border-color .15s, box-shadow .15s; content-visibility: auto; contain-intrinsic-size: 280px 340px; }
 .library-photo-card.selected { border-color: var(--orange); box-shadow: 0 0 0 2px rgba(242, 113, 34, .18); }
+.library-photo-card:focus { outline: 2px solid var(--orange); outline-offset: 3px; }
 .library-photo-card.group-card { box-shadow: 5px 5px 0 -2px var(--surface-soft), 5px 5px 0 -1px var(--line); }
 .photo-select { position: absolute; z-index: 2; top: 9px; left: 9px; width: 28px; height: 28px; padding: 0; border: 1px solid rgba(255,255,255,.75); border-radius: 9px; color: #fff; background: rgba(20,18,15,.55); display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(6px); }
 .library-photo-card.selected .photo-select { border-color: var(--orange); background: var(--orange); }
