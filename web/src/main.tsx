@@ -838,10 +838,6 @@ function App() {
       if (!card) return;
       card.scrollIntoView({ block: "center", inline: "nearest" });
       card.focus({ preventScroll: true });
-      card.animate(
-        [{ boxShadow: "0 0 0 3px rgba(242, 113, 34, .38)" }, { boxShadow: "none" }],
-        { duration: 900, easing: "ease-out" },
-      );
       setDetailReturnCaptureId(null);
     });
     return () => window.cancelAnimationFrame(frame);
