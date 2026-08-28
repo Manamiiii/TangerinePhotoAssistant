@@ -580,7 +580,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .photo-card-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .photo-card-copy span, .photo-card-copy p { color: var(--muted); font-size: 10px; }
 .photo-card-copy p { margin: 7px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.photo-card-status b { padding: 3px 5px; border-radius: 5px; color: #bfe6c9; background: #1d3524; font-size: 10px; }
+.photo-card-status b { flex: 0 0 auto; padding: 3px 5px; border-radius: 5px; color: #bfe6c9; background: #1d3524; font-size: 10px; white-space: nowrap; }
 .photo-card-status b.rejected { color: #efb7ad; background: #3b1d19; }
 .photo-quick-review { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .photo-quick-review button { min-height: 28px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: transparent; font: inherit; font-size: 10px; cursor: pointer; }
@@ -590,6 +590,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .layout-small .photo-card-copy > div:first-child { align-items: flex-start; flex-direction: column; gap: 2px; }
 .layout-small .photo-card-copy p, .layout-small .photo-card-status > span, .layout-small .photo-quick-review { display: none; }
 .layout-small .photo-card-status { min-height: 18px; }
+.layout-small .photo-card-status > div { flex-wrap: wrap; justify-content: flex-start; }
 .layout-list .library-photo-card { min-height: 74px; display: grid; grid-template-columns: 108px minmax(0, 1fr); }
 .layout-list .photo-open { height: 74px; }
 .layout-list .photo-open img { height: 74px; aspect-ratio: auto; object-fit: cover; }

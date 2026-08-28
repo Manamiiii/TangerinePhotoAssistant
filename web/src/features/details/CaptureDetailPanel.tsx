@@ -205,6 +205,7 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   const [aiNote, setAiNote] = useState(latestAnalysis?.user_note ?? "");
   const [aiNoteEditing, setAiNoteEditing] = useState(false);
   const [immersive, setImmersive] = useState(initialImmersive);
+  const [computerFullscreen, setComputerFullscreen] = useState(false);
   const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [imageLoading, setImageLoading] = useState(true);
@@ -219,6 +220,11 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
     setPan({ x: 0, y: 0 });
     setZoom(1);
   }, [detail.id]);
+  useEffect(() => {
+    const updateFullscreen = () => setComputerFullscreen(document.fullscreenElement === backdropRef.current);
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
   const [informationLevel, setInformationLevel] = useState<"compact" | "standard" | "full">(() => {
     const saved = window.localStorage.getItem("tangerine-detail-information");
     return saved === "compact" || saved === "full" ? saved : "standard";
@@ -287,7 +293,7 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
           <div className="detail-view-controls">
             <button onClick={() => { setImmersive((current) => !current); setZoom(1); setPan({ x: 0, y: 0 }); }}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
             {!immersive && <><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>文件位置</button></>}
-            {immersive && <><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>适应</button><button onClick={() => setZoom((current) => Math.max(1, current - .25))}>−</button><span className="detail-zoom-value">{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((current) => Math.min(6, current + .25))}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button></>}
+            {immersive && <><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>适应</button><button onClick={() => setZoom((current) => Math.max(1, current - .25))}>−</button><span className="detail-zoom-value">{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((current) => Math.min(6, current + .25))}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => { if (document.fullscreenElement === backdropRef.current) void document.exitFullscreen(); else void backdropRef.current?.requestFullscreen(); }}>{computerFullscreen ? "退出电脑全屏" : "电脑全屏"}</button></>}
           </div>
         </div>
         <div className="detail-copy">
