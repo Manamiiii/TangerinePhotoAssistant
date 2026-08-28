@@ -185,9 +185,10 @@ function formatMetadataText(value: unknown): string {
   return translated ?? value;
 }
 
-export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveReview, saveTags, saveEditRecipe, restoreEditRecipe, navigate, hasPrev, hasNext }: {
+export function CaptureDetailPanel({ detail, mode, initialImmersive = false, close, saveAiReview, saveReview, saveTags, saveEditRecipe, restoreEditRecipe, navigate, hasPrev, hasNext }: {
   detail: CaptureDetail;
   mode: DetailMode;
+  initialImmersive?: boolean;
   close: () => void;
   saveAiReview: (analysisId: number, verdict: "accurate" | "partial" | "inaccurate" | null, note: string | null) => void;
   saveReview: (captureId: number, review: ReviewPayload) => void;
@@ -203,11 +204,27 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
   const shootingReview = detail.shooting_review;
   const [aiNote, setAiNote] = useState(latestAnalysis?.user_note ?? "");
   const [aiNoteEditing, setAiNoteEditing] = useState(false);
-  const [immersive, setImmersive] = useState(false);
+  const [immersive, setImmersive] = useState(initialImmersive);
+  const [computerFullscreen, setComputerFullscreen] = useState(false);
   const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
-  const [zoom, setZoom] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [imageLoading, setImageLoading] = useState(true);
+  const [imageRetry, setImageRetry] = useState(0);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const backdropRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    setImageLoading(true);
+    setImageRetry(0);
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
+  }, [detail.id]);
+  useEffect(() => {
+    const updateFullscreen = () => setComputerFullscreen(document.fullscreenElement === backdropRef.current);
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
   const [informationLevel, setInformationLevel] = useState<"compact" | "standard" | "full">(() => {
     const saved = window.localStorage.getItem("tangerine-detail-information");
     return saved === "compact" || saved === "full" ? saved : "standard";
@@ -247,8 +264,8 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
         user_note: detail.user_note,
         ...changes,
       });
-      if (event.key === "Escape") { if (immersive) { setImmersive(false); setZoom(0); } else close(); return; }
-      if (event.key === "f" || event.key === "F") { setImmersive((current) => !current); setZoom(0); return; }
+      if (event.key === "Escape") { if (immersive) { setImmersive(false); setZoom(1); setPan({ x: 0, y: 0 }); } else close(); return; }
+      if (event.key === "f" || event.key === "F") { setImmersive((current) => !current); setZoom(1); setPan({ x: 0, y: 0 }); return; }
       if (event.key === "ArrowLeft") { event.preventDefault(); navigate(-1); return; }
       if (event.key === "ArrowRight") { event.preventDefault(); navigate(1); return; }
       if (event.key >= "1" && event.key <= "5") { review({ user_rating: Number(event.key) }); return; }
@@ -265,13 +282,18 @@ export function CaptureDetailPanel({ detail, mode, close, saveAiReview, saveRevi
       {hasNext && <button className="detail-nav next" aria-label="下一张" onClick={(event) => { event.stopPropagation(); navigate(1); }}>›</button>}
       <section className={`detail-panel ${showImmersiveInfo ? "show-immersive-info" : ""}`} onClick={(event) => event.stopPropagation()}>
         <button className="detail-close" onClick={close} aria-label="关闭详情">×</button>
-        <div className={`detail-image ${zoom ? "zoomed" : ""}`}>
-          <img style={zoom ? { width: `${zoom * 100}%`, height: "auto", maxWidth: "none" } : undefined} src={detail.thumbnail_url} alt={`${detail.stem} 大图预览`} />
+        <div className={`detail-image ${zoom > 1 ? "zoomed" : ""}`}
+          onWheel={(event) => { if (!immersive) return; event.preventDefault(); setZoom((current) => Math.max(1, Math.min(6, current + (event.deltaY < 0 ? .25 : -.25)))); }}
+          onPointerDown={(event) => { if (zoom <= 1) return; event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }; }}
+          onPointerMove={(event) => { const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId) return; setPan({ x: drag.panX + event.clientX - drag.x, y: drag.panY + event.clientY - drag.y }); }}
+          onPointerUp={(event) => { if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null; }}>
+          {imageLoading && <span className="detail-image-loading">正在加载照片…</span>}
+          <img draggable={false} className={imageLoading ? "loading" : ""} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} src={`${detail.thumbnail_url}${detail.thumbnail_url.includes("?") ? "&" : "?"}retry=${imageRetry}`} alt={`${detail.stem} 大图预览`} onLoad={() => setImageLoading(false)} onError={() => { if (imageRetry < 2) { window.setTimeout(() => setImageRetry((current) => current + 1), 180); } else { setImageLoading(false); } }} />
           {detail.files.some((file) => file.role === "raw") && <span className="raw-badge">JPG + RAW</span>}
           <div className="detail-view-controls">
-            <button onClick={() => { setImmersive((current) => !current); setZoom(0); }}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
+            <button onClick={() => { setImmersive((current) => !current); setZoom(1); setPan({ x: 0, y: 0 }); }}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
             {!immersive && <><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>文件位置</button></>}
-            {immersive && <><button onClick={() => setZoom(0)}>适应</button><button onClick={() => setZoom((current) => current ? Math.max(1, current - .5) : 1)}>−</button><button onClick={() => setZoom((current) => current ? Math.min(4, current + .5) : 1)}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => void backdropRef.current?.requestFullscreen?.()}>浏览器全屏</button></>}
+            {immersive && <><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>适应</button><button onClick={() => setZoom((current) => Math.max(1, current - .25))}>−</button><span className="detail-zoom-value">{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((current) => Math.min(6, current + .25))}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => { if (document.fullscreenElement === backdropRef.current) void document.exitFullscreen(); else void backdropRef.current?.requestFullscreen(); }}>{computerFullscreen ? "退出电脑全屏" : "电脑全屏"}</button></>}
           </div>
         </div>
         <div className="detail-copy">
