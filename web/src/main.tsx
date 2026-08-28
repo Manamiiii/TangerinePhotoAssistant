@@ -14,6 +14,7 @@ import type { AiPreflight, AnalysisOverview, QualityItem, QualityResponse, Quali
 import type { GroupCapture, SimilarityAgeFilter, SimilarityConfidenceFilter, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter } from "./features/similarity/types";
 import { BurstsView } from "./features/similarity/BurstsView";
 import type { CaptureDetail, DetailMode, EditParameters, EditRecipe } from "./features/details/types";
+import { adjacentLibraryOffset, captureContext } from "./features/details/detailNavigation";
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
 import type { CaptureTagDimension } from "./features/details/types";
 import type { Overview } from "./features/overview/types";
@@ -71,6 +72,7 @@ function App() {
   const [captureDetail, setCaptureDetail] = useState<CaptureDetail | null>(null);
   const [urlCaptureId, setUrlCaptureId] = useState<number | null>(initialNavigation.captureId);
   const [detailMode, setDetailMode] = useState<DetailMode>("browse");
+  const [detailInitialImmersive, setDetailInitialImmersive] = useState(false);
   const [detailContext, setDetailContext] = useState<number[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [equipment, setEquipment] = useState<EquipmentCatalog | null>(null);
@@ -92,6 +94,7 @@ function App() {
   const qualityRequestGuard = useRef(createLatestRequestGuard());
   const similarityRequestGuard = useRef(createLatestRequestGuard());
   const captureRequestSequence = useRef(0);
+  const detailPrefetch = useRef(new Map<number, Promise<CaptureDetail>>());
   const toastSequence = useRef(0);
   const reviewQueues = useRef(new Map<number, Promise<void>>());
   const reviewVersions = useRef(new Map<number, number>());
@@ -796,7 +799,7 @@ function App() {
     setView("library");
   };
 
-  const openCapture = async (captureId: number, context?: number[], mode?: DetailMode) => {
+  const openCapture = async (captureId: number, context?: number[], mode?: DetailMode, immersive = false) => {
     const requestSequence = ++captureRequestSequence.current;
     setError(null);
     try {
@@ -805,6 +808,7 @@ function App() {
       setCaptureDetail(detail);
       setUrlCaptureId(captureId);
       setDetailMode(mode ?? (view === "bursts" ? "select" : view === "analysis" ? "analyze" : "browse"));
+      setDetailInitialImmersive(immersive);
       if (context) setDetailContext(context);
       else setDetailContext((current) => current.includes(captureId) ? current : []);
     } catch (reason) {
@@ -813,15 +817,45 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (!captureDetail) return;
+    const index = detailContext.indexOf(captureDetail.id);
+    [detailContext[index - 1], detailContext[index + 1]].filter((id): id is number => id != null).forEach((id) => {
+      if (detailPrefetch.current.has(id)) return;
+      const request = getJson<CaptureDetail>(`/api/captures/${id}`);
+      detailPrefetch.current.set(id, request);
+      void request.then((detail) => { const image = new Image(); image.src = detail.thumbnail_url; }).catch(() => detailPrefetch.current.delete(id));
+    });
+  }, [captureDetail, detailContext]);
+
   const navigateDetail = async (direction: 1 | -1) => {
     if (!captureDetail || !detailContext.length) return;
     const index = detailContext.indexOf(captureDetail.id);
     if (index < 0) return;
-    const nextId = detailContext[index + direction];
+    let nextId = detailContext[index + direction];
+    if (nextId == null && view === "library" && libraryCaptures) {
+      const nextOffset = adjacentLibraryOffset(libraryCaptures, direction);
+      if (nextOffset == null) return;
+      try {
+        const nextPage = await getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, nextOffset));
+        const nextContext = captureContext(nextPage.items);
+        nextId = direction > 0 ? nextContext[0] : nextContext[nextContext.length - 1];
+        if (nextId == null) return;
+        libraryRequestGuard.current.invalidate();
+        setLibraryCaptures(nextPage);
+        setLibraryOffset(nextOffset);
+        setDetailContext(nextContext);
+      } catch (reason) {
+        pushToast("error", (reason as Error).message);
+        return;
+      }
+    }
     if (nextId == null) return;
     const requestSequence = ++captureRequestSequence.current;
     try {
-      const detail = await getJson<CaptureDetail>(`/api/captures/${nextId}`);
+      const prefetched = detailPrefetch.current.get(nextId);
+      detailPrefetch.current.delete(nextId);
+      const detail = await (prefetched ?? getJson<CaptureDetail>(`/api/captures/${nextId}`));
       if (requestSequence !== captureRequestSequence.current) return;
       setCaptureDetail(detail);
       setUrlCaptureId(nextId);
@@ -1182,7 +1216,7 @@ function App() {
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} saveInvestigation={saveIntegrityInvestigation} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
         {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} onDirtyChange={setSettingsDirty} />}
-        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} close={() => { captureRequestSequence.current += 1; setCaptureDetail(null); setUrlCaptureId(null); }} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0} hasNext={detailIndex >= 0 && detailIndex < detailContext.length - 1} />; })()}
+        {captureDetail && (() => { const detailIndex = detailContext.indexOf(captureDetail.id); const canLoadPreviousPage = view === "library" && Boolean(libraryCaptures?.offset); const canLoadNextPage = view === "library" && Boolean(libraryCaptures && libraryCaptures.offset + libraryCaptures.limit < libraryCaptures.count); return <CaptureDetailPanel detail={captureDetail} mode={detailMode} initialImmersive={detailInitialImmersive} close={() => { captureRequestSequence.current += 1; setCaptureDetail(null); setUrlCaptureId(null); }} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} hasPrev={detailIndex > 0 || canLoadPreviousPage} hasNext={(detailIndex >= 0 && detailIndex < detailContext.length - 1) || canLoadNextPage} />; })()}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} role={toast.kind === "error" ? "alert" : "status"} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
         </div>
