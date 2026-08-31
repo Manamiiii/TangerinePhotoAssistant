@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import html
+import json
 import os
+import sys
+from pathlib import Path
 from threading import Event, Lock
 
+from .app_paths import resource_root
+from .build_info import build_info, version_summary
 from .desktop import DesktopError, ServiceClient
 
 
@@ -64,6 +69,52 @@ class DesktopWindow:
     def open_logs(self) -> None:
         self.client.runtime.mkdir(parents=True, exist_ok=True)
         os.startfile(self.client.runtime)
+
+    def open_program(self) -> None:
+        os.startfile(Path(sys.executable).parent if getattr(sys, "frozen", False) else resource_root())
+
+    def information(self, title: str, message: str) -> None:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, title, 0x40)
+
+    def about(self) -> None:
+        try:
+            health = self.client.health()
+        except Exception:
+            health = None
+        self.information("版本与更新", version_summary(build_info(), health))
+
+    def inspect_package(self) -> None:
+        import webview
+        chosen = self.window.create_file_dialog(webview.FileDialog.FOLDER)
+        if not chosen:
+            return
+        try:
+            path = Path(chosen[0]) / "package-manifest.json"
+            if path.stat().st_size > 4 * 1024 * 1024:
+                raise ValueError("oversized manifest")
+            candidate = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(candidate, dict) or candidate.get("app_id") != "tangerine-photo-assistant" or candidate.get("format") != 1:
+                raise ValueError("unknown package")
+            message = version_summary(build_info(), {"build": candidate}).replace("后台服务：", "所选安装包：")
+            message = message.replace("程序与服务构建不同；保存编辑并确认任务空闲后正常重启。", "所选安装包与当前程序构建不同；安装后需正常重新启动。")
+            message += "\n\n此处只比较版本，不判断提交先后或验证发布者。安装时会逐文件校验；仅使用可信来源。"
+        except (OSError, ValueError, TypeError):
+            message = "未找到有效的安装包清单。请选择新版本 ZIP 解压后的程序目录。"
+        self.information("本地安装包", message)
+
+    def stop(self) -> None:
+        if not self.operation.acquire(blocking=False):
+            return
+        try:
+            if not self.window.create_confirmation_dialog("安全停止服务", "已保存编辑？仅在任务空闲时停止后台。其他浏览器页面也会断开；照片和数据库不会删除。"):
+                return
+            self.client.stop(self.progress, self.cancelled)
+            self.progress("服务已安全停止。可关闭窗口进行程序维护，或选择“重新连接”再次启动。")
+        except Exception as exc:
+            self.information("未强制停止", str(exc) if isinstance(exc, DesktopError) else "停止未完成，请检查日志。")
+        finally:
+            self.operation.release()
 
     def close(self) -> None:
         self.window.destroy()

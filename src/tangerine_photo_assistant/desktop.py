@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from .app_paths import config_identity, resource_root, service_runtime_directory, user_app_directory
+from .build_info import build_info
 from .desktop_lock import FileLease, LeaseBusy
 from .service_runtime import APP_ID, CONTROL_HEADER, TERMINAL_TASK_STATES
 from .settings import Settings, write_safe_config
@@ -128,16 +129,14 @@ class ServiceClient:
         process = None
         if not backend_active:
             progress("正在启动本地服务；首次数据库升级可能需要几分钟…")
-            log = self.runtime / f"server-{time.time_ns()}.log"
             environment = os.environ.copy()
             environment["PYTHONUTF8"] = "1"
             environment["PYTHONIOENCODING"] = "utf-8"
-            with log.open("xb") as output:
-                process = subprocess.Popen(
-                    self.backend_command(), cwd=str(resource_root()), env=environment,
-                    stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
+            process = subprocess.Popen(
+                self.backend_command(), cwd=str(resource_root()), env=environment,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
         while not stop.is_set() and time.monotonic() < deadline:
             health = self.health()
             if health:
@@ -148,7 +147,7 @@ class ServiceClient:
             stop.wait(1)
         raise DesktopError("启动等待已结束；后台进程未被强制停止，可稍后重新连接")
 
-    def restart(self, progress: Callable[[str], None], cancelled: Event | None = None) -> None:
+    def stop(self, progress: Callable[[str], None], cancelled: Event | None = None) -> None:
         health = self.health()
         if not health or not health.get("desktop_control"):
             raise DesktopError("当前是旧版或未运行的服务。旧服务需按原方式重启一次，之后可使用此入口。")
@@ -181,7 +180,10 @@ class ServiceClient:
             stop.wait(0.25)
         else:
             raise DesktopError("服务尚未退出；未强制终止，请稍后重新连接")
-        self.ensure_running(progress, stop)
+
+    def restart(self, progress: Callable[[str], None], cancelled: Event | None = None) -> None:
+        self.stop(progress, cancelled)
+        self.ensure_running(progress, cancelled)
 
 
 def prepare_default_config() -> Path:
@@ -206,7 +208,7 @@ def validate_desktop(config: Path) -> dict[str, object]:
         if not (resource_root() / relative).is_file():
             raise DesktopError(f"缺少应用资源：{relative}")
     return {"status": "ok", "version": __version__, "schema_version": SCHEMA_VERSION,
-            "packaged": bool(getattr(sys, "frozen", False))}
+            "packaged": bool(getattr(sys, "frozen", False)), "build": build_info()}
 
 
 def run_window(config: Path, port: int) -> int:
@@ -223,6 +225,10 @@ def run_window(config: Path, port: int) -> int:
     webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
     menu = [Menu("应用", [MenuAction("重新连接", controller.connect),
                          MenuAction("安全重启服务", controller.restart),
+                         MenuAction("安全停止服务", controller.stop),
+                         MenuAction("版本与更新", controller.about),
+                         MenuAction("检查本地安装包", controller.inspect_package),
+                         MenuAction("打开程序维护目录", controller.open_program),
                          MenuAction("在浏览器中打开", lambda: webbrowser.open(client.url)),
                          MenuAction("打开启动日志目录", controller.open_logs),
                          MenuSeparator(), MenuAction("关闭窗口（后台继续运行）", controller.close)])]
@@ -261,17 +267,6 @@ def main() -> int:
             raise DesktopError("此模式必须明确提供 --config，不自动创建配置")
         config = args.config or prepare_default_config()
         if args.backend:
-            # Windowed Python/PyInstaller has no standard streams, even when its
-            # parent redirects handles. Uvicorn and startup diagnostics need a
-            # real text stream; never attach a console just to obtain one.
-            if sys.stderr is None or sys.stdout is None:
-                runtime = service_runtime_directory(config, args.port)
-                runtime.mkdir(parents=True, exist_ok=True)
-                stream = (runtime / f"backend-{time.time_ns()}.log").open("x", encoding="utf-8", buffering=1)
-                if sys.stderr is None:
-                    sys.stderr = stream
-                if sys.stdout is None:
-                    sys.stdout = stream
             from .cli import serve
             return serve(config, "127.0.0.1", args.port, False)
         result = validate_desktop(config)

@@ -65,6 +65,10 @@ integrations as capabilities, not assumptions.
 Windows now has an optional native WebView2 window and an unsigned internal bundle,
 with versioned per-user installation and authenticated idle-only restart. It uses
 the existing TOML settings and keeps all user data outside program releases.
+Offline build comparison, checksummed package inventories, configuration-preserving
+upgrades, schema-floor rollback guards and preview-first per-release removal are
+implemented. Service logs rotate within a fixed per-configuration budget; previous
+logs are not silently removed. There is no automatic network update check or download.
 See `WINDOWS_APP.md`; this is not yet a signed public distribution.
 
 1. Choose the public license and contribution policy. The project metadata stays
