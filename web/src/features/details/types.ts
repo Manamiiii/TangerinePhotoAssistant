@@ -1,5 +1,8 @@
 export type DetailMode = "browse" | "select" | "analyze";
 
+export type DetailOpenOptions = { immersive?: boolean; navigation?: "library" | "fixed" };
+export type OpenCapture = (captureId: number, context?: number[], mode?: DetailMode, options?: DetailOpenOptions) => void;
+
 export type CaptureDetail = {
   id: number;
   stem: string;

@@ -4,6 +4,8 @@ import { formatDate, formatExposure, formatFileSize } from "../../formatters";
 import type { ReviewPayload } from "../analysis/types";
 import type { CaptureDetail, CaptureTagDimension, DetailMode, EditParameters, EditRecipe } from "./types";
 import { EditRecipePanel } from "./EditRecipePanel";
+import { CaptureImageViewer } from "./CaptureImageViewer";
+import { toggleFullscreen } from "./viewerState";
 
 const tagDimensionLabels: Record<CaptureTagDimension, string> = {
   subject: "题材",
@@ -185,7 +187,7 @@ function formatMetadataText(value: unknown): string {
   return translated ?? value;
 }
 
-export function CaptureDetailPanel({ detail, mode, initialImmersive = false, close, saveAiReview, saveReview, saveTags, saveEditRecipe, restoreEditRecipe, navigate, hasPrev, hasNext }: {
+export function CaptureDetailPanel({ detail, mode, initialImmersive = false, close, saveAiReview, saveReview, saveTags, saveEditRecipe, restoreEditRecipe, navigate, navigating = false, hasPrev, hasNext }: {
   detail: CaptureDetail;
   mode: DetailMode;
   initialImmersive?: boolean;
@@ -196,6 +198,7 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   saveEditRecipe: (captureId: number, parameters: EditParameters, status: EditRecipe["status"], sourceAnalysisId: number | null, note: string | null) => Promise<void>;
   restoreEditRecipe: (captureId: number, revisionId: number) => Promise<void>;
   navigate: (direction: 1 | -1) => void;
+  navigating?: boolean;
   hasPrev: boolean;
   hasNext: boolean;
 }) {
@@ -206,22 +209,14 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   const [aiNoteEditing, setAiNoteEditing] = useState(false);
   const [immersive, setImmersive] = useState(initialImmersive);
   const [computerFullscreen, setComputerFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [imageLoading, setImageLoading] = useState(true);
-  const [imageRetry, setImageRetry] = useState(0);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const backdropRef = useRef<HTMLDivElement | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    setImageLoading(true);
-    setImageRetry(0);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
-  }, [detail.id]);
-  useEffect(() => {
-    const updateFullscreen = () => setComputerFullscreen(document.fullscreenElement === backdropRef.current);
+    const updateFullscreen = () => { setComputerFullscreen(document.fullscreenElement === backdropRef.current); setFullscreenError(null); };
     document.addEventListener("fullscreenchange", updateFullscreen);
     return () => document.removeEventListener("fullscreenchange", updateFullscreen);
   }, []);
@@ -253,6 +248,19 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
     user_note: detail.user_note,
     ...changes,
   });
+  const changeImmersive = () => {
+    if (immersive && document.fullscreenElement === backdropRef.current) {
+      void document.exitFullscreen().catch(() => {
+        if (mounted.current) setFullscreenError("退出全屏失败，请按 Esc 退出。");
+      });
+    }
+    setImmersive((current) => !current);
+  };
+  const changeFullscreen = async () => {
+    setFullscreenError(null);
+    try { await toggleFullscreen(backdropRef.current); }
+    catch { if (mounted.current) setFullscreenError("无法进入或退出全屏，请检查浏览器权限或使用沉浸查看。"); }
+  };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -264,8 +272,12 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
         user_note: detail.user_note,
         ...changes,
       });
-      if (event.key === "Escape") { if (immersive) { setImmersive(false); setZoom(1); setPan({ x: 0, y: 0 }); } else close(); return; }
-      if (event.key === "f" || event.key === "F") { setImmersive((current) => !current); setZoom(1); setPan({ x: 0, y: 0 }); return; }
+      if (event.key === "Escape") {
+        if (document.fullscreenElement === backdropRef.current) return;
+        if (immersive) setImmersive(false); else close();
+        return;
+      }
+      if (event.key === "f" || event.key === "F") { changeImmersive(); return; }
       if (event.key === "ArrowLeft") { event.preventDefault(); navigate(-1); return; }
       if (event.key === "ArrowRight") { event.preventDefault(); navigate(1); return; }
       if (event.key >= "1" && event.key <= "5") { review({ user_rating: Number(event.key) }); return; }
@@ -278,24 +290,17 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   }, [detail, close, immersive, mode, navigate, saveReview]);
   return (
     <div ref={backdropRef} className={`detail-backdrop ${immersive ? "immersive" : ""}`} role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
-      {hasPrev && <button className="detail-nav prev" aria-label="上一张" onClick={(event) => { event.stopPropagation(); navigate(-1); }}>‹</button>}
-      {hasNext && <button className="detail-nav next" aria-label="下一张" onClick={(event) => { event.stopPropagation(); navigate(1); }}>›</button>}
+      {hasPrev && <button className="detail-nav prev" disabled={navigating} aria-label="上一张" onClick={(event) => { event.stopPropagation(); navigate(-1); }}>‹</button>}
+      {hasNext && <button className="detail-nav next" disabled={navigating} aria-label="下一张" onClick={(event) => { event.stopPropagation(); navigate(1); }}>›</button>}
+      {navigating && <span className="detail-navigation-loading" role="status">正在切换照片…</span>}
       <section className={`detail-panel ${showImmersiveInfo ? "show-immersive-info" : ""}`} onClick={(event) => event.stopPropagation()}>
         <button className="detail-close" onClick={close} aria-label="关闭详情">×</button>
-        <div className={`detail-image ${zoom > 1 ? "zoomed" : ""}`}
-          onWheel={(event) => { if (!immersive) return; event.preventDefault(); setZoom((current) => Math.max(1, Math.min(6, current + (event.deltaY < 0 ? .25 : -.25)))); }}
-          onPointerDown={(event) => { if (zoom <= 1) return; event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }; }}
-          onPointerMove={(event) => { const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId) return; setPan({ x: drag.panX + event.clientX - drag.x, y: drag.panY + event.clientY - drag.y }); }}
-          onPointerUp={(event) => { if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null; }}>
-          {imageLoading && <span className="detail-image-loading">正在加载照片…</span>}
-          <img draggable={false} className={imageLoading ? "loading" : ""} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} src={`${detail.thumbnail_url}${detail.thumbnail_url.includes("?") ? "&" : "?"}retry=${imageRetry}`} alt={`${detail.stem} 大图预览`} onLoad={() => setImageLoading(false)} onError={() => { if (imageRetry < 2) { window.setTimeout(() => setImageRetry((current) => current + 1), 180); } else { setImageLoading(false); } }} />
-          {detail.files.some((file) => file.role === "raw") && <span className="raw-badge">JPG + RAW</span>}
-          <div className="detail-view-controls">
-            <button onClick={() => { setImmersive((current) => !current); setZoom(1); setPan({ x: 0, y: 0 }); }}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
+        <CaptureImageViewer key={detail.id} url={detail.thumbnail_url} name={detail.stem} immersive={immersive} paired={detail.files.some((file) => file.role === "raw")} controls={<>
+            <button onClick={changeImmersive}>{immersive ? "退出沉浸" : "沉浸查看"}</button>
             {!immersive && <><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>文件位置</button></>}
-            {immersive && <><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>适应</button><button onClick={() => setZoom((current) => Math.max(1, current - .25))}>−</button><span className="detail-zoom-value">{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((current) => Math.min(6, current + .25))}>＋</button><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => { if (document.fullscreenElement === backdropRef.current) void document.exitFullscreen(); else void backdropRef.current?.requestFullscreen(); }}>{computerFullscreen ? "退出电脑全屏" : "电脑全屏"}</button></>}
-          </div>
-        </div>
+            {immersive && <><button onClick={() => setShowImmersiveInfo((current) => !current)}>{showImmersiveInfo ? "隐藏信息" : "显示信息"}</button><button onClick={() => void changeFullscreen()}>{computerFullscreen ? "退出电脑全屏" : "电脑全屏"}</button></>}
+            {fullscreenError && <span className="detail-fullscreen-error" role="alert">{fullscreenError}</span>}
+          </>} />
         <div className="detail-copy">
           <span className="section-kicker">{detail.category ?? "未分类"}</span>
           <h2>{detail.stem}</h2>
