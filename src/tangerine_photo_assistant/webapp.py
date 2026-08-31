@@ -166,7 +166,7 @@ from .task_incidents import (
     save_task_incident_state,
     task_incidents_page,
 )
-from .thumbnails import ThumbnailCache
+from .thumbnails import ThumbnailCache, ThumbnailCacheUnavailable
 from .visual import analyze_visuals
 from .work_queue import save_work_item_state, save_work_item_states
 
@@ -2483,6 +2483,8 @@ def create_app(
                 "crop_percent": crop_percent,
                 "straighten_deg": straighten_deg,
             })
+        except ThumbnailCacheUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "30"}) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (FileNotFoundError, OSError) as exc:
@@ -2491,6 +2493,7 @@ def create_app(
             content=content,
             media_type="image/jpeg",
             headers={"Cache-Control": "private, no-store"},
+            background=BackgroundTask(thumbnail_cache.prune_if_due),
         )
 
     @app.post("/api/captures/tags/batch")
@@ -2587,6 +2590,8 @@ def create_app(
     ) -> FileResponse:
         try:
             path = thumbnail_cache.get(capture_id, size)
+        except ThumbnailCacheUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "30"}) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (FileNotFoundError, OSError) as exc:
@@ -2594,6 +2599,7 @@ def create_app(
         return FileResponse(
             path, media_type="image/jpeg",
             headers={"Cache-Control": "private, max-age=86400"},
+            background=BackgroundTask(thumbnail_cache.prune_if_due),
         )
 
     @app.get("/api/cache/thumbnails")

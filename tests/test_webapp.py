@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -18,6 +19,7 @@ from tangerine_photo_assistant.settings import Settings, write_safe_config
 from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.tags import update_manual_tag_for_captures
 from tangerine_photo_assistant.task_incidents import record_task_incident
+from tangerine_photo_assistant.thumbnails import ThumbnailCacheUnavailable
 from tangerine_photo_assistant.visual import (
     build_visual_fingerprints,
     rebuild_similarity_groups,
@@ -65,6 +67,42 @@ def settings_for(root: Path) -> Settings:
 
 
 class WebAppQueryTests(unittest.TestCase):
+    def test_thumbnail_maintenance_runs_after_the_image_body(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = settings_for(root)
+            config_path = root / "config.toml"
+            write_safe_config(config_path, settings.originals, settings.workspace, settings.cache_root)
+            derivative = root / "generated.jpg"
+            with Image.new("RGB", (32, 24)) as image:
+                image.save(derivative)
+            events = []
+            with patch("tangerine_photo_assistant.webapp.ThumbnailCache") as factory:
+                cache = factory.return_value
+                cache.get.return_value = derivative
+                cache.prune_if_due.side_effect = lambda: events.append("maintenance")
+                app = create_app(config_path)
+                endpoint = next(route.endpoint for route in app.routes
+                                if getattr(route, "path", "") == "/api/thumbnails/{capture_id}")
+                response = endpoint(capture_id=1, size=320)
+                cache.prune_if_due.assert_not_called()
+
+                async def send(message):
+                    if message["type"] == "http.response.body" and not message.get("more_body"):
+                        events.append("image-complete")
+
+                async def receive():
+                    return {"type": "http.disconnect"}
+
+                asyncio.run(response({"type": "http", "method": "GET", "headers": []}, receive, send))
+                self.assertEqual(events, ["image-complete", "maintenance"])
+                self.assertIn("max-age=86400", response.headers["cache-control"])
+                cache.get.side_effect = ThumbnailCacheUnavailable("cache maintenance unavailable")
+                with TestClient(app, base_url="http://localhost") as client:
+                    unavailable = client.get("/api/thumbnails/1?size=320")
+                    self.assertEqual(unavailable.status_code, 503)
+                    self.assertEqual(unavailable.headers["retry-after"], "30")
+
     def test_browser_writes_require_same_origin_session_token(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
