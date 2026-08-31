@@ -149,6 +149,8 @@ def query_library_captures(
             LEFT JOIN similarity_groups sg ON sg.id = sgc.group_id
             LEFT JOIN quality_metrics qm ON qm.capture_id = c.id
             LEFT JOIN similarity_group_overrides sgo ON sgo.capture_id = c.id
+        """
+        detail_from_sql = from_sql + """
             LEFT JOIN (
                 SELECT members.group_id,
                        SUM(CASE WHEN COALESCE(reviews.user_pick, 0)=1 THEN 1 ELSE 0 END) AS pick_count,
@@ -166,6 +168,10 @@ def query_library_captures(
             "name": "c.stem COLLATE NOCASE ASC, c.id ASC",
             "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC",
         }.get(sort, "c.captured_at IS NULL, c.captured_at DESC, c.id DESC")
+        # A selective model JSON predicate is already the expensive part; do not
+        # repeat it in an additional ID page query for that path.
+        defer_hydration = not collapse_groups and not model_problem
+        page_filter = "AND c.id IN (SELECT id FROM page_ids)" if defer_hydration else ""
         select_sql = f"""
             SELECT c.id, c.stem, c.captured_at, c.pairing_status,
                    f.camera_model, f.lens_model, e.id AS album_id,
@@ -184,8 +190,8 @@ def query_library_captures(
                    MAX(group_stats.pick_count) AS group_pick_count,
                    MAX(group_stats.reject_count) AS group_reject_count,
                    MAX(group_stats.unreviewed_count) AS group_unreviewed_count
-            {from_sql}
-            WHERE {where_sql}
+            {detail_from_sql}
+            WHERE {where_sql} {page_filter}
             GROUP BY c.id
             """
         if collapse_groups:
@@ -228,6 +234,16 @@ def query_library_captures(
             """
             rows = connection.execute(
                 collapsed_sql, (*parameters, limit, offset)
+            ).fetchall()
+        elif defer_hydration:
+            # Select only page identities before calculating file sizes and group
+            # summaries. Deep OFFSET must not hydrate every preceding photo.
+            rows = connection.execute(
+                f"""WITH page_ids AS MATERIALIZED (
+                    SELECT c.id {from_sql} WHERE {where_sql}
+                    GROUP BY c.id ORDER BY {ordering} LIMIT ? OFFSET ?
+                ) {select_sql} ORDER BY {ordering}""",
+                (*parameters, limit, offset, *parameters),
             ).fetchall()
         else:
             rows = connection.execute(

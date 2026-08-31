@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+from dataclasses import dataclass
 from typing import Any
 
 from .critique import classify_repairability
@@ -31,8 +33,35 @@ WITH capture_exif AS (
 """
 
 
-def _rows(connection: sqlite3.Connection, sql: str) -> list[dict[str, Any]]:
-    return [dict(row) for row in connection.execute(CAPTURE_CTE + sql).fetchall()]
+@dataclass(frozen=True)
+class _CaptureQuery:
+    sql: str
+
+
+def _capture_breakdowns(
+    connection: sqlite3.Connection, queries: dict[str, _CaptureQuery]
+) -> dict[str, list[dict[str, Any]]]:
+    """Reuse one statement-local photo snapshot across all chart aggregations.
+
+    LIMIT 0 prepares column metadata without executing the individual aggregates.
+    Only hard-coded internal SQL enters this helper; no user SQL or identifiers.
+    The CTE is temporary query state, not a table or cross-request result cache.
+    """
+    branches = []
+    for name, query in queries.items():
+        columns = connection.execute(
+            CAPTURE_CTE + f"SELECT * FROM ({query.sql}) LIMIT 0"
+        ).description
+        fields = ", ".join(f"'{column[0]}', \"{column[0]}\"" for column in columns)
+        branches.append(
+            f"SELECT '{name}' AS section, json_object({fields}) AS row_json "
+            f"FROM ({query.sql})"
+        )
+    sql = CAPTURE_CTE.replace("capture_exif AS (", "capture_exif AS MATERIALIZED (")
+    result: dict[str, list[dict[str, Any]]] = {name: [] for name in queries}
+    for row in connection.execute(sql + " UNION ALL ".join(branches)):
+        result[row["section"]].append(json.loads(row["row_json"]))
+    return result
 
 
 def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -189,7 +218,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
     ).fetchone())
     for key in ("reviewed_recipes", "accepted_count", "dismissed_count", "draft_count"):
         edit_feedback[key] = int(edit_feedback[key] or 0)
-    return {
+    result: dict[str, Any] = {
         "summary": dict(summary),
         "selection_benchmark": selection_benchmark,
         "selection_reasons": selection_reasons,
@@ -199,8 +228,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         "growth_summary": growth_summary,
         "selection_efficiency": selection_efficiency,
         "edit_feedback": edit_feedback,
-        "growth_subjects": _rows(
-            connection,
+        "growth_subjects": _CaptureQuery(
             """SELECT td.name AS subject, COUNT(*) AS count,
                       COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END) AS rated_count,
                       SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END) AS high_rated_count,
@@ -223,8 +251,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                GROUP BY td.id HAVING COUNT(*)>=3
                ORDER BY count DESC, td.name LIMIT 12""",
         ),
-        "growth_months": _rows(
-            connection,
+        "growth_months": _CaptureQuery(
             """SELECT substr(captured_at, 1, 7) AS month, COUNT(*) AS count,
                       COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END) AS rated_count,
                       SUM(CASE WHEN user_rating>=4 THEN 1 ELSE 0 END) AS high_rated_count,
@@ -248,30 +275,26 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                FROM capture_exif WHERE captured_at IS NOT NULL
                GROUP BY month ORDER BY month""",
         ),
-        "categories": _rows(
-            connection,
+        "categories": _CaptureQuery(
             """SELECT category, COUNT(*) AS count,
                       ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif GROUP BY category ORDER BY count DESC""",
         ),
-        "months": _rows(
-            connection,
+        "months": _CaptureQuery(
             """SELECT substr(captured_at, 1, 7) AS month, COUNT(*) AS count,
                       ROUND(AVG(technical_score), 1) AS average_score,
                       SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS user_picks
                FROM capture_exif WHERE captured_at IS NOT NULL
                GROUP BY month ORDER BY month""",
         ),
-        "cameras": _rows(
-            connection,
+        "cameras": _CaptureQuery(
             """SELECT camera_model, COUNT(*) AS count,
                       ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif
                WHERE camera_model IS NOT NULL AND camera_model != ''
                GROUP BY camera_model ORDER BY count DESC LIMIT 12""",
         ),
-        "lenses": _rows(
-            connection,
+        "lenses": _CaptureQuery(
             """SELECT COALESCE(lens_model, '未知镜头') AS lens_model, COUNT(*) AS count,
                       ROUND(AVG(technical_score), 1) AS average_score,
                       SUM(CASE WHEN user_pick = 1 THEN 1 ELSE 0 END) AS user_picks,
@@ -279,8 +302,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                             / COUNT(*), 1) AS pick_rate
                FROM capture_exif GROUP BY lens_model ORDER BY count DESC LIMIT 12""",
         ),
-        "focal_ranges": _rows(
-            connection,
+        "focal_ranges": _CaptureQuery(
             """SELECT CASE
                     WHEN focal_length_mm IS NULL THEN '未知'
                     WHEN focal_length_mm < 20 THEN '<20mm'
@@ -292,8 +314,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                     COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(focal_length_mm, 9999))""",
         ),
-        "iso_ranges": _rows(
-            connection,
+        "iso_ranges": _CaptureQuery(
             """SELECT CASE
                     WHEN iso IS NULL THEN '未知'
                     WHEN iso <= 200 THEN '≤200'
@@ -305,8 +326,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                     COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(iso, 999999))""",
         ),
-        "aperture_ranges": _rows(
-            connection,
+        "aperture_ranges": _CaptureQuery(
             """SELECT CASE
                     WHEN f_number IS NULL THEN '未知'
                     WHEN f_number < 2 THEN '<f/2'
@@ -317,8 +337,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                     COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(f_number, 99))""",
         ),
-        "shutter_ranges": _rows(
-            connection,
+        "shutter_ranges": _CaptureQuery(
             """SELECT CASE
                     WHEN exposure_time IS NULL THEN '未知'
                     WHEN exposure_time <= 0.001 THEN '≥1/1000s'
@@ -331,8 +350,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                FROM capture_exif GROUP BY bucket
                ORDER BY MIN(COALESCE(exposure_time, 9999))""",
         ),
-        "exposure_compensation_ranges": _rows(
-            connection,
+        "exposure_compensation_ranges": _CaptureQuery(
             """SELECT CASE
                     WHEN exposure_compensation IS NULL THEN '未知'
                     WHEN exposure_compensation <= -1.0 THEN '≤-1EV'
@@ -344,8 +362,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                FROM capture_exif GROUP BY bucket
                ORDER BY MIN(COALESCE(exposure_compensation, 9999))""",
         ),
-        "ratings": _rows(
-            connection,
+        "ratings": _CaptureQuery(
             """SELECT COALESCE(user_rating, auto_rating) AS rating, COUNT(*) AS count,
                       SUM(CASE WHEN user_rating IS NOT NULL THEN 1 ELSE 0 END) AS user_rated
                FROM capture_exif WHERE COALESCE(user_rating, auto_rating) IS NOT NULL
@@ -353,3 +370,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
         ),
         "issues": issues,
     }
+    result.update(_capture_breakdowns(connection, {
+        name: query for name, query in result.items() if isinstance(query, _CaptureQuery)
+    }))
+    return result

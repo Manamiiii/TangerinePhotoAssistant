@@ -1,11 +1,15 @@
 import sqlite3
+import tracemalloc
 import unittest
+from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from tangerine_photo_assistant.database import connect_readonly
 from tangerine_photo_assistant.large_library_benchmark import (
     SCENARIOS,
+    _scenario_context,
     benchmark_existing_catalog,
     benchmark_scenario,
     generate_synthetic_catalog,
@@ -14,6 +18,53 @@ from tangerine_photo_assistant.large_library_benchmark import (
 
 
 class LargeLibraryBenchmarkTests(unittest.TestCase):
+    def test_context_uses_largest_visible_album_and_existing_model_problem(self) -> None:
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "catalog.sqlite3"
+            generate_synthetic_catalog(database, 200)
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute("UPDATE event_captures SET event_id=2 WHERE event_id=1")
+                connection.execute("UPDATE files SET present=0 WHERE id=199")
+                connection.execute(
+                    "UPDATE ai_analyses SET result_json=replace(result_json, '噪点', '现存问题')"
+                )
+            context = _scenario_context(database)
+            self.assertEqual(context["visible_capture_count"], 199)
+            self.assertEqual(context["album_id"], 2)
+            self.assertEqual(context["album_capture_count"], 80)
+            self.assertEqual(context["model_problem"], "现存问题")
+            measured = benchmark_scenario(database, "model-problem-filter", iterations=1)
+            self.assertGreater(measured["result_count"], 0)
+
+    def test_missing_scenario_data_is_skipped_not_measured_as_fast_empty_query(self) -> None:
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "catalog.sqlite3"
+            generate_synthetic_catalog(database, 100)
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute("UPDATE files SET present=0")
+            for name in ("collapsed-large-album", "model-problem-filter"):
+                result = benchmark_scenario(database, name, iterations=1)
+                self.assertEqual(result["status"], "skipped")
+                self.assertIsNone(result["p95_ms"])
+
+    def test_timed_passes_exclude_allocation_and_sql_tracing(self) -> None:
+        calls = []
+
+        def scenario(database, name, trace=None, context=None):
+            def run():
+                calls.append((tracemalloc.is_tracing(), trace is not None))
+                return {"count": 4}
+            return run
+
+        module = "tangerine_photo_assistant.large_library_benchmark"
+        with patch(f"{module}._scenario_context", return_value={}), \
+                patch(f"{module}._scenario", side_effect=scenario), \
+                patch(f"{module}._query_plans", return_value=[]):
+            result = benchmark_scenario(Path("unused"), "library-first-page", iterations=3)
+        self.assertEqual(calls, [(False, False)] * 4 + [(True, False), (False, True)])
+        self.assertEqual(result["timing_instrumentation"], "none")
+        self.assertFalse(tracemalloc.is_tracing())
+
     def test_metadata_only_catalog_exercises_all_scenarios(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

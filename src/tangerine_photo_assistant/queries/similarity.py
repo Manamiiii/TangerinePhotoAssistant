@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,8 @@ def query_similarity_groups(
     album_id: int | None = None,
     confidence_filter: str = "all",
     age_filter: str = "all",
+    *,
+    trace: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     if confidence_filter not in {"all", "high", "medium", "low"}:
         raise ValueError("相似组置信度筛选无效")
@@ -22,6 +25,8 @@ def query_similarity_groups(
         raise ValueError("相似组拍摄时间筛选无效")
     connection = connect_readonly(database_path)
     try:
+        if trace is not None:
+            connection.set_trace_callback(trace)
         album_filter = " AND event_id=?" if album_id is not None else ""
         count_parameters = (album_id,) if album_id is not None else ()
         facts_cte = """

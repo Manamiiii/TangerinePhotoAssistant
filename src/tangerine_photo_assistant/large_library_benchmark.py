@@ -19,6 +19,7 @@ from typing import Any
 from .ai_analysis import ai_results_page
 from .database import SCHEMA_VERSION, connect, connect_readonly, read_schema_version
 from .queries.library import query_library_captures
+from .queries.similarity import query_similarity_groups
 from .statistics import build_statistics
 
 SCENARIOS = (
@@ -28,6 +29,7 @@ SCENARIOS = (
     "model-problem-filter",
     "ai-risk-queue",
     "statistics-overview",
+    "similarity-pending",
 )
 DEFAULT_SIZES = (10_000, 50_000, 100_000)
 GENERATOR_VERSION = 1
@@ -319,22 +321,29 @@ def generate_synthetic_catalog(database_path: Path, capture_count: int) -> dict[
 
 
 def _scenario(
-    database_path: Path, name: str, trace: list[str] | None = None
+    database_path: Path, name: str, trace: list[str] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> Callable[[], Any]:
-    capture_count = _capture_count(database_path)
+    context = context if context is not None else _scenario_context(database_path)
+    callback = trace.append if trace is not None else None
     if name == "library-first-page":
-        return lambda: query_library_captures(database_path, 40, 0)
+        return lambda: query_library_captures(database_path, 40, 0, trace=callback)
     if name == "library-deep-page":
         return lambda: query_library_captures(
-            database_path, 40, max(0, capture_count - 80)
+            database_path, 40, max(0, context["visible_capture_count"] - 80), trace=callback
         )
     if name == "collapsed-large-album":
         return lambda: query_library_captures(
-            database_path, 40, 0, album_id=1, collapse_groups=True
+            database_path, 40, 0, album_id=context["album_id"], collapse_groups=True,
+            trace=callback,
         )
     if name == "model-problem-filter":
         return lambda: query_library_captures(
-            database_path, 40, 0, model_problem="噪点"
+            database_path, 40, 0, model_problem=context["model_problem"], trace=callback
+        )
+    if name == "similarity-pending":
+        return lambda: query_similarity_groups(
+            database_path, 40, 0, review_filter="pending", trace=callback
         )
     if name == "ai-risk-queue":
         def run_ai_risk() -> dict[str, Any]:
@@ -357,6 +366,41 @@ def _scenario(
                 connection.close()
         return run_statistics
     raise ValueError(f"Unknown benchmark scenario: {name}")
+
+
+def _scenario_context(database_path: Path) -> dict[str, Any]:
+    """Choose populated scenarios from visible photos, not synthetic fixture IDs."""
+    connection = connect_readonly(database_path)
+    visible = """SELECT DISTINCT cf.capture_id FROM capture_files cf
+                 JOIN files f ON f.id=cf.file_id WHERE cf.role='jpeg' AND f.present=1"""
+    try:
+        count = connection.execute(f"SELECT COUNT(*) FROM ({visible})").fetchone()[0]
+        album = connection.execute(
+            f"""SELECT ec.event_id, COUNT(*) AS photos FROM event_captures ec
+                JOIN ({visible}) v ON v.capture_id=ec.capture_id
+                GROUP BY ec.event_id ORDER BY photos DESC, ec.event_id LIMIT 1"""
+        ).fetchone()
+        problem = connection.execute(
+            f"""SELECT json_extract(problem.value, '$.name') AS name,
+                       COUNT(DISTINCT aa.capture_id) AS photos
+                FROM ai_analyses aa JOIN ({visible}) v ON v.capture_id=aa.capture_id,
+                     json_each(json_extract(aa.result_json, '$.visible_problems')) problem
+                WHERE aa.status='complete' AND COALESCE(aa.user_verdict, '')!='inaccurate'
+                  AND aa.id=(SELECT MAX(newest.id) FROM ai_analyses newest
+                             WHERE newest.capture_id=aa.capture_id AND newest.status='complete')
+                  AND typeof(json_extract(problem.value, '$.name'))='text'
+                  AND trim(json_extract(problem.value, '$.name'))!=''
+                GROUP BY name ORDER BY photos DESC, name LIMIT 1"""
+        ).fetchone()
+        return {
+            "visible_capture_count": count,
+            "album_id": album[0] if album else None,
+            "album_capture_count": album[1] if album else 0,
+            "model_problem": problem[0] if problem else None,
+            "model_problem_capture_count": problem[1] if problem else 0,
+        }
+    finally:
+        connection.close()
 
 
 def _capture_count(database_path: Path) -> int:
@@ -438,16 +482,18 @@ def benchmark_scenario(
 ) -> dict[str, Any]:
     if iterations < 1:
         raise ValueError("iterations must be positive")
-    # Query helpers open their own read-only connections, so capture statements by
-    # temporarily using SQLite's process-local profile is not possible. Plans for
-    # library scenarios are collected through the query helper's trace callback.
+    context = _scenario_context(database_path)
+    if (name == "collapsed-large-album" and context["album_id"] is None
+            or name == "model-problem-filter" and context["model_problem"] is None):
+        return {"scenario": name, "status": "skipped", "reason": "no-matching-data",
+                "iterations": 0, "p50_ms": None, "p95_ms": None, "result_count": 0,
+                "query_plans": []}
+    # Trace and allocation tracking distort timing. Collect them in separate passes.
     trace: list[str] = []
-    if name.startswith("library") or name in {"collapsed-large-album", "model-problem-filter"}:
-        run = _traced_library_scenario(database_path, name, trace)
-    else:
-        run = _scenario(database_path, name, trace)
+    run = _scenario(database_path, name, context=context)
+    started = time.perf_counter()
     run()
-    tracemalloc.start()
+    first_call_ms = (time.perf_counter() - started) * 1_000
     before = _process_memory()
     durations: list[float] = []
     result: Any = None
@@ -455,9 +501,14 @@ def benchmark_scenario(
         started = time.perf_counter()
         result = run()
         durations.append((time.perf_counter() - started) * 1_000)
-    _, python_peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
     after = _process_memory()
+    tracemalloc.start()
+    try:
+        run()
+        _, python_peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    _scenario(database_path, name, trace, context)()
     ordered = sorted(durations)
     p95_index = max(0, math.ceil(len(ordered) * 0.95) - 1)
     result_count = None
@@ -467,6 +518,11 @@ def benchmark_scenario(
             result_count = result["summary"].get("capture_count")
     return {
         "scenario": name,
+        "status": "measured",
+        "first_call_ms": round(first_call_ms, 3),
+        "timing_instrumentation": "none",
+        "memory_measurement": "separate-pass",
+        "context": {key: value for key, value in context.items() if key != "model_problem"},
         "iterations": iterations,
         "p50_ms": round(median(ordered), 3),
         "p95_ms": round(ordered[p95_index], 3),
@@ -479,23 +535,6 @@ def benchmark_scenario(
         "result_count": result_count,
         "query_plans": _query_plans(database_path, trace),
     }
-
-
-def _traced_library_scenario(
-    database_path: Path, name: str, trace: list[str]
-) -> Callable[[], dict[str, Any]]:
-    capture_count = _capture_count(database_path)
-    arguments: dict[str, Any] = {"trace": trace.append}
-    offset = 0
-    if name == "library-deep-page":
-        offset = max(0, capture_count - 80)
-    elif name == "collapsed-large-album":
-        arguments.update(album_id=1, collapse_groups=True)
-    elif name == "model-problem-filter":
-        arguments["model_problem"] = "噪点"
-    elif name != "library-first-page":
-        raise ValueError(f"Unknown library scenario: {name}")
-    return lambda: query_library_captures(database_path, 40, offset, **arguments)
 
 
 def run_benchmark_suite(
@@ -559,7 +598,7 @@ def run_benchmark_suite(
             scenarios.append(json.loads(completed.stdout))
         reports.append({"dataset": generated, "scenarios": scenarios})
     report = {
-        "benchmark_version": 1,
+        "benchmark_version": 2,
         "schema_version": SCHEMA_VERSION,
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -619,7 +658,7 @@ def benchmark_existing_catalog(
         )
         measured.append(json.loads(completed.stdout))
     report = {
-        "benchmark_version": 1,
+        "benchmark_version": 2,
         "schema_version": schema_version,
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -633,9 +672,8 @@ def benchmark_existing_catalog(
         "source_photos_read": 0,
         "source_photos_written": 0,
     }
-    output_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    with output_path.open("x", encoding="utf-8") as output:
+        json.dump(report, output, ensure_ascii=False, indent=2)
     return {**report, "report_path": str(output_path)}
 
 
