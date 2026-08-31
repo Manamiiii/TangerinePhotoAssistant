@@ -173,6 +173,14 @@ class WindowsPackageTests(unittest.TestCase):
         self.run_ps("install_windows_app.ps1", "-NoShortcuts", success=False)
         self.assertEqual((self.install / "catalog.sqlite3").read_bytes(), b"synthetic database")
 
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 is optional")
+    def test_powershell_7_json_integer_compatibility(self):
+        result = subprocess.run(["pwsh", "-NoProfile", "-File", str(self.bundle / "install_windows_app.ps1"),
+                                 "-InstallRoot", str(self.install), "-NoShortcuts"],
+                                capture_output=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        self.assertEqual(self.state()["schema_floor"], 32)
+
     def test_running_program_blocks_removal(self):
         release = self.install_package()
         # Substitute process discovery only; use the real removal entry and guards.

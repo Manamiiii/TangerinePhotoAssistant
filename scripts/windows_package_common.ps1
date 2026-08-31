@@ -30,7 +30,7 @@ function Read-Package([string]$Directory, [switch]$Verify) {
     if ((Get-Item -LiteralPath $Manifest).Length -gt 4194304) { throw 'Package manifest too large.' }
     $Data = Get-Content -LiteralPath $Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($Data.app_id -ne 'tangerine-photo-assistant' -or $Data.format -ne 1 -or
-        $Data.schema_version -isnot [int] -or $Data.schema_version -lt 1 -or @($Data.files).Count -eq 0) { throw 'Not a supported package manifest.' }
+        ($Data.schema_version -isnot [int] -and $Data.schema_version -isnot [long]) -or $Data.schema_version -lt 1 -or @($Data.files).Count -eq 0) { throw 'Not a supported package manifest.' }
     $Seen = @{}
     foreach ($File in $Data.files) {
         $Target = Get-ChildPath $Directory $File.path
@@ -46,7 +46,8 @@ function Read-Installation([string]$Root) {
     Assert-PlainPath $Root
     Assert-PlainPath (Join-Path $Root '.tangerine-install.json')
     $State = Get-Content -LiteralPath (Join-Path $Root '.tangerine-install.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($State.app_id -ne 'tangerine-photo-assistant' -or $State.format -ne 1 -or $State.schema_floor -isnot [int]) { throw 'Unrecognized installation; nothing changed.' }
+    if ($State.app_id -ne 'tangerine-photo-assistant' -or $State.format -ne 1 -or
+        ($State.schema_floor -isnot [int] -and $State.schema_floor -isnot [long])) { throw 'Unrecognized installation; nothing changed.' }
     foreach ($Name in $State.releases) {
         if ($Name -notmatch '^release-[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$') { throw 'Invalid release identity.' }
         [void](Get-ChildPath $Root $Name)
