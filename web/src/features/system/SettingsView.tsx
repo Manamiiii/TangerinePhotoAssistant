@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJson } from "../../api";
+import { VersionPanel } from "./VersionPanel";
 import type { Task } from "../../components/TaskCard";
 import type { DirectoryPickerResult, EditableSettings, SettingsStatus } from "./types";
 
@@ -89,6 +90,7 @@ export function SettingsView({ status, task, save, firstRun = false, onDirtyChan
   </div>;
 
   return <div className="settings-page">
+    <VersionPanel />
     {firstRun && <section className="setup-return-banner"><span>图库尚未完成首次索引。</span><button className="text-action" onClick={() => { setStep(1); setGuided(true); }}>返回首次设置向导</button></section>}
     {status?.restart_required && <section className="settings-restart-banner"><strong>配置已保存，等待重启生效</strong><span>当前服务仍使用原配置；不会自动搬运照片或数据库。{status.backup_path ? ` 旧配置：${status.backup_path}` : ""}</span></section>}
     <section className="panel settings-section"><div className="panel-heading"><div><span className="section-kicker">存储位置</span><h3>图库与应用数据</h3></div></div>{storageFields}<div className="effective-settings"><span>当前实际图库 <b>{status?.effective.library_root}</b></span><span>当前实际工作目录 <b>{status?.effective.workspace_root}</b></span><small>已迁移的数据库会优先使用其活动图库记录。要连接一套全新图库，建议同时选择新的工作目录。</small></div><div className="settings-folder-actions"><span>在资源管理器中打开当前实际目录</span><div>{([['library', '照片目录'], ['workspace', '工作目录'], ['cache', '缓存目录'], ['reports', '报告目录']] as const).map(([kind, label]) => <button key={kind} className="toolbar-button" type="button" onClick={() => void getJson(`/api/system/folders/${kind}/open`, { method: "POST" })}>{label}</button>)}</div></div></section>

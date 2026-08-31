@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { libraryThumbnailUrl } from "./thumbnail";
+import { LibraryThumbnail } from "./LibraryThumbnail";
 import { getJson } from "../../api";
 import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
@@ -173,8 +174,11 @@ function TagManager({ close, changed }: { close: () => void; changed: () => void
   </ModalShell>;
 }
 
-function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, batchTag, batchReview, changePage, changePageSize, albumContext = false, refreshLibrary }: {
+type LibraryPageState = { offset: number; loading: boolean; error: string | null };
+
+function PhotoLibraryView({ library, pageState, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, batchTag, batchReview, changePage, changePageSize, albumContext = false, refreshLibrary }: {
   library: LibraryCapturesResponse | null;
+  pageState: LibraryPageState;
   filters: LibraryFilters | null;
   query: LibraryQuery;
   updateQuery: (changes: Partial<LibraryQuery>) => void;
@@ -285,7 +289,10 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       setExporting(false);
     }
   };
-  const items = library?.items ?? [];
+  // Never present the previous page's actions under the newly requested page number.
+  const pending = pageState.loading || library === null || library.offset !== pageState.offset || library.limit !== query.pageSize;
+  const items = pending || pageState.error ? [] : library?.items ?? [];
+  const pagination = library && <Pagination count={library.count} limit={query.pageSize} offset={pageState.offset} onChange={changePage} onLimitChange={changePageSize} />;
   const pageCaptureIds = Array.from(new Set(items.flatMap((item) => item.selection_capture_ids)));
   const allSelected = pageCaptureIds.length > 0 && pageCaptureIds.every((captureId) => selected.has(captureId));
   const unselectedPageCount = pageCaptureIds.filter((captureId) => !selected.has(captureId)).length;
@@ -395,20 +402,23 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
       </div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张 · JPG {latestExport.jpeg_count} · RAW {latestExport.raw_count} · {formatBytes(latestExport.size_bytes)}{latestExport.missing_raw_count ? ` · ${latestExport.missing_raw_count} 张无 RAW` : ""}</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
+    {pagination}
+    <div className="library-load-status" role="status">{pageState.error ? <>加载失败：{pageState.error} <button className="text-action" onClick={refreshLibrary}>重试</button></> : pending ? "正在加载，可继续切换页码…" : null}</div>
     {layout === "list" && <div className="photo-list-header" aria-hidden="true"><span>照片</span><span>拍摄时间</span><span>相册 / 相似组</span><span>大小</span><span>评价</span></div>}
-    <section className={`photo-library-grid layout-${layout} ${selectionMode ? "selecting" : ""}`}>
-      {items.map((item, index) => {
+    <section aria-busy={pending && !pageState.error} className={`photo-library-grid layout-${layout} ${selectionMode ? "selecting" : ""}`}>
+      {pending && !pageState.error && Array.from({ length: Math.min(query.pageSize, library?.items.length || query.pageSize) }, (_, index) => <div key={`placeholder-${index}`} className="library-photo-placeholder" aria-hidden="true"><span /><div /></div>)}
+      {items.map((item) => {
         const itemSelected = item.selection_capture_ids.every((captureId) => selected.has(captureId));
         const isGroup = item.item_type === "group" && item.similarity_group_id != null;
         return <article data-capture-id={item.id} tabIndex={-1} className={`library-photo-card ${itemSelected ? "selected" : ""} ${isGroup ? "group-card" : ""}`} key={isGroup ? `group-${item.similarity_group_id}` : `photo-${item.id}`}>
         {selectionMode && <button className="photo-select" aria-label={`${isGroup ? "选择组内照片" : itemSelected ? "取消选择" : "选择"} ${item.stem}`} onClick={() => isGroup ? void openGroupSelection(item.similarity_group_id!) : toggle(item.selection_capture_ids)}><span>{itemSelected ? "✓" : isGroup ? "…" : ""}</span></button>}
-        <button className="photo-open" onClick={() => isGroup && selectionMode ? void openGroupSelection(item.similarity_group_id!) : openCapture(item.id, captureContext(items), undefined, { immersive: true, navigation: "library" })}><img src={libraryThumbnailUrl(item.thumbnail_url, layout)} loading={index < 4 ? "eager" : "lazy"} decoding="async" alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张{selectionMode ? " · 选择组内" : ""}</span>}</button>
+        <button className="photo-open" onClick={() => isGroup && selectionMode ? void openGroupSelection(item.similarity_group_id!) : openCapture(item.id, captureContext(items), undefined, { immersive: true, navigation: "library" })}><LibraryThumbnail src={libraryThumbnailUrl(item.thumbnail_url, layout)} alt={item.stem} />{isGroup && <span className="group-stack-badge">{item.similarity_group_size} 张{selectionMode ? " · 选择组内" : ""}</span>}</button>
         {isGroup && layout !== "list" && !selectionMode && openGroup && <button className="group-expand-button" onClick={() => openGroup(item.similarity_group_id!)}>展开组</button>}
         {layout === "list" ? <div className="photo-card-copy photo-list-copy"><div className="photo-list-identity"><strong>{isGroup ? `相似组 · ${item.stem}` : item.stem}</strong><small>{[item.camera_model, item.lens_model, item.pairing_status === "paired" ? "JPG + RAW" : null].filter(Boolean).join(" · ") || "器材信息未知"}</small></div><time>{item.captured_at ? item.captured_at.replace("T", " ").slice(0, 16) : "时间未知"}</time><div className="photo-list-context"><span>{item.album_name ?? "未归入相册"}</span>{isGroup ? <button className="similarity-inline" onClick={() => openGroup?.(item.similarity_group_id!)}>相似组 {item.similarity_group_size} 张</button> : item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>相似组 {item.similarity_group_size} 张</button> : null}</div><span className="photo-list-size">{formatFileSize(item.size_bytes)}</span><div className="photo-list-review" title={item.user_rating ? `${item.user_rating} 星` : "未评分"}><span className={item.user_rating ? "rating-stars" : "rating-empty"}>{ratingStars(item.user_rating)}</span>{item.similarity_group_id && (item.user_pick ? <b>保留</b> : item.user_reject ? <b className="rejected">排除</b> : null)}{item.technical_score != null ? <small>技术 {Math.round(item.technical_score)}</small> : <small>未分析</small>}</div></div> : <div className="photo-card-copy"><div className="photo-card-heading"><strong>{isGroup ? `相似组 · ${item.stem}` : item.stem}</strong><span>{item.captured_at?.slice(0, 10) ?? "日期未知"}</span></div><p className="photo-card-context">{item.album_name ?? "未归入相册"}<span>{isGroup ? `${item.similarity_group_size} 张相似照片` : formatBytes(item.size_bytes)}</span></p><small className="photo-card-equipment">{[item.camera_model, item.lens_model, item.pairing_status === "paired" ? "JPG + RAW" : null].filter(Boolean).join(" · ") || "器材信息未知"}</small><div className="photo-card-status"><span className={item.user_rating ? "rating-stars" : "rating-empty"}>{ratingStars(item.user_rating)}</span><div>{item.grouping_override === "exclude" && <>{editGrouping && <button className="similarity-inline" onClick={() => void editGrouping(item.id, "auto")}>恢复自动分组</button>}<b>已移出相似组</b></>}{!isGroup && item.similarity_group_id && openGroup ? <button className="similarity-inline" onClick={() => openGroup(item.similarity_group_id!)}>相似组 {item.similarity_group_size} 张</button> : null}{item.similarity_group_id && (item.user_pick ? <b>保留</b> : item.user_reject ? <b className="rejected">排除</b> : null)}</div></div></div>}
       </article>})}
-      {!items.length && <div className="empty-state" aria-live="polite">{library === null ? "正在加载照片…" : "图库中还没有可查看的 JPEG 照片。"}</div>}
+      {!pending && !pageState.error && !items.length && <div className="empty-state" aria-live="polite">图库中还没有符合条件的 JPEG 照片。</div>}
     </section>
-    {library && <Pagination count={library.count} limit={library.limit} offset={library.offset} onChange={changePage} onLimitChange={changePageSize} />}
+    {pagination}
     {selectionGroup && <ModalShell title={`选择组内照片 · ${selectionGroup.capture_count} 张`} close={() => setSelectionGroup(null)} wide>
       <div className="group-export-tools"><span>这只是本次归类或导出的临时选择，不会改变正式入选结果。</span><div><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.filter((item) => item.user_pick).map((item) => item.capture_id)))}>人工入选</button><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.filter((item) => item.auto_pick).map((item) => item.capture_id)))}>技术推荐</button><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.map((item) => item.capture_id)))}>全选</button><button onClick={() => setSelectionGroupDraft(new Set())}>清空</button></div></div>
       <div className="group-export-grid">{selectionGroup.items.map((item) => <button key={item.capture_id} className={selectionGroupDraft.has(item.capture_id) ? "selected" : ""} onClick={() => setSelectionGroupDraft((current) => { const next = new Set(current); next.has(item.capture_id) ? next.delete(item.capture_id) : next.add(item.capture_id); return next; })}><img src={item.thumbnail_url} alt={item.stem} /><span>{selectionGroupDraft.has(item.capture_id) ? "✓ " : ""}{item.stem}{item.user_pick ? " · 已入选" : item.auto_pick ? " · 技术推荐" : ""}</span></button>)}</div>
@@ -419,8 +429,9 @@ function PhotoLibraryView({ library, filters, query, updateQuery, openCapture, o
   </>;
 }
 
-export function LibraryView({ overview, library, albums, filters, equipment, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
+export function LibraryView({ overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
   overview: Overview | null;
+  pageState: LibraryPageState;
   library: LibraryCapturesResponse | null;
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
@@ -511,9 +522,9 @@ export function LibraryView({ overview, library, albums, filters, equipment, que
       <TaskCard task={isLibraryTask(task) ? task : null} cancel={cancelTask} />
       {activeAlbumId ? <>
         <AlbumWorkspaceHeader name={activeAlbum?.name ?? "相册照片"} category={activeAlbum?.category ?? "相册"} summary={`${numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片`} counts={albumWorkspaceCounts} current="library" back={leaveAlbum} openPhotos={() => undefined} openBursts={() => openAlbumBursts(activeAlbumId)} openQuality={() => openAlbumQuality(activeAlbumId)} />
-        <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} albumContext refreshLibrary={refreshLibrary} />
+        <PhotoLibraryView library={library} pageState={pageState} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} albumContext refreshLibrary={refreshLibrary} />
       </> : <>
-        {section === "photos" && <PhotoLibraryView library={library} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} refreshLibrary={refreshLibrary} />}
+        {section === "photos" && <PhotoLibraryView library={library} pageState={pageState} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} refreshLibrary={refreshLibrary} />}
         {section === "albums" && <AlbumsView albums={albums} filters={filters} equipment={equipment} updateAlbum={updateAlbum} createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} openAlbum={showAlbum} changePage={changeAlbumPage} changePageSize={changeAlbumPageSize} />}
       </>}
       {updateOpen && <ModalShell title="更新图库" close={() => setUpdateOpen(false)}><form className="editor-form" onSubmit={(event) => { event.preventDefault(); void runUpdate(); }}>

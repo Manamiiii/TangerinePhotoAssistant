@@ -1,4 +1,5 @@
 import { numberFormat } from "../formatters";
+import { useEffect, useState } from "react";
 
 export function Pagination({ count, limit, offset, onChange, onLimitChange }: {
   count: number;
@@ -9,9 +10,16 @@ export function Pagination({ count, limit, offset, onChange, onLimitChange }: {
 }) {
   const pageCount = Math.max(1, Math.ceil(count / limit));
   const currentPage = Math.min(pageCount, Math.floor(offset / limit) + 1);
+  const [pageDraft, setPageDraft] = useState(String(currentPage));
+  useEffect(() => setPageDraft(String(currentPage)), [currentPage]);
   const goToPage = (page: number) => onChange(
-    (Math.max(1, Math.min(pageCount, page)) - 1) * limit
+    (Math.max(1, Math.min(pageCount, Math.trunc(page))) - 1) * limit
   );
+  const commitPage = () => {
+    const value = Number(pageDraft);
+    if (pageDraft.trim() && Number.isFinite(value)) goToPage(value);
+    setPageDraft(String(pageDraft.trim() && Number.isFinite(value) ? Math.max(1, Math.min(pageCount, Math.trunc(value))) : currentPage));
+  };
   return <div className="pagination-controls" aria-label="分页">
     <label>每页<select value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}>
       {[20, 40, 80, 120, 200].map((size) => <option key={size} value={size}>{size}</option>)}
@@ -19,7 +27,7 @@ export function Pagination({ count, limit, offset, onChange, onLimitChange }: {
     <div className="pagination-buttons">
       <button disabled={currentPage === 1} onClick={() => goToPage(1)} aria-label="第一页">«</button>
       <button disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)} aria-label="上一页">‹</button>
-      <label>第<input type="number" min="1" max={pageCount} value={currentPage} onChange={(event) => goToPage(Number(event.target.value) || 1)} />页</label>
+      <label>第<input type="text" inputMode="numeric" aria-label="跳转页码" title="输入页码，按回车跳转" value={pageDraft} onChange={(event) => setPageDraft(event.target.value)} onBlur={commitPage} onKeyDown={(event) => { if (event.key === "Enter") commitPage(); if (event.key === "Escape") setPageDraft(String(currentPage)); }} />页</label>
       <span>/ {numberFormat.format(pageCount)} 页</span>
       <button disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)} aria-label="下一页">›</button>
       <button disabled={currentPage === pageCount} onClick={() => goToPage(pageCount)} aria-label="最后一页">»</button>

@@ -45,6 +45,8 @@ function App() {
   });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>(initialNavigation.librarySection);
   const [libraryOffset, setLibraryOffset] = useState(initialNavigation.libraryOffset);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>(initialNavigation.libraryQuery);
@@ -257,12 +259,14 @@ function App() {
   useEffect(() => {
     const controller = new AbortController();
     const requestToken = libraryRequestGuard.current.begin();
-    const timer = window.setTimeout(() => {
-      getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset), { signal: controller.signal })
-        .then((result) => { if (libraryRequestGuard.current.isCurrent(requestToken)) setLibraryCaptures(result); })
-        .catch((reason: Error) => { if (reason.name !== "AbortError" && libraryRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
-    }, libraryQuery.search ? 250 : 0);
-    return () => { libraryRequestGuard.current.invalidate(); window.clearTimeout(timer); controller.abort(); };
+    setLibraryLoading(true);
+    setLibraryLoadError(null);
+    // The search field already debounces its draft. Page changes must start now.
+    getJson<LibraryCapturesResponse>(libraryCapturesUrl(libraryQuery, libraryOffset), { signal: controller.signal })
+      .then((result) => { if (libraryRequestGuard.current.isCurrent(requestToken)) setLibraryCaptures(result); })
+      .catch((reason: Error) => { if (reason.name !== "AbortError" && libraryRequestGuard.current.isCurrent(requestToken)) setLibraryLoadError(reason.message); })
+      .finally(() => { if (libraryRequestGuard.current.isCurrent(requestToken)) setLibraryLoading(false); });
+    return () => { libraryRequestGuard.current.invalidate(); controller.abort(); };
   }, [libraryOffset, libraryQuery, workspaceRevision]);
 
   useEffect(() => {
@@ -1257,6 +1261,7 @@ function App() {
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} equipment={equipment} query={libraryQuery}
           requestedSection={libraryLandingSection}
+          pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError }}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures} batchReview={batchReviewCaptures}
