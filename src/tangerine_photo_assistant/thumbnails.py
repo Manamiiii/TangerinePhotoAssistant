@@ -4,7 +4,7 @@ import os
 import sqlite3
 from hashlib import sha1
 from pathlib import Path
-from threading import Lock
+from threading import BoundedSemaphore, Lock
 from uuid import uuid4
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -15,14 +15,33 @@ from .settings import Settings
 ALLOWED_EDGES = (320, 640, 1280)
 
 
+def _resolved_path(path: Path) -> Path:
+    resolved = path.resolve()
+    # Windows realpath may keep the extended prefix when a file is created
+    # between its existence checks. Always use that representation on Windows,
+    # including UNC paths, so containment compares canonical paths consistently.
+    # Do not strip prefixes or skip symlink resolution/boundary checks.
+    if os.name == "nt":
+        value = str(resolved)
+        if not value.startswith("\\\\?\\"):
+            value = "\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value
+        return Path(value)
+    return resolved
+
+
 class ThumbnailCache:
     """Bounded, disposable JPEG cache. Source photos are opened read-only."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.root = (settings.cache_root / "thumbnails").resolve()
+        self.root = _resolved_path(settings.cache_root / "thumbnails")
         self.max_bytes = settings.thumbnail_max_size_gb * 1024**3
-        self._lock = Lock()
+        # Decode a small number of different photos concurrently, without spawning
+        # a worker for every image in a large page. Striped locks bound bookkeeping
+        # and coalesce concurrent requests for the same cached size/source.
+        self._generation_slots = BoundedSemaphore(2)
+        self._key_locks = [Lock() for _ in range(64)]
+        self._maintenance_lock = Lock()
         self._created_since_prune = 100
 
     def _source(self, capture_id: int) -> sqlite3.Row:
@@ -48,8 +67,8 @@ class ThumbnailCache:
         if max_edge not in ALLOWED_EDGES:
             raise ValueError(f"Thumbnail edge must be one of {ALLOWED_EDGES}")
         row = self._source(capture_id)
-        source = Path(row["path"]).resolve()
-        originals = self.settings.originals.resolve()
+        source = _resolved_path(Path(row["path"]))
+        originals = _resolved_path(self.settings.originals)
         if not source.is_file() or not source.is_relative_to(originals):
             raise FileNotFoundError("缩略图源文件不在当前原片库中")
         key = sha1(
@@ -58,35 +77,53 @@ class ThumbnailCache:
         target = (self.root / str(max_edge) / key[:2] / f"{key}.jpg").resolve()
         if not target.is_relative_to(self.root):
             raise RuntimeError("Invalid thumbnail cache path")
-        if target.is_file():
-            os.utime(target, None)
+        if self._touch(target):
             return target
 
-        with self._lock:
-            if target.is_file():
-                os.utime(target, None)
+        with self._key_locks[int(key[:8], 16) % len(self._key_locks)]:
+            if self._touch(target):
                 return target
             target.parent.mkdir(parents=True, exist_ok=True)
             temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
             try:
-                with Image.open(source) as opened:
-                    opened.draft("RGB", (max_edge, max_edge))
-                    image = ImageOps.exif_transpose(opened).convert("RGB")
-                    image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
-                    image.save(temporary, format="JPEG", quality=86, optimize=True)
-                temporary.replace(target)
+                with self._generation_slots:
+                    self._render(source, temporary, max_edge)
+                    with self._maintenance_lock:
+                        # Prune before publication so this request's new thumbnail
+                        # cannot be removed by its own capacity check.
+                        self._created_since_prune += 1
+                        if self._created_since_prune >= 100:
+                            self._prune()
+                            self._created_since_prune = 0
+                        temporary.replace(target)
             except (OSError, UnidentifiedImageError, ValueError):
                 if temporary.is_file() and temporary.is_relative_to(self.root):
                     temporary.unlink(missing_ok=True)
                 raise
-            self._created_since_prune += 1
-            if self._created_since_prune >= 100:
-                self.prune()
-                self._created_since_prune = 0
         return target
+
+    @staticmethod
+    def _touch(target: Path) -> bool:
+        try:
+            os.utime(target, None)
+            return True
+        except FileNotFoundError:
+            return False
+
+    @staticmethod
+    def _render(source: Path, temporary: Path, max_edge: int) -> None:
+        with Image.open(source) as opened:
+            opened.draft("RGB", (max_edge, max_edge))
+            with ImageOps.exif_transpose(opened) as oriented, oriented.convert("RGB") as image:
+                image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+                image.save(temporary, format="JPEG", quality=86, optimize=True)
 
     def prune(self) -> dict[str, int]:
         """Remove only generated thumbnails, oldest-accessed first."""
+        with self._maintenance_lock:
+            return self._prune()
+
+    def _prune(self) -> dict[str, int]:
         if not self.root.is_dir():
             return {"files_removed": 0, "bytes_removed": 0, "bytes_remaining": 0}
         files = [

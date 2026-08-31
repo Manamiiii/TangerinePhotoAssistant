@@ -3,6 +3,7 @@ import { numberFormat } from "../../formatters";
 
 export type StatisticRow = { count: number; average_score: number | null } & Record<string, string | number | null>;
 export type Statistics = {
+  parameter_bucket_version?: number;
   summary: {
     capture_count: number;
     first_capture: string | null;
@@ -193,7 +194,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
         {(statistics?.shooting_review_summary.reviewed_captures ?? 0) > 0 ? <>
           <div className="shooting-review-stat-grid">
             <article><span>已复盘</span><strong>{numberFormat.format(statistics?.shooting_review_summary.reviewed_captures ?? 0)}</strong><small>张照片</small></article>
-            <article><span>发现观察</span><strong>{numberFormat.format(statistics?.shooting_review_summary.with_observations ?? 0)}</strong><small>有明确可见问题</small></article>
+            <article><span>有问题观察</span><strong>{numberFormat.format(statistics?.shooting_review_summary.with_observations ?? 0)}</strong><small>模型报告了可见问题</small></article>
             <article><span>下次建议</span><strong>{numberFormat.format(statistics?.shooting_review_summary.with_next_time ?? 0)}</strong><small>有拍摄改进建议</small></article>
             <article><span>平均置信度</span><strong>{statistics?.shooting_review_summary.average_confidence == null ? "—" : `${statistics.shooting_review_summary.average_confidence}%`}</strong><small>模型自报置信度</small></article>
           </div>
@@ -231,7 +232,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
       </section>
       </>}
       {statisticsView === "parameters" && <section className="statistics-grid">
-        <Distribution title="焦段习惯" rows={statistics?.focal_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
+        <Distribution title={statistics?.parameter_bucket_version === 2 ? "等效焦段（35mm）" : "实际焦段"} rows={statistics?.focal_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
         <Distribution title="ISO 分布" rows={statistics?.iso_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
         <Distribution title="光圈分布" rows={statistics?.aperture_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />
         <Distribution title="快门分布" rows={statistics?.shutter_ranges ?? []} labelKey="bucket" valueMode={distributionMode} />

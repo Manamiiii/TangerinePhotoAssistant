@@ -201,7 +201,7 @@ try {
                 $stderrLog = Join-Path $RuntimeRoot "server-$timestamp-error.log"
                 # Start-Process joins ArgumentList values with spaces. Keep the config
                 # path quoted so installations under a directory with spaces work.
-                $arguments = "serve --config `"$ConfigFile`" --host 127.0.0.1 --port $Port"
+                $arguments = "serve --config `"$ConfigFile`" --host 127.0.0.1 --port $Port --no-open"
                 $process = Start-Process -WindowStyle Hidden -PassThru -FilePath $Executable `
                     -ArgumentList $arguments -WorkingDirectory $ProjectRoot `
                     -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog

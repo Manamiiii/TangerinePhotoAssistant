@@ -5,46 +5,20 @@ import sqlite3
 from collections import Counter
 from typing import Any
 
+from .parameter_buckets import PARAMETER_BUCKETS
+
 MIN_CONDITION_SAMPLE = 3
 MIN_PROBLEM_SAMPLE = 2
-
-
-def _bucket(value: float | None, boundaries: list[tuple[float, str]], fallback: str) -> str:
-    if value is None:
-        return fallback
-    numeric = float(value)
-    for upper, label in boundaries:
-        if numeric < upper:
-            return label
-    return boundaries[-1][1]
 
 
 def _conditions(row: sqlite3.Row, subjects: list[str]) -> set[tuple[str, str, str]]:
     conditions: set[tuple[str, str, str]] = {
         ("subject", subject, "题材") for subject in subjects if subject
     }
-    focal = row["focal_length_35mm"] or row["focal_length_mm"]
-    if focal is not None:
-        conditions.add(("focal", _bucket(float(focal), [
-            (20, "<20mm"), (35, "20–34mm"), (55, "35–54mm"),
-            (100, "55–99mm"), (200, "100–199mm"), (float("inf"), "≥200mm"),
-        ], ""), "等效焦段"))
-    if row["exposure_time"] is not None:
-        conditions.add(("shutter", _bucket(float(row["exposure_time"]), [
-            (0.001001, "≥1/1000s"), (0.004001, "1/999–1/250s"),
-            (0.008001, "1/249–1/125s"), (1 / 60 + 1e-9, "1/124–1/60s"),
-            (1 / 15 + 1e-9, "1/59–1/15s"), (float("inf"), "慢于1/15s"),
-        ], ""), "快门"))
-    if row["iso"] is not None:
-        conditions.add(("iso", _bucket(int(row["iso"]), [
-            (201, "≤200"), (801, "201–800"), (1601, "801–1600"),
-            (3201, "1601–3200"), (6401, "3201–6400"), (float("inf"), ">6400"),
-        ], ""), "ISO"))
-    if row["f_number"] is not None:
-        conditions.add(("aperture", _bucket(float(row["f_number"]), [
-            (2, "<f/2"), (2.9, "f/2–2.8"), (4.5, "f/2.9–4"),
-            (8.5, "f/4.1–8"), (float("inf"), ">f/8"),
-        ], ""), "光圈"))
+    for dimension, buckets in PARAMETER_BUCKETS.items():
+        label = buckets.label(row[buckets.column])
+        if label != "未知":
+            conditions.add((dimension, label, buckets.dimension_label))
     if row["camera_model"]:
         conditions.add(("camera", str(row["camera_model"]), "相机"))
     if row["lens_model"]:
@@ -122,7 +96,8 @@ def build_conditional_review_insights(connection: sqlite3.Connection) -> list[di
             if rate < 0.3 or lift < 1.15:
                 continue
             insights.append({
-                "condition_key": f"{dimension}|{value}",
+                "condition_key": f"{dimension}_v2|{value}" if dimension in PARAMETER_BUCKETS
+                    else f"{dimension}|{value}",
                 "dimension": dimension,
                 "dimension_label": dimension_label,
                 "condition": value,
@@ -156,6 +131,9 @@ def review_condition_sql(raw: str) -> tuple[str, list[Any]]:
         return "f.camera_model=?", [value]
     if dimension == "lens":
         return "f.lens_model=?", [value]
+    if dimension.endswith("_v2") and dimension[:-3] in PARAMETER_BUCKETS:
+        return f"({PARAMETER_BUCKETS[dimension[:-3]].filter_sql(value)})", []
+    # Saved views/deep links made before v2 keep their original exact boundaries.
     buckets: dict[str, dict[str, str]] = {
         "focal": {
             "<20mm": "COALESCE(f.focal_length_35mm, f.focal_length_mm)<20",

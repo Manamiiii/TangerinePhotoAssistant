@@ -56,6 +56,22 @@ class StatisticsSnapshotTests(unittest.TestCase):
             self.assertEqual(result["cameras"], [])
             self.assertEqual(result["growth_subjects"], [])
 
+    def test_parameter_charts_count_each_capture_once_and_keep_unknown_last(self):
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "catalog.sqlite3"
+            generate_synthetic_catalog(database, 100)
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute("UPDATE files SET focal_length_mm=55, focal_length_35mm=85, f_number=2.9")
+                connection.execute("UPDATE files SET focal_length_35mm=NULL, f_number=0, iso=0, exposure_time=0 WHERE id=1")
+            result = self.assert_breakdowns_unchanged(database)
+            self.assertEqual(result["parameter_bucket_version"], 2)
+            for key in ("focal_ranges", "aperture_ranges", "iso_ranges", "shutter_ranges"):
+                self.assertEqual(sum(row["count"] for row in result[key]), 100)
+                self.assertEqual(result[key][-1]["bucket"], "未知")
+                self.assertEqual(result[key][-1]["count"], 1)
+            self.assertEqual(result["focal_ranges"][0]["bucket"], "85–<135mm")
+            self.assertEqual(result["aperture_ranges"][0]["bucket"], "f/2.8–<4")
+
 
 if __name__ == "__main__":
     unittest.main()

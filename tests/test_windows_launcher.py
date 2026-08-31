@@ -33,6 +33,7 @@ class WindowsLauncherTests(unittest.TestCase):
         self.assertIn("Get-TrackedTangerineProcess", controller_text)
         self.assertIn("$attempt -lt 900", controller_text)
         self.assertIn("System.Threading.Mutex", controller_text)
+        self.assertIn('--no-open"', controller_text)
 
     @unittest.skipUnless(os.name == "nt", "PowerShell launcher validation is Windows-only")
     def test_current_checkout_passes_launcher_validation(self) -> None:

@@ -74,7 +74,7 @@ class ConditionalInsightTests(unittest.TestCase):
             insights = build_conditional_review_insights(connection)
             iso_insight = next(
                 item for item in insights
-                if item["condition_key"] == "iso|3201–6400"
+                if item["condition_key"] == "iso_v2|≥6400"
                 and item["problem"] == "高 ISO 噪点"
             )
             self.assertEqual(iso_insight["sample_count"], 3)
@@ -84,7 +84,7 @@ class ConditionalInsightTests(unittest.TestCase):
 
             page = query_library_captures(
                 settings.database_path, 20, 0,
-                model_problem="高 ISO 噪点", review_condition="iso|3201–6400",
+                model_problem="高 ISO 噪点", review_condition=iso_insight["condition_key"],
                 sort="name",
             )
             self.assertEqual([item["stem"] for item in page["items"]], [

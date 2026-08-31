@@ -7,6 +7,7 @@ from typing import Any
 
 from .critique import classify_repairability
 from .insights import build_conditional_review_insights
+from .parameter_buckets import PARAMETER_BUCKETS
 
 CAPTURE_CTE = """
 WITH capture_exif AS (
@@ -219,6 +220,7 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
     for key in ("reviewed_recipes", "accepted_count", "dismissed_count", "draft_count"):
         edit_feedback[key] = int(edit_feedback[key] or 0)
     result: dict[str, Any] = {
+        "parameter_bucket_version": 2,
         "summary": dict(summary),
         "selection_benchmark": selection_benchmark,
         "selection_reasons": selection_reasons,
@@ -302,61 +304,15 @@ def build_statistics(connection: sqlite3.Connection) -> dict[str, Any]:
                             / COUNT(*), 1) AS pick_rate
                FROM capture_exif GROUP BY lens_model ORDER BY count DESC LIMIT 12""",
         ),
-        "focal_ranges": _CaptureQuery(
-            """SELECT CASE
-                    WHEN focal_length_mm IS NULL THEN '未知'
-                    WHEN focal_length_mm < 20 THEN '<20mm'
-                    WHEN focal_length_mm < 35 THEN '20–34mm'
-                    WHEN focal_length_mm < 55 THEN '35–54mm'
-                    WHEN focal_length_mm < 100 THEN '55–99mm'
-                    WHEN focal_length_mm < 200 THEN '100–199mm'
-                    ELSE '≥200mm' END AS bucket,
-                    COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
-               FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(focal_length_mm, 9999))""",
-        ),
-        "iso_ranges": _CaptureQuery(
-            """SELECT CASE
-                    WHEN iso IS NULL THEN '未知'
-                    WHEN iso <= 200 THEN '≤200'
-                    WHEN iso <= 800 THEN '201–800'
-                    WHEN iso <= 1600 THEN '801–1600'
-                    WHEN iso <= 3200 THEN '1601–3200'
-                    WHEN iso <= 6400 THEN '3201–6400'
-                    ELSE '>6400' END AS bucket,
-                    COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
-               FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(iso, 999999))""",
-        ),
-        "aperture_ranges": _CaptureQuery(
-            """SELECT CASE
-                    WHEN f_number IS NULL THEN '未知'
-                    WHEN f_number < 2 THEN '<f/2'
-                    WHEN f_number < 2.9 THEN 'f/2–2.8'
-                    WHEN f_number < 4.5 THEN 'f/2.9–4'
-                    WHEN f_number < 8.5 THEN 'f/4.1–8'
-                    ELSE '>f/8' END AS bucket,
-                    COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
-               FROM capture_exif GROUP BY bucket ORDER BY MIN(COALESCE(f_number, 99))""",
-        ),
-        "shutter_ranges": _CaptureQuery(
-            """SELECT CASE
-                    WHEN exposure_time IS NULL THEN '未知'
-                    WHEN exposure_time <= 0.001 THEN '≥1/1000s'
-                    WHEN exposure_time <= 0.004 THEN '1/999–1/250s'
-                    WHEN exposure_time <= 0.008 THEN '1/249–1/125s'
-                    WHEN exposure_time <= 1.0/60 THEN '1/124–1/60s'
-                    WHEN exposure_time <= 1.0/15 THEN '1/59–1/15s'
-                    ELSE '慢于1/15s' END AS bucket,
-                    COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
-               FROM capture_exif GROUP BY bucket
-               ORDER BY MIN(COALESCE(exposure_time, 9999))""",
-        ),
+        **{f"{dimension}_ranges": _CaptureQuery(buckets.distribution_sql())
+           for dimension, buckets in PARAMETER_BUCKETS.items()},
         "exposure_compensation_ranges": _CaptureQuery(
             """SELECT CASE
                     WHEN exposure_compensation IS NULL THEN '未知'
                     WHEN exposure_compensation <= -1.0 THEN '≤-1EV'
-                    WHEN exposure_compensation < -0.3 THEN '-0.9–-0.4EV'
-                    WHEN exposure_compensation <= 0.3 THEN '-0.3–+0.3EV'
-                    WHEN exposure_compensation < 1.0 THEN '+0.4–+0.9EV'
+                    WHEN exposure_compensation < 0 THEN '-1<EV<0'
+                    WHEN exposure_compensation = 0 THEN '0EV'
+                    WHEN exposure_compensation < 1.0 THEN '0<EV<+1'
                     ELSE '≥+1EV' END AS bucket,
                     COUNT(*) AS count, ROUND(AVG(technical_score), 1) AS average_score
                FROM capture_exif GROUP BY bucket
