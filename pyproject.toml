@@ -17,6 +17,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+desktop = ["pywebview>=6.2,<7"]
+package = ["pyinstaller>=6.16,<7"]
 test = [
     "httpx2>=2,<3",
     "ruff>=0.12,<1",
@@ -24,6 +26,7 @@ test = [
 
 [project.scripts]
 tangerine-photo = "tangerine_photo_assistant.cli:main"
+tangerine-desktop = "tangerine_photo_assistant.desktop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tangerine_photo_assistant"]

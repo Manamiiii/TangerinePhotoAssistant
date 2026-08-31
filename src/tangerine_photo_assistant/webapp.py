@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import platform
@@ -21,6 +22,10 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
+
+from .app_paths import resource_root
+from .service_runtime import CONTROL_HEADER, TERMINAL_TASK_STATES, ServiceControl
 
 from .ai_analysis import (
     PROMPT_VERSION,
@@ -1147,7 +1152,7 @@ class ScanTaskManager:
                     f"计划分析 {total:,} 张…"
                 ),
             )
-            project_root = Path(__file__).resolve().parents[2]
+            project_root = resource_root()
             environment = os.environ.copy()
             existing_path = environment.get("PYTHONPATH", "")
             environment["PYTHONPATH"] = str(project_root / "src") + (
@@ -1670,7 +1675,10 @@ def _backfill_ai_audit_in_background(
             connection.close()
 
 
-def create_app(config_path: Path, static_directory: Path | None = None) -> FastAPI:
+def create_app(
+    config_path: Path, static_directory: Path | None = None,
+    service_control: ServiceControl | None = None,
+) -> FastAPI:
     config_path = config_path.resolve()
     settings = Settings.load(config_path)
     bootstrap = connect(settings.database_path)
@@ -1732,6 +1740,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     start_audit_backfill()
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
     session_token = secrets.token_urlsafe(32)
+    write_gate = asyncio.Lock()
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]"],
@@ -1748,6 +1757,13 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             supplied_token = request.headers.get(SESSION_TOKEN_HEADER, "")
             if not secrets.compare_digest(supplied_token, session_token):
                 return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
+        if service_control is not None and request.method not in SAFE_HTTP_METHODS:
+            # Shutdown and task-start/config/review writes share the same gate.
+            # Once draining, no new write can slip between the idle check and exit.
+            async with write_gate:
+                if service_control.draining:
+                    return JSONResponse(status_code=503, content={"detail": "服务正在安全重启"})
+                return await call_next(request)
         return await call_next(request)
 
     config_state = {"restart_required": False, "backup_path": None}
@@ -1768,7 +1784,36 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
             "schema_version": SCHEMA_VERSION,
             "prompt_version": PROMPT_VERSION,
             "ai_audit_backfill": audit_backfill_snapshot(),
+            **(service_control.public_identity() if service_control else {}),
         }
+
+    @app.post("/api/system/desktop/shutdown")
+    def desktop_shutdown(request: Request) -> JSONResponse:
+        if service_control is None:
+            raise HTTPException(status_code=409, detail="当前服务不支持桌面安全重启")
+        if not service_control.authorize(request.headers.get(CONTROL_HEADER, "")):
+            raise HTTPException(status_code=403, detail="桌面控制凭据无效")
+        if manager.snapshot()["status"] not in TERMINAL_TASK_STATES:
+            raise HTTPException(status_code=409, detail="有运行或暂停的后台任务，不能重启")
+        if audit_backfill_snapshot()["status"] == "running":
+            raise HTTPException(status_code=409, detail="模型审计数据正在补齐，不能重启")
+        connection = connect_readonly(settings.database_path)
+        try:
+            ai_busy = connection.execute(
+                "SELECT 1 FROM ai_runs WHERE status IN "
+                "('queued','running','paused','pause_requested','cancel_requested') LIMIT 1"
+            ).fetchone()
+            migration_busy = connection.execute(
+                "SELECT 1 FROM migration_plans WHERE status IN "
+                "('running','paused','pause_requested','cancel_requested') LIMIT 1"
+            ).fetchone()
+        finally:
+            connection.close()
+        if ai_busy or migration_busy:
+            raise HTTPException(status_code=409, detail="仍有运行或暂停的持久任务，不能重启")
+        service_control.draining = True
+        return JSONResponse({"status": "stopping", "instance_id": service_control.instance_id},
+                            background=BackgroundTask(service_control.shutdown))
 
     @app.get("/api/system/ai-audit-backfill")
     def ai_audit_backfill_status() -> dict[str, Any]:
@@ -2567,7 +2612,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
     def equipment() -> dict[str, Any]:
         connection = connect_readonly(settings.database_path)
         try:
-            project_root = Path(__file__).resolve().parents[2]
+            project_root = resource_root()
             return build_equipment_catalog(
                 connection,
                 project_root / "equipment" / "profile.toml",
@@ -3078,7 +3123,7 @@ def create_app(config_path: Path, static_directory: Path | None = None) -> FastA
         connection = connect(settings.database_path)
         try:
             if request.accessory_keys is not None:
-                project_root = Path(__file__).resolve().parents[2]
+                project_root = resource_root()
                 catalog = build_equipment_catalog(
                     connection,
                     project_root / "equipment" / "profile.toml",

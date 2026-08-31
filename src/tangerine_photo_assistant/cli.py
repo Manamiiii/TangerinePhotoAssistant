@@ -5,13 +5,12 @@ import ipaddress
 import os
 import shutil
 import subprocess
-import webbrowser
 from dataclasses import replace
 from pathlib import Path
-from threading import Timer
 
 from . import __version__
 from .ai_analysis import create_ai_run, write_ai_run_report
+from .app_paths import resource_root
 from .archive import (
     create_archive_baseline,
     run_integrity_check,
@@ -230,7 +229,7 @@ def ai(config_path: Path, mode: str, limit: int) -> int:
         )
     finally:
         connection.close()
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = resource_root()
     environment = os.environ.copy()
     existing_path = environment.get("PYTHONPATH", "")
     environment["PYTHONPATH"] = str(project_root / "src") + (
@@ -352,19 +351,9 @@ def serve(config_path: Path, host: str, port: int, open_browser: bool) -> int:
     if not address.is_loopback:
         raise ValueError("Local server may only bind to a loopback IP address")
 
-    from uvicorn import run
+    from .service_runtime import run_service
 
-    from .webapp import create_app
-
-    project_root = Path(__file__).resolve().parents[2]
-    static_directory = project_root / "web" / "dist"
-    app = create_app(config_path.resolve(), static_directory)
-    url = f"http://{host}:{port}"
-    if open_browser:
-        Timer(0.8, lambda: webbrowser.open(url)).start()
-    print(f"TangerinePhotoAssistant is available at {url}")
-    run(app, host=host, port=port, log_level="info")
-    return 0
+    return run_service(config_path, host, port, open_browser)
 
 
 def build_parser() -> argparse.ArgumentParser:

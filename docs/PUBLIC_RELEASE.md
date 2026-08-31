@@ -62,6 +62,11 @@ integrations as capabilities, not assumptions.
 
 ## Release work still required
 
+Windows now has an optional native WebView2 window and an unsigned internal bundle,
+with versioned per-user installation and authenticated idle-only restart. It uses
+the existing TOML settings and keeps all user data outside program releases.
+See `WINDOWS_APP.md`; this is not yet a signed public distribution.
+
 1. Choose the public license and contribution policy. The project metadata stays
    proprietary until the owner makes that explicit legal decision.
 2. Add signed Windows and macOS packages around the existing local web service.

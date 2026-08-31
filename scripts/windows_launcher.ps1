@@ -3,13 +3,16 @@ param(
     [string]$Mode = "Start",
     [int]$Port = 8765,
     [switch]$Console,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$Browser
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $AppUrl = "http://127.0.0.1:$Port"
 $Executable = Join-Path $ProjectRoot ".venv\Scripts\tangerine-photo.exe"
+$DesktopPython = Join-Path $ProjectRoot ".venv\Scripts\pythonw.exe"
+$DesktopModule = Join-Path $ProjectRoot ".venv\Lib\site-packages\webview\__init__.py"
 $ConfigFile = Join-Path $ProjectRoot "config.toml"
 $WebIndex = Join-Path $ProjectRoot "web\dist\index.html"
 $SilentEntry = Join-Path $ProjectRoot "TangerinePhotoAssistant.vbs"
@@ -174,6 +177,16 @@ try {
     }
 
     Assert-LauncherFiles
+    if (-not $NoBrowser -and -not $Browser -and
+        (Test-Path -LiteralPath $DesktopPython -PathType Leaf) -and
+        (Test-Path -LiteralPath $DesktopModule -PathType Leaf)) {
+        # The window shows startup progress and owns service reuse/start decisions.
+        # Closing it never stops a running analysis. Browser mode stays available.
+        Start-Process -WindowStyle Hidden -FilePath $DesktopPython `
+            -ArgumentList "-m tangerine_photo_assistant.desktop --config `"$ConfigFile`" --port $Port" `
+            -WorkingDirectory $ProjectRoot
+        exit 0
+    }
     New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
     $mutexSuffix = ($ProjectRoot -replace '[^A-Za-z0-9]', '_')
     $launchMutex = New-Object System.Threading.Mutex(
