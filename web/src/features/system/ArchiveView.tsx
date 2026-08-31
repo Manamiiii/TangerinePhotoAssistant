@@ -192,7 +192,7 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
     } catch (reason) { setDiagnosticError((reason as Error).message); }
     finally { setDiagnosticBusy(false); }
   };
-  return <>
+  return <div className="archive-page">
     <section className="compact-summary"><div><span className="section-kicker">系统维护</span><h2>图库完整性</h2><p>需要时手动核对磁盘文件；日常浏览只读取上次结果，不扫描照片目录。</p></div></section>
     <section className="panel archive-panel task-incident-panel">
       <div className="panel-heading"><div><span className="section-kicker">运行恢复</span><h3>后台任务异常</h3></div><div className="integrity-investigation-toolbar"><select aria-label="任务异常状态" value={taskWorkflow} onChange={(event) => { const workflow = event.target.value; setTaskWorkflow(workflow); void loadTaskIncidents(workflow); }}><option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已恢复</option><option value="all">全部状态</option></select></div></div>
@@ -226,5 +226,5 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
       {diagnosticStatus && <div className="portable-result"><span>诊断包已生成 · {formatBytes(diagnosticStatus.size_bytes)} · 数据库 {diagnosticStatus.integrity === "ok" ? "正常" : diagnosticStatus.integrity}</span><a href={diagnosticStatus.download_url} download>下载 ZIP</a></div>}
       {diagnosticError && <div className="portable-error" role="alert">{diagnosticError}</div>}
     </section>
-  </>;
+  </div>;
 }
