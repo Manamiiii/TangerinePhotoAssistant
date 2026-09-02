@@ -1261,7 +1261,8 @@ function App() {
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} equipment={equipment} query={libraryQuery}
           requestedSection={libraryLandingSection}
-          pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError }}
+          pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError,
+            prefetchAllowed: task?.status === "idle" && !urlCaptureId && !captureDetail && !selectedGroup }}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures} batchReview={batchReviewCaptures}

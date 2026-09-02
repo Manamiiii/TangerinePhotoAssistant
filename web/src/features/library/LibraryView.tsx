@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { libraryThumbnailUrl } from "./thumbnail";
 import { LibraryThumbnail } from "./LibraryThumbnail";
+import { useLibraryPrefetch } from "./useLibraryPrefetch";
 import { getJson } from "../../api";
 import { ModalShell } from "../../components/ModalShell";
 import { AlbumWorkspaceHeader, CollectionScopeTabs, Pagination, type AlbumWorkspaceCounts } from "../../components/Navigation";
@@ -174,7 +175,7 @@ function TagManager({ close, changed }: { close: () => void; changed: () => void
   </ModalShell>;
 }
 
-type LibraryPageState = { offset: number; loading: boolean; error: string | null };
+type LibraryPageState = { offset: number; loading: boolean; error: string | null; prefetchAllowed: boolean };
 
 function PhotoLibraryView({ library, pageState, filters, query, updateQuery, openCapture, openGroup, editGrouping, exportPhotos, assignToAlbum, batchTag, batchReview, changePage, changePageSize, albumContext = false, refreshLibrary }: {
   library: LibraryCapturesResponse | null;
@@ -231,6 +232,9 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
   const savedViewsMenuRef = useRef<HTMLDivElement>(null);
+  useLibraryPrefetch(query, library, layout,
+    pageState.prefetchAllowed && !pageState.loading && !pageState.error && library?.offset === pageState.offset
+    && !selectionMode && searchDraft === query.search);
   useEffect(() => { updateQueryRef.current = updateQuery; }, [updateQuery]);
   useEffect(() => { setSearchDraft(query.search); }, [query.search]);
   useEffect(() => {
