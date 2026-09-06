@@ -176,6 +176,8 @@ schema 24 在 `capture_reviews.selection_reason_json` 保存人工入选的多�
 `features/library/SelectionReview.tsx` 按 40 张分页核对已有选择，复用受限缩略图队列；
 `GET /api/library/selection` 通过 `queries/selection.py` 只读查询显式 ID（最多 500 个），
 按请求顺序返回摘要及缺失占位，不读取源文件，不计算详情或改变当前图库筛选。
+`features/details/PhotoComparison.tsx` 使用同一缩放倍率与归一化位移同步两个预览面板，
+位移按各自面板尺寸解释；对比候选独立于批量勾选，返回时不改变图库选择。
 页面业务状态和接口契约均未改变，后续模块继续使用同样的“小范围迁移 + 现有回归测试”
 方式推进。
 

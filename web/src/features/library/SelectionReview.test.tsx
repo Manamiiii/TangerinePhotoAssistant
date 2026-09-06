@@ -6,6 +6,7 @@ import { getJson } from "../../api";
 import { SelectionReview } from "./SelectionReview";
 
 vi.mock("../../api", () => ({ getJson: vi.fn() }));
+vi.mock("./LibraryThumbnail", () => ({ LibraryThumbnail: () => <span>thumbnail</span> }));
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
@@ -56,4 +57,20 @@ it("aborts superseded reads and does not resurrect an old selection after it is 
   await act(() => resolve({ items: [{ id: 8, stem: "old" }] }));
   expect(host.textContent).toContain("已清空选择");
   expect(host.textContent).not.toContain("old");
+});
+
+it("compares candidates from different pages and returns without changing the library selection", async () => {
+  vi.mocked(getJson).mockImplementation(async (url) => ({ items: new URL(String(url), "http://localhost").searchParams.getAll("ids").map((id) => ({ id: Number(id), stem: `photo-${id}`, jpeg_present: 1 })) }));
+  const remove = vi.fn();
+  await act(() => root.render(<SelectionReview selected={new Set(Array.from({ length: 41 }, (_, index) => index + 1))} remove={remove} close={vi.fn()} />));
+  await click("加入对比");
+  await click("下一页");
+  await click("加入对比");
+  await click("对比两张");
+  expect([...host.querySelectorAll(".photo-comparison img")].map((image) => image.getAttribute("src"))).toEqual(["/api/thumbnails/1?size=1280", "/api/thumbnails/41?size=1280"]);
+  await click("返回已选清单");
+  expect(host.textContent).toContain("共 41 张");
+  expect(host.textContent).toContain("对比候选 2 / 2");
+  expect(remove).not.toHaveBeenCalled();
+  expect(document.activeElement?.textContent).toBe("对比两张");
 });

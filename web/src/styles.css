@@ -2457,3 +2457,23 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .selection-review button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); color: var(--text); cursor: pointer; }
 .selection-review button:disabled { opacity: .45; cursor: default; }
 .selection-review footer { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 14px; font-size: 12px; }
+
+.selection-compare-actions, .comparison-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; }
+.selection-compare-actions button { max-width: 100%; overflow-wrap: anywhere; }
+.selection-review-list article > .selection-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.photo-comparison { padding: 16px; }
+.photo-comparison > p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.photo-comparison button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--text); background: var(--surface-soft); cursor: pointer; }
+.photo-comparison button:disabled { opacity: .45; cursor: default; }
+.photo-comparison-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.photo-comparison-panes header { display: grid; gap: 4px; margin-bottom: 8px; overflow-wrap: anywhere; font-size: 12px; }
+.photo-comparison-panes header small { color: var(--muted); }
+.photo-comparison-image { position: relative; height: min(48vh, 440px); overflow: hidden; background: #080808; border-radius: 8px; touch-action: none; }
+.photo-comparison-image img { width: 100%; height: 100%; object-fit: contain; user-select: none; }
+.comparison-image-notice { position: absolute; top: 8px; left: 8px; right: 8px; padding: 8px; background: rgba(0,0,0,.85); color: #fff; font-size: 12px; }
+.comparison-image-notice button { margin-left: 8px; }
+@media (max-width: 620px) {
+  .photo-comparison-panes { grid-template-columns: 1fr; }
+  .photo-comparison-image { height: 30vh; }
+  .selection-review-list article > .selection-review-actions { flex-direction: column; }
+}
