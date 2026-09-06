@@ -510,8 +510,9 @@ class ScanTaskManager:
         Thread(target=self._monitor_attached_ai, args=(run_id,), daemon=True).start()
 
     def _monitor_attached_ai(self, run_id: int) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             while True:
                 row = connection.execute(
                     "SELECT * FROM ai_runs WHERE id=?", (run_id,)
@@ -562,10 +563,16 @@ class ScanTaskManager:
                     error="AiWorkerFailure" if run["error"] else None,
                 )
                 return
+        except Exception as exc:
+            self._update(
+                status="failed", stage="ai-failed", pausable=False,
+                message="模型任务监控失败", error=type(exc).__name__,
+            )
         finally:
             if self._state.status != "paused":
                 self._ai_run_id = None
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
     def snapshot(self) -> dict[str, Any]:
@@ -580,6 +587,8 @@ class ScanTaskManager:
             previous_stage = self._state.stage
             if changes.get("status") == "failed" and "error" in changes:
                 changes["error"] = _safe_task_error_code(changes["error"])
+            if changes.get("status") == "failed":
+                changes["pausable"] = False
             for key, value in changes.items():
                 setattr(self._state, key, value)
             if self._state.status == "failed" and previous_status != "failed":
@@ -754,6 +763,11 @@ class ScanTaskManager:
 
     def resume_migration(self, run_id: int) -> dict[str, Any]:
         with self._lock:
+            if self._state.status == "paused" and (
+                not self._state.stage.startswith("migration")
+                or self._migration_run_id != run_id
+            ):
+                raise RuntimeError("只能继续当前已暂停的迁移任务")
             if (
                 self._state.status == "paused"
                 and self._migration_thread_active
@@ -793,8 +807,9 @@ class ScanTaskManager:
         return self.snapshot()
 
     def _run_migration(self, run_id: int) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             def update(values: dict[str, Any]) -> None:
                 if values.get("status") == "paused":
                     self._update(status="paused", message="迁移已暂停；临时文件保留用于续传")
@@ -857,12 +872,13 @@ class ScanTaskManager:
             with self._lock:
                 if self._state.status != "running":
                     self._migration_thread_active = False
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
     def start(self, album_id: int) -> dict[str, Any]:
         with self._lock:
-            if self._state.status == "running":
+            if self._state.status in {"running", "paused"}:
                 raise RuntimeError("已有扫描任务正在运行")
             connection = connect_readonly(self.settings.database_path)
             try:
@@ -885,7 +901,7 @@ class ScanTaskManager:
 
     def start_visual(self) -> dict[str, Any]:
         with self._lock:
-            if self._state.status == "running":
+            if self._state.status in {"running", "paused"}:
                 raise RuntimeError("已有后台任务正在运行")
             task_id = uuid4().hex
             self._state = TaskState(
@@ -899,8 +915,9 @@ class ScanTaskManager:
         return self.snapshot()
 
     def _run_visual(self, task_id: str) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             def update(stage: str, current: int, total: int) -> None:
                 label = "执行图库完整性核对" if stage == "duplicates" else "生成画面指纹"
                 self._progress(
@@ -928,12 +945,13 @@ class ScanTaskManager:
                 error=type(exc).__name__,
             )
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
     def start_quality(self) -> dict[str, Any]:
         with self._lock:
-            if self._state.status == "running":
+            if self._state.status in {"running", "paused"}:
                 raise RuntimeError("已有后台任务正在运行")
             task_id = uuid4().hex
             self._state = TaskState(
@@ -945,8 +963,9 @@ class ScanTaskManager:
         return self.snapshot()
 
     def _run_quality(self, task_id: str) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             result = analyze_quality(
                 connection,
                 progress=lambda current, total: self._progress(
@@ -969,7 +988,8 @@ class ScanTaskManager:
                 error=type(exc).__name__,
             )
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
     def start_detail_backfill(self) -> dict[str, Any]:
@@ -1007,8 +1027,9 @@ class ScanTaskManager:
         )
 
     def _run_detail_backfill(self, task_id: str, exiftool: Path) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             metadata = refresh_metadata_profile(
                 connection,
                 ExifToolMetadataReader(exiftool, self.settings.metadata_batch_size),
@@ -1048,7 +1069,8 @@ class ScanTaskManager:
                 message="详情数据补全失败", error=type(exc).__name__,
             )
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
     def start_ai(self, mode: str, limit: int, config_path: Path) -> dict[str, Any]:
@@ -1056,7 +1078,7 @@ class ScanTaskManager:
         if not preflight["ready"]:
             raise RuntimeError("；".join(preflight["blockers"]))
         with self._lock:
-            if self._state.status == "running":
+            if self._state.status in {"running", "paused"}:
                 raise RuntimeError("已有后台任务正在运行")
             task_id = uuid4().hex
             self._state = TaskState(
@@ -1075,6 +1097,10 @@ class ScanTaskManager:
         if not preflight["ready"]:
             raise RuntimeError("；".join(preflight["blockers"]))
         with self._lock:
+            if self._state.status == "paused" and (
+                not self._state.stage.startswith("ai-") or self._ai_run_id != run_id
+            ):
+                raise RuntimeError("只能继续当前已暂停的模型任务")
             if self._state.status == "running":
                 raise RuntimeError("已有后台任务正在运行")
             task_id = uuid4().hex
@@ -1094,7 +1120,7 @@ class ScanTaskManager:
         if not preflight["ready"]:
             raise RuntimeError("；".join(preflight["blockers"]))
         with self._lock:
-            if self._state.status == "running":
+            if self._state.status in {"running", "paused"}:
                 raise RuntimeError("已有后台任务正在运行")
             task_id = uuid4().hex
             self._state = TaskState(
@@ -1113,8 +1139,9 @@ class ScanTaskManager:
         config_path: Path, existing_run_id: int | None,
         failed_source_run_id: int | None = None,
     ) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             if existing_run_id is not None:
                 run = resume_ai_run(connection, existing_run_id)
             elif failed_source_run_id is not None:
@@ -1278,12 +1305,14 @@ class ScanTaskManager:
             self._process = None
             if self._state.status != "paused":
                 self._ai_run_id = None
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
     def _run(self, task_id: str, album_id: int) -> None:
-        connection = connect(self.settings.database_path)
+        connection: sqlite3.Connection | None = None
         try:
+            connection = connect(self.settings.database_path)
             run_id = scan_library(
                 connection,
                 self.settings,
@@ -1351,7 +1380,8 @@ class ScanTaskManager:
                 error=type(exc).__name__,
             )
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._flush_task_outcomes()
 
 

@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { getJson, libraryCapturesUrl, similarityGroupsUrl } from "./api";
+import { getJson, libraryCapturesUrl } from "./api";
 import { taskForDisplay, taskReceipt, type Task } from "./components/TaskCard";
 import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
 import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
@@ -13,6 +13,7 @@ import { AnalysisView } from "./features/analysis/AnalysisView";
 import type { AiPreflight, AnalysisOverview, QualityItem, QualityResponse, QualityReviewFilter, ReviewPayload, WorkItemFilter, WorkItemStatus } from "./features/analysis/types";
 import type { GroupCapture, SimilarityAgeFilter, SimilarityConfidenceFilter, SimilarityGroupDetail, SimilarityGroupsResponse, SimilarityReviewFilter } from "./features/similarity/types";
 import { BurstsView } from "./features/similarity/BurstsView";
+import { loadGroups } from "./features/similarity/loadGroups";
 import type { CaptureDetail, DetailMode, DetailOpenOptions, EditParameters, EditRecipe } from "./features/details/types";
 import { adjacentCaptureIds, canNavigateDetail, captureContext, prefetchAdjacentImages, resolveDetailNavigation, type DetailNavigationScope } from "./features/details/detailNavigation";
 import { CaptureDetailPanel } from "./features/details/CaptureDetailPanel";
@@ -91,6 +92,7 @@ function App() {
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [workQueueRevision, setWorkQueueRevision] = useState(0);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [similarityRevision, setSimilarityRevision] = useState(0);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -293,13 +295,10 @@ function App() {
   }, [qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter, workQueueRevision, workspaceRevision]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const requestToken = similarityRequestGuard.current.begin();
-    getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId, groupConfidenceFilter, groupAgeFilter), { signal: controller.signal })
-      .then((result) => { if (similarityRequestGuard.current.isCurrent(requestToken)) setSimilarityGroups(result); })
-      .catch((reason: Error) => { if (reason.name !== "AbortError" && similarityRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
-    return () => { similarityRequestGuard.current.invalidate(); controller.abort(); };
-  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, workspaceRevision]);
+    return loadGroups({ limit: groupPageSize, offset: groupOffset, reviewFilter: groupReviewFilter,
+      albumId: groupAlbumId, confidenceFilter: groupConfidenceFilter, ageFilter: groupAgeFilter },
+      similarityRequestGuard.current, setSimilarityGroups, setError);
+  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, workspaceRevision, similarityRevision]);
 
   useEffect(() => {
     if (task?.status !== "running") return;
@@ -482,16 +481,16 @@ function App() {
   const scheduleReviewAggregateRefresh = () => {
     if (reviewAggregateTimer.current != null) window.clearTimeout(reviewAggregateTimer.current);
     reviewAggregateTimer.current = window.setTimeout(() => {
+      // Reload through the current query effect, never the saving render's filters.
+      setSimilarityRevision((current) => current + 1);
       Promise.all([
         getJson<Overview>("/api/overview"),
         getJson<Statistics>("/api/statistics"),
         getJson<LightroomStatus>("/api/lightroom/status"),
-        getJson<SimilarityGroupsResponse>(similarityGroupsUrl(groupPageSize, groupOffset, groupReviewFilter, groupAlbumId)),
-      ]).then(([nextOverview, nextStatistics, nextLightroom, nextGroups]) => {
+      ]).then(([nextOverview, nextStatistics, nextLightroom]) => {
         setOverview(nextOverview);
         setStatistics(nextStatistics);
         setLightroomStatus(nextLightroom);
-        setSimilarityGroups(nextGroups);
       }).catch((reason: Error) => setError(reason.message));
     }, 250);
   };
