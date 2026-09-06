@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "../../unsavedChanges";
 import { useEffect, useState } from "react";
 import { getJson } from "../../api";
 import { VersionPanel } from "./VersionPanel";
@@ -6,12 +7,11 @@ import type { DirectoryPickerResult, EditableSettings, SettingsStatus } from "./
 
 type StorageField = ["library", "originals"] | ["library", "workspace"] | ["cache", "root"];
 
-export function SettingsView({ status, task, save, firstRun = false, onDirtyChange }: {
+export function SettingsView({ status, task, save, firstRun = false }: {
   status: SettingsStatus | null;
   task: Task | null;
   save: (settings: EditableSettings) => Promise<SettingsStatus>;
   firstRun?: boolean;
-  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<EditableSettings | null>(status?.configured ?? null);
   const [saving, setSaving] = useState(false);
@@ -22,19 +22,7 @@ export function SettingsView({ status, task, save, firstRun = false, onDirtyChan
   useEffect(() => setDraft(status?.configured ?? null), [status?.configured]);
   useEffect(() => { if (firstRun) setGuided(true); }, [firstRun]);
   const dirty = Boolean(draft && status?.configured && JSON.stringify(draft) !== JSON.stringify(status.configured));
-  useEffect(() => {
-    onDirtyChange(dirty);
-    return () => onDirtyChange(false);
-  }, [dirty, onDirtyChange]);
-  useEffect(() => {
-    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
-      if (!dirty) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeLeaving);
-    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
-  }, [dirty]);
+  useUnsavedChanges(dirty, saving);
   if (!draft) return <div className="empty-state">正在读取配置…</div>;
 
   const update = <S extends keyof EditableSettings, K extends keyof EditableSettings[S]>(section: S, key: K, value: EditableSettings[S][K]) => setDraft((current) => current ? { ...current, [section]: { ...current[section], [key]: value } } : current);

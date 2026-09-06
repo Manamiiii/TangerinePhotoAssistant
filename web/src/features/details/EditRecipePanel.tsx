@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useUnsavedChanges } from "../../unsavedChanges";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CaptureDetail, EditParameters, EditRecipe } from "./types";
 
 const emptyParameters: EditParameters = {
@@ -52,10 +53,30 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
   const [note, setNote] = useState(latest?.note ?? "");
   const [previewParameters, setPreviewParameters] = useState(parameters);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const initialDraft = JSON.stringify({ parameters: latest?.parameters ?? suggested ?? emptyParameters, note: latest?.note ?? "" });
+  const [baseline, setBaseline] = useState(initialDraft);
+  const [saving, setSaving] = useState(false);
+  const saveLock = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // An unrelated detail refresh must not reset an in-progress parameter draft.
+  const latestDraft = useRef(initialDraft);
+  latestDraft.current = initialDraft;
   useEffect(() => {
-    setParameters(latest?.parameters ?? suggested ?? emptyParameters);
-    setNote(latest?.note ?? "");
-  }, [detail.id, latest?.id, suggested]);
+    const next = JSON.parse(latestDraft.current) as { parameters: EditParameters; note: string };
+    setParameters(next.parameters); setNote(next.note); setBaseline(latestDraft.current);
+  }, [detail.id, latest?.id]);
+  const dirty = JSON.stringify({ parameters, note }) !== baseline;
+  useUnsavedChanges(dirty, saving);
+  const submit = async (status: EditRecipe["status"], revisionId?: number) => {
+    if (saveLock.current) return;
+    if (revisionId && dirty && !window.confirm("恢复历史版本会替换当前未保存的参数，确定继续吗？")) return;
+    saveLock.current = true; setSaving(true); setSaveError(null);
+    try {
+      if (revisionId) await restoreRecipe(detail.id, revisionId);
+      else { await saveRecipe(detail.id, parameters, status, sourceAnalysisId, note || null); setBaseline(JSON.stringify({ parameters, note })); }
+    } catch (reason) { setSaveError(reason instanceof Error ? reason.message : "保存失败，参数已保留。"); }
+    finally { saveLock.current = false; setSaving(false); }
+  };
   useEffect(() => {
     setPreviewLoading(true);
     const timer = window.setTimeout(() => setPreviewParameters(parameters), 180);
@@ -74,17 +95,18 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
       {!showOriginal && previewLoading && <span className="edit-preview-loading">正在更新预览…</span>}
       <button className="preview-original-toggle" aria-label="按住对比原图" title="按住对比原图" onPointerDown={() => setShowOriginal(true)} onPointerUp={() => setShowOriginal(false)} onPointerCancel={() => setShowOriginal(false)} onPointerLeave={() => setShowOriginal(false)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
     </div>
-    <div className="edit-parameter-grid">{controls.slice(0, 8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
+    <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "grid", gap: 14 }}><div className="edit-parameter-grid">{controls.slice(0, 8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
     <details className="edit-advanced-controls"><summary>几何与细节调整</summary><div className="edit-parameter-grid">{controls.slice(8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div></details>
     <label className="edit-recipe-note"><span>方案备注 / 暂不采用原因（可选）</span><textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="例如：肤色偏暖，暂时不采用；或记录本次调整意图" /></label>
     <div className="edit-recipe-actions">
       <button onClick={() => setParameters(suggested ?? emptyParameters)} disabled={!suggested}>载入模型建议</button>
       <button onClick={() => setParameters(emptyParameters)}>全部归零</button>
-      <button onClick={() => void saveRecipe(detail.id, parameters, "dismissed", sourceAnalysisId, note || null)}>暂不采用</button>
-      <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "draft", sourceAnalysisId, note || null)}>保存草稿</button>
-      <button className="primary" onClick={() => void saveRecipe(detail.id, parameters, "accepted", sourceAnalysisId, note || null)}>记录为采用</button>
+      <button onClick={() => void submit("dismissed")}>暂不采用</button>
+      <button className="primary" onClick={() => void submit("draft")}>保存草稿</button>
+      <button className="primary" onClick={() => void submit("accepted")}>记录为采用</button>
     </div>
+    </fieldset>{saving && <p role="status">保存中…</p>}{saveError && <p role="alert">{saveError}</p>}
     <details className="edit-safety-details"><summary>预览与应用说明</summary><ul><li>模型建议可以直接载入滑杆作为调整起点。</li><li>预览算法与 Lightroom 不同，裁剪和水平校正只展示近似效果。</li><li>“记录为采用”只保存决定，不会写入照片、XMP 或 Lightroom。</li></ul></details>
-    {detail.edit_recipes.length > 0 && <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}><summary>方案历史 · {detail.edit_recipes.length} 个最近版本</summary><div className="edit-recipe-history">{detail.edit_recipes.map((recipe) => <button key={recipe.id} disabled={recipe.id === latest?.id} onClick={() => void restoreRecipe(detail.id, recipe.id)}><span>版本 {recipe.id} · {{ draft: "草稿", accepted: "已采用", dismissed: "暂不采用" }[recipe.status]}</span><small>{recipe.created_at.replace("T", " ")}{recipe.note ? ` · ${recipe.note}` : ""}</small></button>)}</div></details>}
+    {detail.edit_recipes.length > 0 && <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}><summary>方案历史 · {detail.edit_recipes.length} 个最近版本</summary><div className="edit-recipe-history">{detail.edit_recipes.map((recipe) => <button key={recipe.id} disabled={saving || recipe.id === latest?.id} onClick={() => void submit("draft", recipe.id)}><span>版本 {recipe.id} · {{ draft: "草稿", accepted: "已采用", dismissed: "暂不采用" }[recipe.status]}</span><small>{recipe.created_at.replace("T", " ")}{recipe.note ? ` · ${recipe.note}` : ""}</small></button>)}</div></details>}
   </div>;
 }

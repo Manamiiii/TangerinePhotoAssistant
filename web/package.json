@@ -19,6 +19,7 @@
   "devDependencies": {
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "jsdom": "^30.0.1",
     "vitest": "^4.1.11"
   }
 }

@@ -1,3 +1,4 @@
+import { manageDialogFocus } from "./dialogFocus";
 import { useEffect, useRef, type ReactNode } from "react";
 
 export function ModalShell({ title, close, children, wide = false }: {
@@ -10,40 +11,16 @@ export function ModalShell({ title, close, children, wide = false }: {
   const closeRef = useRef(close);
   closeRef.current = close;
   useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
     const modal = modalRef.current;
-    const focusable = () => Array.from(modal?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-    ) ?? []);
-    focusable()[0]?.focus();
+    if (!modal) return;
+    const release = manageDialogFocus(modal);
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeRef.current();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (!items.length) {
-        event.preventDefault();
-        modal?.focus();
-        return;
-      }
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      if (event.key !== "Escape" || event.defaultPrevented || Array.from(document.querySelectorAll('[aria-modal="true"]')).at(-1) !== modal) return;
+      event.preventDefault();
+      closeRef.current();
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      previouslyFocused?.focus();
-    };
+    return () => { document.removeEventListener("keydown", onKeyDown); release(); };
   }, []);
   return <div className="editor-backdrop" onClick={close}>
     <section ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`editor-modal ${wide ? "wide" : ""}`} onClick={(event) => event.stopPropagation()}>

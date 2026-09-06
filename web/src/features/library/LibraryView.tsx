@@ -1,3 +1,4 @@
+import { confirmLeave, useUnsavedChanges } from "../../unsavedChanges";
 import { useEffect, useRef, useState } from "react";
 import { libraryThumbnailUrl } from "./thumbnail";
 import { LibraryThumbnail } from "./LibraryThumbnail";
@@ -26,12 +27,12 @@ function ratingStars(rating: number | null) {
   return rating ? "★".repeat(rating) : "—";
 }
 
-function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
+export function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, openAlbum, changePage, changePageSize }: {
   albums: EventsResponse | null;
   filters: LibraryFilters | null;
   equipment: EquipmentCatalog | null;
-  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => void;
-  createAlbum: (name: string, category: string) => void;
+  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => Promise<boolean>;
+  createAlbum: (name: string, category: string) => Promise<number | null>;
   createAlbumType: (name: string) => void;
   renameAlbumType: (name: string, nextName: string) => void;
   deleteAlbumType: (name: string) => void;
@@ -43,6 +44,13 @@ function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, crea
   const [albumName, setAlbumName] = useState("");
   const [albumCategory, setAlbumCategory] = useState("");
   const [albumEquipmentKeys, setAlbumEquipmentKeys] = useState<string[]>([]);
+  const [albumSaving, setAlbumSaving] = useState(false);
+  const albumSaveLock = useRef(false);
+  const [albumSaveError, setAlbumSaveError] = useState<string | null>(null);
+  const [albumInitial, setAlbumInitial] = useState("");
+  const albumDirty = albumEditor !== null && JSON.stringify([albumName, albumCategory, albumEquipmentKeys]) !== albumInitial;
+  useUnsavedChanges(albumDirty, albumSaving);
+  const closeAlbumEditor = () => { if (confirmLeave()) setAlbumEditor(null); };
   const [newTypeName, setNewTypeName] = useState("");
   const [editingType, setEditingType] = useState<string | null>(null);
   const [editedTypeName, setEditedTypeName] = useState("");
@@ -54,16 +62,26 @@ function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, crea
     && items.findIndex((candidate) => candidate.inventory_key === item.inventory_key) === index
   );
   const openAlbumEditor = (album: EventItem | "new") => {
+    setAlbumSaveError(null);
+    setAlbumInitial(JSON.stringify([album === "new" ? "" : album.proposed_name, album === "new" ? (filters?.album_types[0]?.name ?? "日常") : album.category, album === "new" ? [] : album.equipment_keys]));
     setAlbumEditor(album);
     setAlbumName(album === "new" ? "" : album.proposed_name);
     setAlbumCategory(album === "new" ? (filters?.album_types[0]?.name ?? "日常") : album.category);
     setAlbumEquipmentKeys(album === "new" ? [] : album.equipment_keys);
   };
-  const saveAlbum = () => {
-    if (!albumName.trim() || !albumCategory) return;
-    if (albumEditor === "new") createAlbum(albumName.trim(), albumCategory);
-    else if (albumEditor) updateAlbum(albumEditor, { proposed_name: albumName.trim(), category: albumCategory, equipment_keys: albumEquipmentKeys, equipment_count: albumEquipmentKeys.length });
-    setAlbumEditor(null);
+  const saveAlbum = async () => {
+    if (!albumName.trim() || !albumCategory || albumSaveLock.current) return;
+    albumSaveLock.current = true;
+    setAlbumSaving(true);
+    setAlbumSaveError(null);
+    try {
+      const saved = albumEditor === "new"
+        ? await createAlbum(albumName.trim(), albumCategory)
+        : albumEditor && await updateAlbum(albumEditor, { proposed_name: albumName.trim(), category: albumCategory, equipment_keys: albumEquipmentKeys, equipment_count: albumEquipmentKeys.length });
+      if (saved) setAlbumEditor(null);
+      else setAlbumSaveError("保存失败，输入已保留，请重试。");
+    } catch (reason) { setAlbumSaveError(reason instanceof Error ? reason.message : "保存失败，输入已保留。"); }
+    finally { albumSaveLock.current = false; setAlbumSaving(false); }
   };
   return (
     <>
@@ -93,12 +111,12 @@ function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, crea
         </div>
         <form className="type-create-row" onSubmit={(event) => { event.preventDefault(); if (newTypeName.trim()) { createAlbumType(newTypeName.trim()); setNewTypeName(""); } }}><input value={newTypeName} onChange={(event) => setNewTypeName(event.target.value)} placeholder="新的类型名称" maxLength={40} /><button className="toolbar-button primary" disabled={!newTypeName.trim()}>新增类型</button></form>
       </section>
-      {albumEditor && <ModalShell title={albumEditor === "new" ? "新建相册" : "编辑相册"} close={() => setAlbumEditor(null)}>
-        <form className="editor-form" onSubmit={(event) => { event.preventDefault(); saveAlbum(); }}>
-          <label><span>相册名称</span><input autoFocus value={albumName} onChange={(event) => setAlbumName(event.target.value)} maxLength={180} /></label>
+      {albumEditor && <ModalShell title={albumEditor === "new" ? "新建相册" : "编辑相册"} close={closeAlbumEditor}>
+        <form className="editor-form" onSubmit={(event) => { event.preventDefault(); void saveAlbum(); }}>
+          <fieldset disabled={albumSaving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "grid", gap: 16 }}><label><span>相册名称</span><input autoFocus value={albumName} onChange={(event) => setAlbumName(event.target.value)} maxLength={180} /></label>
           <label><span>相册类型</span><select value={albumCategory} onChange={(event) => setAlbumCategory(event.target.value)}>{(filters?.album_types ?? []).map((type) => <option key={type.name}>{type.name}</option>)}</select></label>
           {albumEditor !== "new" && <fieldset className="album-equipment-field"><legend>本次拍摄使用的附件</legend><p>仅记录 EXIF 无法确认的脚架、滤镜、闪光灯等附件。</p><div>{selectableAccessories.map((item) => <label key={item.inventory_key}><input type="checkbox" checked={albumEquipmentKeys.includes(item.inventory_key)} onChange={(event) => setAlbumEquipmentKeys((current) => event.target.checked ? [...current, item.inventory_key] : current.filter((key) => key !== item.inventory_key))} /><span>{item.display_name ?? item.model}{!item.owned ? "（当前未拥有）" : ""}</span></label>)}</div>{!selectableAccessories.length && <small>请先在设备管理中添加或标记已拥有附件。</small>}</fieldset>}
-          <footer><button type="button" className="toolbar-button" onClick={() => setAlbumEditor(null)}>取消</button><button className="toolbar-button primary" disabled={!albumName.trim() || !albumCategory}>保存</button></footer>
+          </fieldset>{albumSaveError && <p role="alert">{albumSaveError}</p>}<footer><button type="button" className="toolbar-button" disabled={albumSaving} onClick={closeAlbumEditor}>取消</button><button className="toolbar-button primary" disabled={albumSaving || !albumName.trim() || !albumCategory}>{albumSaving ? "保存中…" : "保存"}</button></footer>
         </form>
       </ModalShell>}
     </>
@@ -447,7 +465,7 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   task: Task | null;
   startScan: (albumId: number) => void;
   cancelTask: () => void;
-  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => void;
+  updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => Promise<boolean>;
   createAlbum: (name: string, category: string) => Promise<number | null>;
   createAlbumType: (name: string) => void;
   renameAlbumType: (name: string, nextName: string) => void;

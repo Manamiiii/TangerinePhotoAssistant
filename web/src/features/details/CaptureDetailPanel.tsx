@@ -1,3 +1,5 @@
+import { useUnsavedChanges } from "../../unsavedChanges";
+import { manageDialogFocus, ignorePhotoShortcut } from "../../components/dialogFocus";
 import { useEffect, useRef, useState } from "react";
 import { getJson } from "../../api";
 import { formatDate, formatExposure, formatFileSize } from "../../formatters";
@@ -28,9 +30,8 @@ function TagEditor({ detail, saveTags }: {
   const [customDimension, setCustomDimension] = useState<CaptureTagDimension>("subject");
   const [customName, setCustomName] = useState("");
   const [saving, setSaving] = useState(false);
-  useEffect(() => setSelected(
-    detail.tags.filter((tag) => tag.source === "manual").map(({ dimension, name }) => ({ dimension, name })),
-  ), [detail.id, detail.tags]);
+  const savedTags = JSON.stringify(manualTags.map(({ dimension, name }) => ({ dimension, name })));
+  useEffect(() => setSelected(JSON.parse(savedTags)), [detail.id, savedTags]);
   const selectedKey = (dimension: CaptureTagDimension, name: string) => `${dimension}:${name.toLocaleLowerCase()}`;
   const selectedKeys = new Set(selected.map((tag) => selectedKey(tag.dimension, tag.name)));
   const toggle = (dimension: CaptureTagDimension, name: string) => setSelected((current) => {
@@ -49,8 +50,17 @@ function TagEditor({ detail, saveTags }: {
   };
   const dirty = JSON.stringify(selected.map((tag) => selectedKey(tag.dimension, tag.name)).sort()) !==
     JSON.stringify(manualTags.map((tag) => selectedKey(tag.dimension, tag.name)).sort());
-  const save = async () => { setSaving(true); try { await saveTags(detail.id, selected); } finally { setSaving(false); } };
-  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><p className="tag-editor-intro">题材和问题可多选，工作状态只保留一个；标签不会写入照片。</p>
+  const saveLock = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  useUnsavedChanges(dirty || Boolean(customName.trim()), saving);
+  const save = async () => {
+    if (saveLock.current) return;
+    saveLock.current = true; setSaving(true); setSaveError(null);
+    try { await saveTags(detail.id, selected); }
+    catch (reason) { setSaveError(reason instanceof Error ? reason.message : "保存失败，标签已保留。"); }
+    finally { saveLock.current = false; setSaving(false); }
+  };
+  return <details className="detail-section detail-tags"><summary><span><strong>分类与状态</strong><small>{manualTags.length || analysisTags.length ? [...manualTags.map((tag) => tag.name), ...analysisTags.map((tag) => `${tag.name}（分析）`)].join(" · ") : "题材 · 处理状态 · 问题 · 地点"}</small></span><em>编辑</em></summary><div className="tag-editor-body"><fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><p className="tag-editor-intro">题材和问题可多选，工作状态只保留一个；标签不会写入照片。</p>
     {!!analysisTags.length && <div className="analysis-tag-readonly"><strong>模型分析</strong><div>{analysisTags.map((tag) => <span key={`${tag.dimension}:${tag.name}`}>{tag.name}{tag.confidence == null ? "" : ` · ${Math.round(tag.confidence * 100)}%`}</span>)}</div><small>只读来源；人工标签独立保存，不会被同步覆盖。</small></div>}
     {(Object.keys(tagDimensionLabels) as CaptureTagDimension[]).map((dimension) => {
       const catalog = detail.tag_catalog.filter((tag) => tag.dimension === dimension);
@@ -58,7 +68,7 @@ function TagEditor({ detail, saveTags }: {
       return <div className="tag-dimension" key={dimension}><strong>{tagDimensionLabels[dimension]}</strong><div>{[...catalog, ...selectedCustom.map((tag, index) => ({ ...tag, id: -index - 1, built_in: 0 }))].map((tag) => <button key={`${dimension}:${tag.name}`} className={selectedKeys.has(selectedKey(dimension, tag.name)) ? "selected" : ""} onClick={() => toggle(dimension, tag.name)}>{tag.name}</button>)}{!catalog.length && !selectedCustom.length && <small>尚无标签，可在下方添加</small>}</div></div>;
     })}
     <div className="tag-custom"><select value={customDimension} onChange={(event) => setCustomDimension(event.target.value as CaptureTagDimension)}>{(Object.entries(tagDimensionLabels) as Array<[CaptureTagDimension, string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input value={customName} maxLength={40} placeholder="添加自定义标签" onChange={(event) => setCustomName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustom(); } }} /><button disabled={!customName.trim()} onClick={addCustom}>添加</button></div>
-    <div className="tag-editor-footer"><span>{dirty ? "有未保存的更改" : "标签已保存"}</span><button disabled={!dirty || saving} onClick={() => void save()}>{saving ? "保存中…" : "保存更改"}</button></div>
+    </fieldset>{saveError && <p role="alert">{saveError}</p>}<div className="tag-editor-footer"><span>{dirty ? "有未保存的更改" : "标签已保存"}</span><button disabled={!dirty || saving} onClick={() => void save()}>{saving ? "保存中…" : "保存更改"}</button></div>
   </div></details>;
 }
 
@@ -192,7 +202,7 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   mode: DetailMode;
   initialImmersive?: boolean;
   close: () => void;
-  saveAiReview: (analysisId: number, verdict: "accurate" | "partial" | "inaccurate" | null, note: string | null) => void;
+  saveAiReview: (analysisId: number, verdict: "accurate" | "partial" | "inaccurate" | null, note: string | null) => Promise<boolean>;
   saveReview: (captureId: number, review: ReviewPayload) => void;
   saveTags: (captureId: number, tags: Array<{ dimension: CaptureTagDimension; name: string }>) => Promise<void>;
   saveEditRecipe: (captureId: number, parameters: EditParameters, status: EditRecipe["status"], sourceAnalysisId: number | null, note: string | null) => Promise<void>;
@@ -213,6 +223,20 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   const [showImmersiveInfo, setShowImmersiveInfo] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const backdropRef = useRef<HTMLDivElement | null>(null);
+  const [aiNoteSaving, setAiNoteSaving] = useState(false);
+  const [aiNoteError, setAiNoteError] = useState<string | null>(null);
+  const aiNoteLock = useRef(false);
+  useUnsavedChanges(aiNoteEditing && aiNote !== (latestAnalysis?.user_note ?? ""), aiNoteSaving);
+  const saveNote = async () => {
+    if (!latestAnalysis || aiNoteLock.current) return;
+    aiNoteLock.current = true; setAiNoteSaving(true); setAiNoteError(null);
+    try {
+      if (await saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote)) setAiNoteEditing(false);
+      else setAiNoteError("保存失败，备注已保留，请重试。");
+    } catch (reason) { setAiNoteError(reason instanceof Error ? reason.message : "保存失败，备注已保留。"); }
+    finally { aiNoteLock.current = false; setAiNoteSaving(false); }
+  };
+  useEffect(() => backdropRef.current ? manageDialogFocus(backdropRef.current) : undefined, []);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
@@ -264,7 +288,8 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (ignorePhotoShortcut(event, target)) return;
+      if (Array.from(document.querySelectorAll('[aria-modal="true"]')).at(-1) !== backdropRef.current) return;
       const review = (changes: Partial<ReviewPayload>) => saveReview(detail.id, {
         user_rating: detail.user_rating,
         user_pick: Boolean(detail.user_pick),
@@ -289,7 +314,7 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [detail, close, immersive, mode, navigate, saveReview]);
   return (
-    <div ref={backdropRef} className={`detail-backdrop ${immersive ? "immersive" : ""}`} role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
+    <div ref={backdropRef} tabIndex={-1} className={`detail-backdrop ${immersive ? "immersive" : ""}`} role="dialog" aria-modal="true" aria-label={`${detail.stem} 照片详情`} onClick={close}>
       {hasPrev && <button className="detail-nav prev" disabled={navigating} aria-label="上一张" onClick={(event) => { event.stopPropagation(); navigate(-1); }}>‹</button>}
       {hasNext && <button className="detail-nav next" disabled={navigating} aria-label="下一张" onClick={(event) => { event.stopPropagation(); navigate(1); }}>›</button>}
       {navigating && <span className="detail-navigation-loading" role="status">正在切换照片…</span>}
@@ -327,7 +352,7 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
             <div><span>{modeLabel}</span><small>{mode === "select" ? "优先判断组内保留、排除与保留依据" : mode === "analyze" ? "优先复核技术检测、模型分析与后期建议" : "优先浏览归档信息与核心拍摄参数"}</small></div>
             <button onClick={() => setShowAll((current) => !current)}>{showAll ? `返回${modeLabel}` : "完整详情与后期建议"}</button>
           </div>
-          <div className={sectionClass(["browse"])}><TagEditor detail={detail} saveTags={saveTags} /></div>
+          <div className={sectionClass(["browse"])}><TagEditor key={detail.id} detail={detail} saveTags={saveTags} /></div>
           {mode !== "analyze" && <div className="detail-glance-summary"><span>{detail.has_quality_error ? "技术检测读取失败" : detail.technical_score == null ? "尚未检测技术健康度" : `技术健康度 ${Math.round(detail.technical_score)}`}{shootingReview.editing.length ? ` · 后期建议 ${shootingReview.editing.length} 项` : ""}</span><p>{detail.has_quality_error ? "请确认来源文件仍存在且可读取，再重新运行技术检测。" : shootingReview.summary ?? (shootingReview.technical_evidence.length ? "已有基础技术检测，可展开完整详情查看证据。" : "暂无需要优先处理的分析结论。")}</p></div>}
           <div className={`detail-section detail-exif-section ${sectionClass(["browse"])}`}>
             <div className="detail-section-heading"><h3>拍摄参数</h3><label>信息显示<select value={informationLevel} onChange={(event) => setInformationLevel(event.target.value as "compact" | "standard" | "full")}><option value="compact">精简</option><option value="standard">标准</option><option value="full">完整</option></select></label></div>
@@ -388,14 +413,14 @@ export function CaptureDetailPanel({ detail, mode, initialImmersive = false, clo
                 <button className={latestAnalysis.user_verdict === "partial" ? "selected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "partial", aiNote)}>部分准确</button>
                 <button className={latestAnalysis.user_verdict === "inaccurate" ? "rejected" : ""} onClick={() => saveAiReview(latestAnalysis.id, "inaccurate", aiNote)}>不准确</button>
               </div>
-              <div className="ai-review-note">{aiNoteEditing ? <><textarea autoFocus value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="记录误判、漏判或参数建议问题（可选）" maxLength={2000} /><button onClick={() => { saveAiReview(latestAnalysis.id, latestAnalysis.user_verdict, aiNote); setAiNoteEditing(false); }}>保存备注</button><button onClick={() => { setAiNote(latestAnalysis.user_note ?? ""); setAiNoteEditing(false); }}>取消</button></> : <><p>{latestAnalysis.user_note || "尚未添加复核备注"}</p><button onClick={() => setAiNoteEditing(true)}>{latestAnalysis.user_note ? "编辑备注" : "添加备注"}</button></>}</div>
+              <div className="ai-review-note">{aiNoteEditing ? <><textarea disabled={aiNoteSaving} autoFocus value={aiNote} onChange={(event) => setAiNote(event.target.value)} placeholder="记录误判、漏判或参数建议问题（可选）" maxLength={2000} /><button disabled={aiNoteSaving} onClick={() => void saveNote()}>{aiNoteSaving ? "保存中…" : "保存备注"}</button>{aiNoteError && <span role="alert">{aiNoteError}</span>}<button disabled={aiNoteSaving} onClick={() => { setAiNote(latestAnalysis.user_note ?? ""); setAiNoteEditing(false); }}>取消</button></> : <><p>{latestAnalysis.user_note || "尚未添加复核备注"}</p><button onClick={() => setAiNoteEditing(true)}>{latestAnalysis.user_note ? "编辑备注" : "添加备注"}</button></>}</div>
             </div>}
           </div>
           <div className={`detail-section editing-review-section ${sectionClass(["analyze"])}`}><h3>后期建议</h3>
             {shootingReview.editing.length ? <div className="editing-suggestion-list">{shootingReview.editing.map((advice, index) => <article key={`${advice.adjustment}-${index}`}><span>{advice.tool}</span><strong>{advice.adjustment}{advice.direction ? ` · ${advice.direction}` : ""}</strong>{advice.reason && <p>{advice.reason}</p>}</article>)}</div> : <p>{shootingReview.has_model_result ? "当前结果没有建议基础调整。" : "运行本地模型分析后才会生成后期建议。"}</p>}
             {shootingReview.photoshop && <div className="photoshop-decision"><span>Photoshop</span><strong>{shootingReview.photoshop.needed ? "建议列入精修待办" : "当前不需要"}</strong><p>{shootingReview.photoshop.reason ?? "模型未说明原因"}</p></div>}
             <small className="advice-safety-note">建议仅供预览和人工判断，不会自动写入 XMP 或修改照片。</small>
-            <details className="edit-recipe-details"><summary>参数预览与方案记录</summary><EditRecipePanel detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>
+            <details className="edit-recipe-details"><summary>参数预览与方案记录</summary><EditRecipePanel key={detail.id} detail={detail} saveRecipe={saveEditRecipe} restoreRecipe={restoreEditRecipe} /></details>
           </div>
           <div className={`detail-section detail-file-section ${sectionClass([])}`}><h3>文件</h3><p>{detail.files.map((file) => `${file.file_name} · ${formatFileSize(file.size_bytes)}`).join(" / ")}</p><div><button onClick={() => void getJson(`/api/captures/${detail.id}/open`, { method: "POST" })}>打开原图</button><button onClick={() => void getJson(`/api/captures/${detail.id}/reveal`, { method: "POST" })}>在资源管理器中显示</button></div></div>
         </div>

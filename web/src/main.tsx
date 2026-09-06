@@ -1,3 +1,4 @@
+import { confirmLeave } from "./unsavedChanges";
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { getJson, libraryCapturesUrl } from "./api";
@@ -81,7 +82,7 @@ function App() {
   const [detailReturnCaptureId, setDetailReturnCaptureId] = useState<number | null>(null);
   const [detailReturnsToLibrary, setDetailReturnsToLibrary] = useState(false);
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
-  const [settingsDirty, setSettingsDirty] = useState(false);
+  const acceptedHash = useRef(window.location.hash);
   const [workQueueRevision, setWorkQueueRevision] = useState(0);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -162,6 +163,7 @@ function App() {
   }, [view]);
   useEffect(() => {
     const hash = navigationHash({ view, librarySection: libraryLandingSection, libraryOffset, libraryQuery, captureId: urlCaptureId });
+    acceptedHash.current = hash;
     if (window.location.hash === hash) return;
     const previous = readNavigationState();
     if (previous.view !== view || (urlCaptureId !== null && previous.captureId !== urlCaptureId)) {
@@ -207,7 +209,11 @@ function App() {
         });
     };
     if (initialNavigation.captureId) applyNavigation();
-    const onHashChange = () => applyNavigation();
+    const onHashChange = () => {
+      if (window.location.hash === acceptedHash.current) return;
+      if (!confirmLeave()) { window.history.pushState(null, "", acceptedHash.current); return; }
+      applyNavigation();
+    };
     window.addEventListener("hashchange", onHashChange);
     return () => { window.removeEventListener("hashchange", onHashChange); detailRequest.current?.abort(); };
   }, []);
@@ -534,8 +540,10 @@ function App() {
       } : current);
       setWorkQueueRevision((current) => current + 1);
       invalidate("aiReview");
+      return true;
     } catch (reason) {
       setError((reason as Error).message);
+      return false;
     }
   };
 
@@ -818,6 +826,7 @@ function App() {
   }, [captureDetail, detailReturnCaptureId, libraryCaptures, view]);
 
   const closeCaptureDetail = () => {
+    if (!confirmLeave()) return;
     captureRequestSequence.current += 1;
     detailRequest.current?.abort();
     detailNavigationPending.current = null;
@@ -831,6 +840,7 @@ function App() {
   const navigateDetail = async (direction: 1 | -1) => {
     if (!captureDetail || detailNavigationPending.current != null) return;
     if (!canNavigateDetail(captureDetail.id, detailContext, detailNavigationScope, libraryCaptures, direction)) return;
+    if (!confirmLeave()) return;
     const requestSequence = ++captureRequestSequence.current;
     detailRequest.current?.abort();
     const controller = new AbortController();
@@ -922,8 +932,10 @@ function App() {
       });
       setEvents((current) => current ? { ...current, items: current.items.map((item) => item.id === event.id ? next : item) } : current);
       invalidate("albums");
+      return true;
     } catch (reason) {
       setError((reason as Error).message);
+      return false;
     }
   };
 
@@ -1115,10 +1127,7 @@ function App() {
   };
 
   const requestView = (nextView: View) => {
-    if (view === "settings" && nextView !== "settings" && settingsDirty) {
-      if (!window.confirm("应用设置还有未保存的修改，确定放弃并离开吗？")) return false;
-      setSettingsDirty(false);
-    }
+    if (nextView !== view && !confirmLeave()) return false;
     setView(nextView);
     return true;
   };
@@ -1227,7 +1236,7 @@ function App() {
         {view === "equipment" && <EquipmentView equipment={equipment} changeOwnership={changeEquipmentOwnership} saveItem={saveEquipmentItem} deleteItem={deleteEquipmentItem} changeVisibility={changeEquipmentVisibility} />}
         {view === "archive" && <ArchiveView archive={archive} activeLibrary={activeLibraryBaseline} createBaseline={createBaseline} createActiveBaseline={createActiveBaseline} checkIntegrity={checkIntegrity} saveInvestigation={saveIntegrityInvestigation} />}
         {view === "lightroom" && <LightroomView status={lightroomStatus} manifest={lightroomManifest} capabilities={capabilities} albums={libraryFilters?.albums ?? []} generateManifest={generateManifest} />}
-        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} onDirtyChange={setSettingsDirty} />}
+        {view === "settings" && <SettingsView status={settingsStatus} task={task} save={saveSettings} firstRun={overview?.capture_total === 0 && !overview.latest_scan} />}
         {captureDetail && <CaptureDetailPanel detail={captureDetail} mode={detailMode} initialImmersive={detailInitialImmersive} close={closeCaptureDetail} saveAiReview={saveAiReview} saveReview={saveReview} saveTags={saveCaptureTags} saveEditRecipe={saveEditRecipe} restoreEditRecipe={restoreEditRecipe} navigate={(direction) => void navigateDetail(direction)} navigating={detailNavigating} hasPrev={canNavigateDetail(captureDetail.id, detailContext, detailNavigationScope, libraryCaptures, -1)} hasNext={canNavigateDetail(captureDetail.id, detailContext, detailNavigationScope, libraryCaptures, 1)} />}
         <div className="toast-stack" aria-live="polite">
           {toasts.map((toast) => <div key={toast.id} role={toast.kind === "error" ? "alert" : "status"} className={`toast ${toast.kind}`}><span>{toast.message}</span>{toast.action && <button onClick={() => { toast.action?.(); setToasts((current) => current.filter((item) => item.id !== toast.id)); }}>{toast.actionLabel}</button>}</div>)}
