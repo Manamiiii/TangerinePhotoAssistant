@@ -1,7 +1,8 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { getJson, libraryCapturesUrl } from "./api";
-import { taskForDisplay, taskReceipt, type Task } from "./components/TaskCard";
+import type { Task } from "./components/TaskCard";
+import { useTaskMonitor } from "./useTaskMonitor";
 import { ArchiveView, type ArchiveStatus } from "./features/system/ArchiveView";
 import { LightroomView, type LightroomManifest, type LightroomManifestScope, type LightroomStatus } from "./features/system/LightroomView";
 import type { EditableSettings, SettingsStatus, SystemCapabilities } from "./features/system/types";
@@ -83,7 +84,6 @@ function App() {
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [workQueueRevision, setWorkQueueRevision] = useState(0);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
-  const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const libraryRequestGuard = useRef(createLatestRequestGuard());
@@ -227,13 +227,7 @@ function App() {
     setWorkQueueRevision((current) => current + 1);
   }, [refreshLibrary]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    getJson<Task>("/api/tasks/current", { signal: controller.signal })
-      .then((result) => { if (!controller.signal.aborted) setTask(taskForDisplay(result)); })
-      .catch((reason: Error) => { if (!controller.signal.aborted) setError(reason.message); });
-    return () => controller.abort();
-  }, []);
+  const { task, acceptTask, syncTask } = useTaskMonitor(refreshAfterTask, reportReadError);
 
   useEffect(() => {
     if (!libraryEnabled) { setLibraryCaptures(null); setLibraryLoading(true); return; }
@@ -285,37 +279,11 @@ function App() {
     return () => { cancel(); reportReadError("similarity", null); };
   }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, similarityEnabled, resourceRevisions.similarity, readRetry]);
 
-  useEffect(() => {
-    if (task?.status !== "running") return;
-    const timer = window.setInterval(async () => {
-      try {
-        const next = await getJson<Task>("/api/tasks/current");
-        setTask(next);
-        if (next.status !== "running") await refreshAfterTask();
-      } catch (reason) {
-        setError((reason as Error).message);
-      }
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [task?.status, refreshAfterTask]);
-
-  useEffect(() => {
-    if (task?.status !== "complete" && task?.status !== "cancelled") return;
-    const completedId = task.id;
-    const timer = window.setTimeout(() => {
-      window.localStorage.setItem("tangerine-task-receipt", taskReceipt(task));
-      setTask((current) => current?.id === completedId && (current.status === "complete" || current.status === "cancelled")
-        ? { ...current, status: "idle", stage: "idle", message: "等待任务" }
-        : current);
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [task?.id, task?.status]);
-
   const startScan = async (albumId?: number) => {
     if (!albumId) return;
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/scan", {
+      acceptTask(await getJson<Task>("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ album_id: albumId }),
@@ -328,7 +296,7 @@ function App() {
   const cancelTask = async () => {
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/tasks/current/cancel", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/tasks/current/cancel", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -337,7 +305,7 @@ function App() {
   const startVisual = async () => {
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/visual/analyze", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/visual/analyze", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -346,7 +314,7 @@ function App() {
   const startQuality = async () => {
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/quality/analyze", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/quality/analyze", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -355,7 +323,7 @@ function App() {
   const startDetailBackfill = async () => {
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/detail-data/backfill", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/detail-data/backfill", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -364,7 +332,7 @@ function App() {
   const resumeDetailBackfill = async () => {
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/detail-data/backfill/resume", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/detail-data/backfill/resume", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -374,7 +342,7 @@ function App() {
     if (mode === "recommended" && !window.confirm(`将分析最多 ${limit} 张推荐照片。任务可暂停、继续和取消，确认现在加载本地模型吗？`)) return;
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/ai/analyze", {
+      acceptTask(await getJson<Task>("/api/ai/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode, limit }),
@@ -387,7 +355,7 @@ function App() {
   const pauseAi = async () => {
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/ai/runs/current/pause", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/ai/runs/current/pause", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -400,7 +368,7 @@ function App() {
     }
     setError(null);
     try {
-      setTask(await getJson<Task>("/api/detail-data/backfill/pause", { method: "POST" }));
+      acceptTask(await getJson<Task>("/api/detail-data/backfill/pause", { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -409,7 +377,7 @@ function App() {
   const resumeAi = async (runId: number) => {
     setError(null);
     try {
-      setTask(await getJson<Task>(`/api/ai/runs/${runId}/resume`, { method: "POST" }));
+      acceptTask(await getJson<Task>(`/api/ai/runs/${runId}/resume`, { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -418,7 +386,7 @@ function App() {
   const retryAiFailures = async (runId: number) => {
     setError(null);
     try {
-      setTask(await getJson<Task>(`/api/ai/runs/${runId}/retry-failures`, { method: "POST" }));
+      acceptTask(await getJson<Task>(`/api/ai/runs/${runId}/retry-failures`, { method: "POST" }));
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -1234,14 +1202,14 @@ function App() {
         {error && <div className="error-banner" role="alert">{error}</div>}
         {Object.keys(readErrors).length > 0 && <div className="error-banner" role="alert">
           <span>{Object.values(readErrors).join("；")}</span>
-          <button onClick={() => setReadRetry((current) => current + 1)}>重试读取</button>
+          <button onClick={() => { setReadRetry((current) => current + 1); syncTask(); }}>重试读取</button>
         </div>}
         {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={homePhotos} filters={libraryFilters} similarity={similaritySummary} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openAnalysis={() => { setQualityWorkflowFilter("open"); setQualityFilter("problems"); setView("analysis"); }} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} equipment={equipment} query={libraryQuery}
           requestedSection={libraryLandingSection} changeSection={setLibraryLandingSection}
           pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError,
-            prefetchAllowed: task?.status === "idle" && !urlCaptureId && !captureDetail && !selectedGroup }}
+            prefetchAllowed: !readErrors["/api/tasks/current"] && task?.status === "idle" && !urlCaptureId && !captureDetail && !selectedGroup }}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
           task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures} batchReview={batchReviewCaptures}
