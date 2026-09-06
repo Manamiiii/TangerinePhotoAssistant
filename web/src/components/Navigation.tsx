@@ -48,9 +48,9 @@ export function CollectionScopeTabs({ scope, setScope, allLabel = "全部" }: {
 }
 
 export type AlbumWorkspaceCounts = {
-  photos: number;
-  similarityGroups: number;
-  qualityResults: number;
+  photos: number | null;
+  similarityGroups: number | null;
+  qualityResults: number | null;
 };
 
 export function AlbumWorkspaceHeader({ name, category, summary, counts, current, back, openPhotos, openBursts, openQuality }: {
@@ -74,7 +74,7 @@ export function AlbumWorkspaceHeader({ name, category, summary, counts, current,
     <div className="album-workspace-title"><span>{category}</span><h2>{name}</h2><small>{summary}</small></div>
     <nav aria-label="当前相册视图">{destinations.map(([value, label, count, open]) => {
       const unavailable = count === 0 && current !== value;
-      return <button key={value} aria-current={current === value ? "page" : undefined} className={current === value ? "active" : ""} disabled={unavailable} title={unavailable ? `当前相册暂无${label}` : undefined} onClick={open}><span>{label}</span><b>{numberFormat.format(count)}</b></button>;
+      return <button key={value} aria-current={current === value ? "page" : undefined} className={current === value ? "active" : ""} disabled={unavailable} title={unavailable ? `当前相册暂无${label}` : undefined} onClick={open}><span>{label}</span><b>{count === null ? "—" : numberFormat.format(count)}</b></button>;
     })}</nav>
   </section>;
 }

@@ -227,7 +227,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
         <section className="panel album-selection-panel">
           <div className="panel-heading compact-list-heading"><div><h3>选择相册</h3></div><span className="batch-count">{groups?.albums.length ?? 0} 个相册包含相似组</span></div>
           <div className="similarity-album-grid">{(groups?.albums ?? []).map((album) => { const done = album.total_count - album.pending_count; const percent = album.total_count ? Math.round(done / album.total_count * 100) : 0; return <button key={album.id} onClick={() => setAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><b><strong>{album.pending_count}</strong><small>待选</small></b><i><span style={{ width: `${percent}%` }} /></i><em>共 {album.total_count} 组 · 已完成 {percent}%</em></button>; })}</div>
-          {!groups?.albums.length && <div className="empty-state">还没有可处理的相似组，请先更新相似分组。</div>}
+          {!groups?.albums.length && <div className="empty-state">{groups ? "还没有可处理的相似组，请先更新相似分组。" : "正在读取相似组…"}</div>}
         </section>
       ) : (<>
         {albumId && <AlbumWorkspaceHeader name={selectedAlbum?.name ?? "相册选片"} category={selectedAlbum?.category ?? "相册"} summary={`${groups?.pending_count ?? 0} 组待选 · 共 ${groups?.total_count ?? 0} 组`} counts={albumWorkspaceCounts} current="bursts" back={() => { setBrowseMode("albums"); setAlbumId(""); }} openPhotos={() => openAlbumPhotos(Number(albumId))} openBursts={() => undefined} openQuality={() => openAlbumQuality(Number(albumId))} />}
@@ -241,7 +241,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
                 <span className="similarity-copy"><strong>{group.event_name}</strong><small>{group.recommended_stem ? `推荐 ${group.recommended_stem}` : "等待技术评分"}{group.average_score == null ? "" : ` · 均分 ${group.average_score}`}{group.pick_count ? ` · ${group.pick_count} 张入选` : ""}</small><em className={`similarity-confidence ${group.confidence_level}`}>{group.confidence_level === "high" ? "高置信" : group.confidence_level === "medium" ? "一般" : "需重点看"}{group.pending_age_days != null ? ` · 拍摄距今 ${group.pending_age_days} 天` : ""}</em></span>
               </button>
             ))}
-            {!groupItems.length && <div className="empty-state">{{ pending: "所有相似组都已处理完，可切换到“全部”回顾。", completed: "还没有完成选片的相似组。", adjusted: "当前没有生效中的人工分组调整。", all: "还没有相似分组，先运行相似分析。" }[reviewFilter]}</div>}
+            {!groupItems.length && <div className="empty-state">{groups ? { pending: "所有相似组都已处理完，可切换到“全部”回顾。", completed: "还没有完成选片的相似组。", adjusted: "当前没有生效中的人工分组调整。", all: "还没有相似分组，先运行相似分析。" }[reviewFilter] : "正在读取相似组…"}</div>}
           </div>
           {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
         </section>

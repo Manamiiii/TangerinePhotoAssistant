@@ -1,8 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Pagination } from "./Navigation";
+import { AlbumWorkspaceHeader, Pagination } from "./Navigation";
 
 describe("requested-page pagination", () => {
+  it("does not treat unloaded album counts as empty or block navigation", () => {
+    const markup = renderToStaticMarkup(<AlbumWorkspaceHeader name="album" category="travel" summary=""
+      counts={{ photos: 8, similarityGroups: null, qualityResults: null }} current="library"
+      back={() => undefined} openPhotos={() => undefined} openBursts={() => undefined} openQuality={() => undefined} />);
+    expect(markup).toContain("相似选片</span><b>—</b>");
+    expect(markup).toContain("质量结果</span><b>—</b>");
+    expect(markup).not.toContain("disabled");
+  });
   const render = (offset: number, count = 800) => renderToStaticMarkup(<Pagination
     offset={offset} count={count} limit={40} onChange={() => undefined} onLimitChange={() => undefined}
   />);

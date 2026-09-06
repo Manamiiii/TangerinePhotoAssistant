@@ -79,7 +79,7 @@ function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbum, crea
               <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button>{album.source_count > 0 ? <button title="打开该相册的第一个现存来源目录" onClick={() => void getJson(`/api/albums/${album.id}/open-folder`, { method: "POST" })}>打开目录</button> : <span aria-hidden="true" />}{album.status !== "confirmed" ? <button onClick={() => updateAlbum(album, { status: "confirmed" })}>确认</button> : <span aria-hidden="true" />}<button className="album-open-action" onClick={() => openAlbum(album.id)}>打开照片</button></div>
             </article>
           ))}
-          {!albums?.items.length && <div className="empty-state">还没有相册，可以新建一个空相册。</div>}
+          {!albums?.items.length && <div className="empty-state">{albums ? "还没有相册，可以新建一个空相册。" : "正在读取相册…"}</div>}
         </div>
       </section>
       {albums && <Pagination count={albums.count} limit={albums.limit} offset={albums.offset} onChange={changePage} onLimitChange={changePageSize} />}
@@ -433,7 +433,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
   </>;
 }
 
-export function LibraryView({ overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
+export function LibraryView({ overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, changeSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
   overview: Overview | null;
   pageState: LibraryPageState;
   library: LibraryCapturesResponse | null;
@@ -443,6 +443,7 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   query: LibraryQuery;
   updateQuery: (changes: Partial<LibraryQuery>) => void;
   requestedSection: LibrarySection;
+  changeSection: (section: LibrarySection) => void;
   task: Task | null;
   startScan: (albumId: number) => void;
   cancelTask: () => void;
@@ -472,7 +473,8 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   openAlbumQuality: (albumId: number) => void;
   refreshLibrary: () => void;
 }) {
-  const [section, setSection] = useState<LibrarySection>(requestedSection);
+  const section = requestedSection;
+  const setSection = changeSection;
   const [activeAlbumId, setActiveAlbumId] = useState<number | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [targetAlbum, setTargetAlbum] = useState("");
@@ -480,9 +482,6 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   const [newAlbumCategory, setNewAlbumCategory] = useState("");
   const [photoInbox, setPhotoInbox] = useState<PhotoInboxStatus | null>(null);
   const activeAlbum = filters?.albums.find((album) => album.id === activeAlbumId) ?? null;
-  useEffect(() => {
-    if (activeAlbumId === null) setSection(requestedSection);
-  }, [requestedSection]);
   useEffect(() => {
     if (query.albumId && query.albumId !== "__unassigned__") {
       setActiveAlbumId(Number(query.albumId));

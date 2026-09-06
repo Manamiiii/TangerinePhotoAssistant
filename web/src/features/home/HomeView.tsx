@@ -36,6 +36,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   const archiveIssue = archive?.comparison && !archive.comparison.healthy;
   const activeIssue = activeBaseline?.comparison && !activeBaseline.comparison.healthy;
   const pendingSimilarity = similarity?.pending_count ?? 0;
+  const pendingLoaded = Boolean(overview && similarity && archive && activeBaseline);
   const reviewQueue = overview?.work_queue;
   const queueNewCount = reviewQueue ? reviewQueue.quality.new_count + reviewQueue.ai.new_count + reviewQueue.integrity.new_count + reviewQueue.task.new_count : 0;
   const queueReappearedCount = reviewQueue ? reviewQueue.quality.reappeared_count + reviewQueue.integrity.reappeared_count + reviewQueue.task.reappeared_count : 0;
@@ -75,7 +76,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
           {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
           {archiveIssue && !reviewQueue?.integrity.open_count && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
           {activeIssue && !reviewQueue?.integrity.open_count && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
-          {!hasPending && <div className="empty-state">当前没有需要及时处理的项目。</div>}
+          {!hasPending && <div className="empty-state">{pendingLoaded ? "当前没有需要及时处理的项目。" : "正在读取待处理状态…"}</div>}
         </div></section>
       </div>
     </section>

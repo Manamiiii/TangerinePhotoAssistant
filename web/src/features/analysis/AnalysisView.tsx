@@ -317,7 +317,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
       {analysisTab === "quality" && !qualityAlbumId && qualityBrowseMode === "albums" && <section className="panel album-selection-panel quality-album-panel">
         <div className="panel-heading compact-list-heading"><div><h3>选择相册</h3></div><span className="batch-count">{quality?.albums.length ?? 0} 个相册已有质量数据</span></div>
         <div className="quality-album-grid">{(quality?.albums ?? []).map((album) => <button key={album.id} onClick={() => setQualityAlbumId(String(album.id))}><span><small>{album.category}</small><strong>{album.name}</strong></span><div><b>{numberFormat.format(album.analyzed_count)}</b><small>已分析</small></div><dl><div><dt>{numberFormat.format(album.problem_count)}</dt><dd>有问题</dd></div><div><dt>{numberFormat.format(album.model_count)}</dt><dd>模型完成</dd></div></dl></button>)}</div>
-        {!quality?.albums.length && <div className="empty-state">还没有可按相册查看的质量结果，请先运行技术检测。</div>}
+        {!quality?.albums.length && <div className="empty-state">{quality ? "还没有可按相册查看的质量结果，请先运行技术检测。" : "正在读取质量结果…"}</div>}
       </section>}
       {analysisTab === "quality" && (Boolean(qualityAlbumId) || qualityBrowseMode === "all") && <section className="panel quality-review-panel">
         <div className="panel-heading"><div><span className="section-kicker">照片复核</span><h3>问题与改进建议</h3></div><span className="batch-count">优先处理当前筛选，无需逐张查看</span></div>
@@ -346,7 +346,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
               {hasWorkItem && <div className="work-item-actions"><b>{qualitySaving.has(item.capture_id) ? "正在更新…" : `${({ new: "新发现", reappeared: "重新出现", pending: "待处理", confirmed: "已核对", ignored: "已忽略", snoozed: "稍后处理", resolved: "已解决" } as Record<string, string>)[workflowStatus]}${workItemAgeLabel(item.workflow_age_days)}`}</b>{["new", "reappeared", "pending"].includes(workflowStatus) ? <><button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "confirmed")}>{qualitySaving.has(item.capture_id) ? "保存中…" : "已核对"}</button><button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "snoozed")}>7天后</button><button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "ignored")}>忽略</button></> : <button disabled={qualitySaving.has(item.capture_id)} onClick={() => void updateQualityWorkItem(item.capture_id, "pending")}>{qualitySaving.has(item.capture_id) ? "保存中…" : "重新打开"}</button>}</div>}
             </article>
           );})}
-          {!visibleQualityItems.length && <div className="empty-state">{qualityHidden.size ? "本页待办已处理，正在刷新队列。" : "当前筛选条件没有照片。尚未分析时，请先运行技术检测。"}</div>}
+          {!visibleQualityItems.length && <div className="empty-state">{!quality ? "正在读取质量结果…" : qualityHidden.size ? "本页待办已处理，正在刷新队列。" : "当前筛选条件没有照片。尚未分析时，请先运行技术检测。"}</div>}
         </div>
         {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
       </section>}

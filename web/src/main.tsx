@@ -25,6 +25,8 @@ import { HomeView } from "./features/home/HomeView";
 import { formatDate } from "./formatters";
 import { navigationHash, readNavigationState, type AppView } from "./navigationState";
 import { createLatestRequestGuard } from "./requestGuard";
+import { initialResourceRevisions, invalidateResources, visibleResources, type PageResource, type ResourceMutation } from "./pageResources";
+import { usePageResource } from "./usePageResource";
 import "./styles.css";
 
 type View = AppView;
@@ -44,19 +46,15 @@ function App() {
     const saved = window.localStorage.getItem("tangerine-theme");
     return saved === "dark" ? "dark" : "light";
   });
-  const [overview, setOverview] = useState<Overview | null>(null);
   const [libraryCaptures, setLibraryCaptures] = useState<LibraryCapturesResponse | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const [libraryLandingSection, setLibraryLandingSection] = useState<LibrarySection>(initialNavigation.librarySection);
   const [libraryOffset, setLibraryOffset] = useState(initialNavigation.libraryOffset);
   const [libraryQuery, setLibraryQuery] = useState<LibraryQuery>(initialNavigation.libraryQuery);
-  const [libraryFilters, setLibraryFilters] = useState<LibraryFilters | null>(null);
   const [albumOffset, setAlbumOffset] = useState(0);
   const [albumPageSize, setAlbumPageSize] = useState(40);
   const [events, setEvents] = useState<EventsResponse | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisOverview | null>(null);
-  const [aiPreflight, setAiPreflight] = useState<AiPreflight | null>(null);
   const [quality, setQuality] = useState<QualityResponse | null>(null);
   const [qualityOffset, setQualityOffset] = useState(0);
   const [qualityPageSize, setQualityPageSize] = useState(40);
@@ -81,22 +79,13 @@ function App() {
   const [detailNavigating, setDetailNavigating] = useState(false);
   const [detailReturnCaptureId, setDetailReturnCaptureId] = useState<number | null>(null);
   const [detailReturnsToLibrary, setDetailReturnsToLibrary] = useState(false);
-  const [statistics, setStatistics] = useState<Statistics | null>(null);
-  const [equipment, setEquipment] = useState<EquipmentCatalog | null>(null);
-  const [archive, setArchive] = useState<ArchiveStatus | null>(null);
-  const [activeLibraryBaseline, setActiveLibraryBaseline] = useState<ArchiveStatus | null>(null);
-  const [lightroomStatus, setLightroomStatus] = useState<LightroomStatus | null>(null);
   const [lightroomManifest, setLightroomManifest] = useState<LightroomManifest | null>(null);
-  const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
-  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [workQueueRevision, setWorkQueueRevision] = useState(0);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
-  const [similarityRevision, setSimilarityRevision] = useState(0);
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const refreshSequence = useRef(0);
   const libraryRequestGuard = useRef(createLatestRequestGuard());
   const albumRequestGuard = useRef(createLatestRequestGuard());
   const qualityRequestGuard = useRef(createLatestRequestGuard());
@@ -111,6 +100,46 @@ function App() {
   const reviewQueues = useRef(new Map<number, Promise<void>>());
   const reviewVersions = useRef(new Map<number, number>());
   const reviewAggregateTimer = useRef<number | null>(null);
+
+  const [resourceRevisions, setResourceRevisions] = useState(initialResourceRevisions);
+  const [readRetry, setReadRetry] = useState(0);
+  const [readErrors, setReadErrors] = useState<Record<string, string>>({});
+  const reportReadError = useCallback((url: string, message: string | null) => {
+    setReadErrors((current) => {
+      if ((current[url] ?? null) === message) return current;
+      const next = { ...current };
+      if (message === null) delete next[url]; else next[url] = message;
+      return next;
+    });
+  }, []);
+  const activeAlbumContext = view === "library" ? Boolean(libraryQuery.albumId && libraryQuery.albumId !== "__unassigned__")
+    : view === "bursts" ? Boolean(groupAlbumId) : view === "analysis" ? Boolean(qualityAlbumId) : false;
+  const visible = visibleResources(view, activeAlbumContext, libraryLandingSection);
+  const resourceKey = (name: PageResource) => `${view}:${resourceRevisions[name]}:${readRetry}`;
+  const [overview] = usePageResource<Overview>("/api/overview", visible.has("overview"), resourceKey("overview"), reportReadError);
+  const [libraryFilters] = usePageResource<LibraryFilters>("/api/library/filters", visible.has("filters"), resourceKey("filters"), reportReadError);
+  const [analysis] = usePageResource<AnalysisOverview>("/api/analysis/overview", visible.has("analysis"), resourceKey("analysis"), reportReadError);
+  const [aiPreflight] = usePageResource<AiPreflight>("/api/ai/preflight", visible.has("preflight"), resourceKey("preflight"), reportReadError);
+  const [statistics] = usePageResource<Statistics>("/api/statistics", visible.has("statistics"), resourceKey("statistics"), reportReadError);
+  const [equipment, setEquipment] = usePageResource<EquipmentCatalog>("/api/equipment", visible.has("equipment"), resourceKey("equipment"), reportReadError);
+  const [archive, setArchive] = usePageResource<ArchiveStatus>("/api/archive/status", visible.has("archive"), resourceKey("archive"), reportReadError);
+  const [activeLibraryBaseline, setActiveLibraryBaseline] = usePageResource<ArchiveStatus>("/api/active-library/baseline/status", visible.has("activeBaseline"), resourceKey("activeBaseline"), reportReadError);
+  const [lightroomStatus] = usePageResource<LightroomStatus>("/api/lightroom/status", visible.has("lightroom"), resourceKey("lightroom"), reportReadError);
+  const [capabilities] = usePageResource<SystemCapabilities>("/api/system/capabilities", visible.has("capabilities"), resourceKey("capabilities"), reportReadError);
+  const [settingsStatus, setSettingsStatus] = usePageResource<SettingsStatus>("/api/settings", visible.has("settings"), resourceKey("settings"), reportReadError);
+  const [homePhotos] = usePageResource<LibraryCapturesResponse>("/api/library/captures?limit=8&offset=0&sort=newest",
+    visible.has("homePhotos"), resourceKey("homePhotos"), reportReadError);
+  const [similaritySummary] = usePageResource<SimilarityGroupsResponse>("/api/similarity-groups?limit=1&offset=0&review_filter=all",
+    visible.has("similaritySummary"), resourceKey("similaritySummary"), reportReadError);
+  const [qualitySummary] = usePageResource<QualityResponse>("/api/quality?limit=1&offset=0&review_filter=all&workflow_filter=all",
+    visible.has("qualitySummary"), resourceKey("qualitySummary"), reportReadError);
+  const invalidate = useCallback((mutation: ResourceMutation) => {
+    setResourceRevisions((current) => invalidateResources(current, mutation));
+  }, []);
+  const libraryEnabled = visible.has("library");
+  const albumsEnabled = visible.has("albums");
+  const qualityEnabled = visible.has("quality");
+  const similarityEnabled = visible.has("similarity");
 
   const pushToast = useCallback((kind: Toast["kind"], message: string, actionLabel?: string, action?: () => void) => {
     const id = ++toastSequence.current;
@@ -188,77 +217,26 @@ function App() {
     setGroupAlbumId("");
   }, [view]);
 
-  const refreshInitialSnapshot = useCallback(async () => {
-    const results = await Promise.allSettled([
-      getJson<Overview>("/api/overview"),
-      getJson<LibraryFilters>("/api/library/filters"),
-      getJson<AnalysisOverview>("/api/analysis/overview"),
-      getJson<AiPreflight>("/api/ai/preflight"),
-      getJson<Statistics>("/api/statistics"),
-      getJson<EquipmentCatalog>("/api/equipment"),
-      getJson<ArchiveStatus>("/api/archive/status"),
-      getJson<ArchiveStatus>("/api/active-library/baseline/status"),
-      getJson<LightroomStatus>("/api/lightroom/status"),
-      getJson<SystemCapabilities>("/api/system/capabilities"),
-      getJson<SettingsStatus>("/api/settings"),
-    ] as const);
-    const [overviewData, filterData, analysisData, preflightData, statisticsData, equipmentData, archiveData, activeBaselineData, lightroomData, capabilitiesData, settingsData] = results;
-    if (overviewData.status === "fulfilled") setOverview(overviewData.value);
-    if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
-    if (analysisData.status === "fulfilled") setAnalysis(analysisData.value);
-    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
-    if (statisticsData.status === "fulfilled") setStatistics(statisticsData.value);
-    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
-    if (archiveData.status === "fulfilled") setArchive(archiveData.value);
-    if (activeBaselineData.status === "fulfilled") setActiveLibraryBaseline(activeBaselineData.value);
-    if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
-    if (capabilitiesData.status === "fulfilled") setCapabilities(capabilitiesData.value);
-    if (settingsData.status === "fulfilled") setSettingsStatus(settingsData.value);
-    const failed = results.find((result) => result.status === "rejected");
-    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
-  }, []);
-
-  const refreshLibrary = useCallback(async () => {
-    const requestSequence = ++refreshSequence.current;
+  const refreshLibrary = useCallback(async (mutation: ResourceMutation = "catalog") => {
     setWorkspaceRevision((current) => current + 1);
-    const results = await Promise.allSettled([
-      getJson<Overview>("/api/overview"),
-      getJson<LibraryFilters>("/api/library/filters"),
-      getJson<AnalysisOverview>("/api/analysis/overview"),
-      getJson<Statistics>("/api/statistics"),
-      getJson<LightroomStatus>("/api/lightroom/status"),
-    ] as const);
-    if (requestSequence !== refreshSequence.current) return;
-    const [overviewData, filterData, analysisData, statisticsData, lightroomData] = results;
-    if (overviewData.status === "fulfilled") setOverview(overviewData.value);
-    if (filterData.status === "fulfilled") setLibraryFilters(filterData.value);
-    if (analysisData.status === "fulfilled") setAnalysis(analysisData.value);
-    if (statisticsData.status === "fulfilled") setStatistics(statisticsData.value);
-    if (lightroomData.status === "fulfilled") setLightroomStatus(lightroomData.value);
-    const failed = results.find((result) => result.status === "rejected");
-    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
-  }, []);
+    invalidate(mutation);
+  }, [invalidate]);
 
   const refreshAfterTask = useCallback(async () => {
-    const results = await Promise.allSettled([
-      refreshLibrary(),
-      getJson<AiPreflight>("/api/ai/preflight"),
-      getJson<EquipmentCatalog>("/api/equipment"),
-    ] as const);
-    const [, preflightData, equipmentData] = results;
-    if (preflightData.status === "fulfilled") setAiPreflight(preflightData.value);
-    if (equipmentData.status === "fulfilled") setEquipment(equipmentData.value);
-    const failed = results.find((result) => result.status === "rejected");
-    if (failed?.status === "rejected") setError(failed.reason instanceof Error ? failed.reason.message : String(failed.reason));
+    await refreshLibrary("task");
+    setWorkQueueRevision((current) => current + 1);
   }, [refreshLibrary]);
 
   useEffect(() => {
-    Promise.all([refreshInitialSnapshot(), getJson<Task>("/api/tasks/current").then((result) => setTask(taskForDisplay(result)))]).catch(
-      (reason: Error) => setError(reason.message),
-    );
-  }, [refreshInitialSnapshot]);
+    const controller = new AbortController();
+    getJson<Task>("/api/tasks/current", { signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) setTask(taskForDisplay(result)); })
+      .catch((reason: Error) => { if (!controller.signal.aborted) setError(reason.message); });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
+    if (!libraryEnabled) { setLibraryCaptures(null); setLibraryLoading(true); return; }
     const controller = new AbortController();
     const requestToken = libraryRequestGuard.current.begin();
     setLibraryLoading(true);
@@ -269,18 +247,22 @@ function App() {
       .catch((reason: Error) => { if (reason.name !== "AbortError" && libraryRequestGuard.current.isCurrent(requestToken)) setLibraryLoadError(reason.message); })
       .finally(() => { if (libraryRequestGuard.current.isCurrent(requestToken)) setLibraryLoading(false); });
     return () => { libraryRequestGuard.current.invalidate(); controller.abort(); };
-  }, [libraryOffset, libraryQuery, workspaceRevision]);
+  }, [libraryOffset, libraryQuery, libraryEnabled, resourceRevisions.library, readRetry]);
 
   useEffect(() => {
+    if (!albumsEnabled) { setEvents(null); return; }
+    reportReadError("albums", null);
     const controller = new AbortController();
     const requestToken = albumRequestGuard.current.begin();
     getJson<EventsResponse>(`/api/albums?limit=${albumPageSize}&offset=${albumOffset}`, { signal: controller.signal })
       .then((result) => { if (albumRequestGuard.current.isCurrent(requestToken)) setEvents(result); })
-      .catch((reason: Error) => { if (reason.name !== "AbortError" && albumRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
-    return () => { albumRequestGuard.current.invalidate(); controller.abort(); };
-  }, [albumOffset, albumPageSize, workspaceRevision]);
+      .catch((reason: Error) => { if (reason.name !== "AbortError" && albumRequestGuard.current.isCurrent(requestToken)) reportReadError("albums", reason.message); });
+    return () => { albumRequestGuard.current.invalidate(); controller.abort(); reportReadError("albums", null); };
+  }, [albumOffset, albumPageSize, albumsEnabled, resourceRevisions.albums, readRetry]);
 
   useEffect(() => {
+    if (!qualityEnabled) { setQuality(null); return; }
+    reportReadError("quality", null);
     const controller = new AbortController();
     const requestToken = qualityRequestGuard.current.begin();
     const timer = window.setTimeout(() => {
@@ -289,16 +271,19 @@ function App() {
       if (qualityAlbumId) parameters.set("album_id", qualityAlbumId);
       getJson<QualityResponse>(`/api/quality?${parameters}`, { signal: controller.signal })
         .then((result) => { if (qualityRequestGuard.current.isCurrent(requestToken)) setQuality(result); })
-        .catch((reason: Error) => { if (reason.name !== "AbortError" && qualityRequestGuard.current.isCurrent(requestToken)) setError(reason.message); });
+        .catch((reason: Error) => { if (reason.name !== "AbortError" && qualityRequestGuard.current.isCurrent(requestToken)) reportReadError("quality", reason.message); });
     }, qualitySearch ? 250 : 0);
-    return () => { qualityRequestGuard.current.invalidate(); window.clearTimeout(timer); controller.abort(); };
-  }, [qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter, workQueueRevision, workspaceRevision]);
+    return () => { qualityRequestGuard.current.invalidate(); window.clearTimeout(timer); controller.abort(); reportReadError("quality", null); };
+  }, [qualityAlbumId, qualityFilter, qualityOffset, qualityPageSize, qualitySearch, qualityWorkflowFilter, qualityEnabled, resourceRevisions.quality, readRetry]);
 
   useEffect(() => {
-    return loadGroups({ limit: groupPageSize, offset: groupOffset, reviewFilter: groupReviewFilter,
+    if (!similarityEnabled) { setSimilarityGroups(null); return; }
+    reportReadError("similarity", null);
+    const cancel = loadGroups({ limit: groupPageSize, offset: groupOffset, reviewFilter: groupReviewFilter,
       albumId: groupAlbumId, confidenceFilter: groupConfidenceFilter, ageFilter: groupAgeFilter },
-      similarityRequestGuard.current, setSimilarityGroups, setError);
-  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, workspaceRevision, similarityRevision]);
+      similarityRequestGuard.current, setSimilarityGroups, (message) => reportReadError("similarity", message));
+    return () => { cancel(); reportReadError("similarity", null); };
+  }, [groupAgeFilter, groupAlbumId, groupConfidenceFilter, groupOffset, groupPageSize, groupReviewFilter, similarityEnabled, resourceRevisions.similarity, readRetry]);
 
   useEffect(() => {
     if (task?.status !== "running") return;
@@ -478,28 +463,20 @@ function App() {
     } : current);
   }, []);
 
+  useEffect(() => () => {
+    if (reviewAggregateTimer.current != null) window.clearTimeout(reviewAggregateTimer.current);
+  }, []);
+
   const scheduleReviewAggregateRefresh = () => {
     if (reviewAggregateTimer.current != null) window.clearTimeout(reviewAggregateTimer.current);
-    reviewAggregateTimer.current = window.setTimeout(() => {
-      // Reload through the current query effect, never the saving render's filters.
-      setSimilarityRevision((current) => current + 1);
-      Promise.all([
-        getJson<Overview>("/api/overview"),
-        getJson<Statistics>("/api/statistics"),
-        getJson<LightroomStatus>("/api/lightroom/status"),
-      ]).then(([nextOverview, nextStatistics, nextLightroom]) => {
-        setOverview(nextOverview);
-        setStatistics(nextStatistics);
-        setLightroomStatus(nextLightroom);
-      }).catch((reason: Error) => setError(reason.message));
-    }, 250);
+    reviewAggregateTimer.current = window.setTimeout(() => invalidate("review"), 250);
   };
 
   const syncAnalysisSubjectTags = async () => {
     setError(null);
     try {
       const result = await getJson<{ synchronized_captures: number; tag_links: number }>("/api/analysis/subject-tags/sync", { method: "POST" });
-      await refreshLibrary();
+      await refreshLibrary("tags");
       pushToast("success", `已从 ${result.synchronized_captures} 条现有结果同步 ${result.tag_links} 个分析题材标签`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -511,7 +488,7 @@ function App() {
     setError(null);
     try {
       const result = await getJson<{ removed_links: number }>("/api/analysis/subject-tags", { method: "DELETE" });
-      await refreshLibrary();
+      await refreshLibrary("tags");
       pushToast("success", `已清除 ${result.removed_links} 个分析题材标签，可随时重新同步`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -565,7 +542,7 @@ function App() {
       } catch (reason) {
         if (reviewVersions.current.get(captureId) === version) {
           pushToast("error", `保存失败：${(reason as Error).message}`);
-          await refreshLibrary();
+          await refreshLibrary("review");
         }
       }
     });
@@ -588,7 +565,7 @@ function App() {
         ai_analyses: current.ai_analyses.map((item) => item.id === analysisId ? { ...item, ...saved } : item),
       } : current);
       setWorkQueueRevision((current) => current + 1);
-      void getJson<Overview>("/api/overview").then(setOverview);
+      invalidate("aiReview");
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -625,6 +602,7 @@ function App() {
         body: JSON.stringify({ tags }),
       });
       setCaptureDetail((current) => current && current.id === captureId ? { ...current, tags: saved.tags } : current);
+      invalidate("tags");
     } catch (reason) {
       setError((reason as Error).message);
       throw reason;
@@ -646,6 +624,7 @@ function App() {
         body: JSON.stringify({ parameters, status, source_analysis_id: sourceAnalysisId, note }),
       });
       setCaptureDetail((current) => current && current.id === captureId ? { ...current, edit_recipes: [saved, ...current.edit_recipes].slice(0, 10) } : current);
+      invalidate("editing");
       pushToast("success", status === "accepted" ? "已标记采用参数方案" : status === "dismissed" ? "已记录暂不采用" : "已保存参数草稿");
     } catch (reason) {
       setError((reason as Error).message);
@@ -658,6 +637,7 @@ function App() {
     try {
       const restored = await getJson<EditRecipe>(`/api/captures/${captureId}/edit-recipe/${revisionId}/restore`, { method: "POST" });
       setCaptureDetail((current) => current && current.id === captureId ? { ...current, edit_recipes: [restored, ...current.edit_recipes].slice(0, 10) } : current);
+      invalidate("editing");
       pushToast("success", `已从版本 ${revisionId} 恢复为新草稿`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -678,7 +658,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ capture_ids: captureIds, dimension, name, action }),
       });
-      await refreshLibrary();
+      await refreshLibrary("tags");
       pushToast("success", `${action === "add" ? "已标记" : "已移除"} ${saved.affected_count} 张照片`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -699,10 +679,7 @@ function App() {
         body: JSON.stringify({ status, ...(status === "snoozed" ? { snooze_days: 7 } : {}) }),
       });
       setWorkQueueRevision((current) => current + 1);
-      void Promise.all([
-        getJson<Overview>("/api/overview").then(setOverview),
-        getJson<AnalysisOverview>("/api/analysis/overview").then(setAnalysis),
-      ]);
+      invalidate("workQueue");
       pushToast("success", status === "snoozed" ? "已推迟 7 天" : "待办状态已更新");
     } catch (reason) {
       setError((reason as Error).message);
@@ -723,10 +700,7 @@ function App() {
         body: JSON.stringify({ source_kind: sourceKind, subject_ids: subjectIds, status, ...(status === "snoozed" ? { snooze_days: 7 } : {}) }),
       });
       setWorkQueueRevision((current) => current + 1);
-      void Promise.all([
-        getJson<Overview>("/api/overview").then(setOverview),
-        getJson<AnalysisOverview>("/api/analysis/overview").then(setAnalysis),
-      ]);
+      invalidate("workQueue");
       pushToast("success", `已更新 ${result.affected_count} 项待办`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -746,7 +720,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ capture_ids: captureIds, rating, selection }),
       });
-      await refreshLibrary();
+      await refreshLibrary("review");
       pushToast("success", `已更新 ${saved.affected_count} 张照片的评价`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -763,7 +737,7 @@ function App() {
         body: JSON.stringify({ use_before: useBefore }),
       });
       setSelectedGroup(null);
-      await refreshLibrary();
+      await refreshLibrary("grouping");
       pushToast("success", useBefore ? "已撤销本次分组调整" : "已恢复所选分组版本");
     } catch (reason) {
       setError((reason as Error).message);
@@ -780,7 +754,7 @@ function App() {
         body: JSON.stringify({ action }),
       });
       setSelectedGroup(null);
-      await refreshLibrary();
+      await refreshLibrary("grouping");
       if (result.revision_id) pushToast("success", action === "auto" ? "已恢复自动识别" : "分组已更新", "撤销", () => void restoreGroupingRevision(result.revision_id!, true));
     } catch (reason) {
       setError((reason as Error).message);
@@ -797,7 +771,7 @@ function App() {
         body: JSON.stringify({ source_group_id: groupId, groups, excluded_ids: excludedIds }),
       });
       setGroupOffset(0);
-      await refreshLibrary();
+      await refreshLibrary("grouping");
       if (result.group_ids[0]) {
         setSelectedGroup(await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${result.group_ids[0]}`));
       } else {
@@ -979,7 +953,7 @@ function App() {
         body: JSON.stringify({ proposed_name: next.proposed_name, category: next.category, status: next.status, ...(changes.equipment_keys ? { accessory_keys: changes.equipment_keys } : {}) }),
       });
       setEvents((current) => current ? { ...current, items: current.items.map((item) => item.id === event.id ? next : item) } : current);
-      setLightroomStatus((current) => current ? { ...current, confirmed_events: current.confirmed_events + (event.status !== "confirmed" && next.status === "confirmed" ? 1 : event.status === "confirmed" && next.status !== "confirmed" ? -1 : 0) } : current);
+      invalidate("albums");
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -994,7 +968,7 @@ function App() {
         body: JSON.stringify({ name, category }),
       });
       setAlbumOffset(0);
-      await refreshLibrary();
+      await refreshLibrary("albums");
       return created.id;
     } catch (reason) {
       setError((reason as Error).message);
@@ -1010,7 +984,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      await refreshLibrary();
+      await refreshLibrary("albums");
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -1020,7 +994,7 @@ function App() {
     setError(null);
     try {
       await getJson(`/api/album-types/${encodeURIComponent(name)}`, { method: "DELETE" });
-      await refreshLibrary();
+      await refreshLibrary("albums");
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -1034,7 +1008,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: nextName }),
       });
-      await refreshLibrary();
+      await refreshLibrary("albums");
     } catch (reason) {
       setError((reason as Error).message);
     }
@@ -1048,7 +1022,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ capture_ids: captureIds }),
       });
-      await refreshLibrary();
+      await refreshLibrary("albums");
       pushToast("success", `已将 ${captureIds.length} 张照片归入目标相册`);
     } catch (reason) {
       setError((reason as Error).message);
@@ -1193,7 +1167,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope, relative_path: relativePath, status, ...(status === "snoozed" ? { snooze_days: 7 } : {}) }),
       });
-      setOverview(await getJson<Overview>("/api/overview"));
+      invalidate("integrity");
       pushToast("success", status === "snoozed" ? "完整性差异已推迟 7 天" : "调查状态已更新");
     } catch (reason) {
       setError((reason as Error).message);
@@ -1203,10 +1177,12 @@ function App() {
 
   const albumWorkspaceCounts = (albumId: string | number) => {
     const id = Number(albumId);
+    const groups = view === "bursts" ? similarityGroups : similaritySummary;
+    const analyzed = view === "analysis" ? quality : qualitySummary;
     return {
-      photos: libraryFilters?.albums.find((album) => album.id === id)?.capture_count ?? 0,
-      similarityGroups: similarityGroups?.albums.find((album) => album.id === id)?.total_count ?? 0,
-      qualityResults: quality?.albums.find((album) => album.id === id)?.analyzed_count ?? 0,
+      photos: libraryFilters ? libraryFilters.albums.find((album) => album.id === id)?.capture_count ?? 0 : null,
+      similarityGroups: groups ? groups.albums.find((album) => album.id === id)?.total_count ?? 0 : null,
+      qualityResults: analyzed ? analyzed.albums.find((album) => album.id === id)?.analyzed_count ?? 0 : null,
     };
   };
 
@@ -1256,10 +1232,14 @@ function App() {
           </div>
         </header>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={libraryCaptures} filters={libraryFilters} similarity={similarityGroups} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openAnalysis={() => { setQualityWorkflowFilter("open"); setQualityFilter("problems"); setView("analysis"); }} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
+        {Object.keys(readErrors).length > 0 && <div className="error-banner" role="alert">
+          <span>{Object.values(readErrors).join("；")}</span>
+          <button onClick={() => setReadRetry((current) => current + 1)}>重试读取</button>
+        </div>}
+        {view === "home" && <HomeView overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={homePhotos} filters={libraryFilters} similarity={similaritySummary} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openAnalysis={() => { setQualityWorkflowFilter("open"); setQualityFilter("problems"); setView("analysis"); }} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
         {view === "library" && <LibraryView
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} equipment={equipment} query={libraryQuery}
-          requestedSection={libraryLandingSection}
+          requestedSection={libraryLandingSection} changeSection={setLibraryLandingSection}
           pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError,
             prefetchAllowed: task?.status === "idle" && !urlCaptureId && !captureDetail && !selectedGroup }}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
