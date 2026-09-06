@@ -1,3 +1,4 @@
+import { SelectionReview } from "./SelectionReview";
 import { confirmLeave, useUnsavedChanges } from "../../unsavedChanges";
 import { useEffect, useRef, useState } from "react";
 import { libraryThumbnailUrl } from "./thumbnail";
@@ -216,6 +217,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
   const selectionLimit = 500;
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
+  const [selectionReviewOpen, setSelectionReviewOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchDraft, setSearchDraft] = useState(query.search);
@@ -323,6 +325,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
     setSelected(new Set());
     setSelectionWarning(null);
     setSelectionMode(false);
+    setSelectionReviewOpen(false);
   };
   const openGroupSelection = async (groupId: number) => {
     const group = await getJson<SimilarityGroupDetail>(`/api/similarity-groups/${groupId}`);
@@ -410,7 +413,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
       <div className="photo-view-actions">{albumContext && <div className="burst-view-toggle"><button className={query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: true })}>折叠连拍</button><button className={!query.collapseGroups ? "active" : ""} onClick={() => updateQuery({ collapseGroups: false })}>展开全部</button></div>}<button className={`toolbar-button selection-entry ${selectionMode ? "active" : ""}`} onClick={() => selectionMode ? leaveSelectionMode() : setSelectionMode(true)}>{selectionMode ? "退出批量管理" : "批量管理"}</button></div>
     </section>
     <section className={`selection-toolbar ${selectionMode ? "visible" : ""}`}>
-      <div className="batch-selection-summary"><strong>已选 {selected.size} / {selectionLimit} 张</strong><small className={selectionWarning ? "warning" : undefined} role="status">{selectionWarning ?? "只处理逐页明确勾选的照片，不会自动应用到全部筛选结果。"}</small><button disabled={!allSelected && !canSelectPage} title={!allSelected && !canSelectPage ? `本页全选会超过 ${selectionLimit} 张上限` : undefined} onClick={() => { setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds])); setSelectionWarning(null); }}>{allSelected ? "取消本页" : "选择本页"}</button><button onClick={() => { setSelected(new Set()); setSelectionWarning(null); }}>清空</button></div>
+      <div className="batch-selection-summary"><strong>已选 {selected.size} / {selectionLimit} 张</strong><button disabled={!selected.size} onClick={() => setSelectionReviewOpen(true)}>查看已选</button><small className={selectionWarning ? "warning" : undefined} role="status">{selectionWarning ?? "只处理逐页明确勾选的照片，不会自动应用到全部筛选结果。"}</small><button disabled={!allSelected && !canSelectPage} title={!allSelected && !canSelectPage ? `本页全选会超过 ${selectionLimit} 张上限` : undefined} onClick={() => { setSelected(allSelected ? new Set([...selected].filter((id) => !pageCaptureIds.includes(id))) : new Set([...selected, ...pageCaptureIds])); setSelectionWarning(null); }}>{allSelected ? "取消本页" : "选择本页"}</button><button onClick={() => { setSelected(new Set()); setSelectionWarning(null); }}>清空</button></div>
       <div className="selection-actions">
         <button disabled={!selected.size} title="为所选照片添加或移除题材、工作状态、问题和地点标签" onClick={() => setBatchTagEditor(true)}>标签与状态</button>
         <div className="batch-review-action"><select aria-label="批量星级" value={batchRating} onChange={(event) => setBatchRating(event.target.value)}><option value="">设置星级…</option><option value="0">清除星级</option>{[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{"★".repeat(rating)}</option>)}</select><button disabled={!selected.size || !batchRating} onClick={async () => { await batchReview(Array.from(selected), Number(batchRating), null); setBatchRating(""); }}>应用星级</button></div>
@@ -446,6 +449,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
       <div className="group-export-grid">{selectionGroup.items.map((item) => <button key={item.capture_id} className={selectionGroupDraft.has(item.capture_id) ? "selected" : ""} onClick={() => setSelectionGroupDraft((current) => { const next = new Set(current); next.has(item.capture_id) ? next.delete(item.capture_id) : next.add(item.capture_id); return next; })}><img src={item.thumbnail_url} alt={item.stem} /><span>{selectionGroupDraft.has(item.capture_id) ? "✓ " : ""}{item.stem}{item.user_pick ? " · 已入选" : item.auto_pick ? " · 技术推荐" : ""}</span></button>)}</div>
       <footer className="editor-footer"><span>已选择 {selectionGroupDraft.size} 张</span><button onClick={() => setSelectionGroup(null)}>取消</button><button className="primary" onClick={applyGroupSelection}>确认选择</button></footer>
     </ModalShell>}
+    {selectionReviewOpen && <SelectionReview selected={selected} close={() => setSelectionReviewOpen(false)} remove={(id) => { setSelected((current) => { const next = new Set(current); next.delete(id); return next; }); setSelectionWarning(null); }} />}
     {batchTagEditor && <ModalShell title={`批量标记 · ${selected.size} 张`} close={() => setBatchTagEditor(false)}><form className="editor-form" onSubmit={async (event) => { event.preventDefault(); if (!batchTagName.trim()) return; setBatchTagSaving(true); try { await batchTag(Array.from(selected), batchTagDimension, batchTagName.trim(), batchTagAction); setBatchTagEditor(false); setBatchTagName(""); } finally { setBatchTagSaving(false); } }}><label><span>操作</span><select value={batchTagAction} onChange={(event) => setBatchTagAction(event.target.value as "add" | "remove")}><option value="add">添加标签</option><option value="remove">移除人工标签</option></select></label><label><span>维度</span><select value={batchTagDimension} onChange={(event) => { setBatchTagDimension(event.target.value as CaptureTagDimension); setBatchTagName(""); }}><option value="subject">题材</option><option value="status">工作状态</option><option value="problem">人工问题</option><option value="location">地点</option></select></label><label><span>标签</span><input list="batch-tag-options" value={batchTagName} maxLength={40} placeholder={batchTagAction === "add" ? "选择或输入标签" : "选择要移除的标签"} onChange={(event) => setBatchTagName(event.target.value)} /><datalist id="batch-tag-options">{(filters?.tags ?? []).filter((tag) => tag.dimension === batchTagDimension).map((tag) => <option key={tag.name} value={tag.name} />)}</datalist></label>{batchTagDimension === "status" && batchTagAction === "add" && <p>设置新状态会替换所选照片原有的人工工作状态。</p>}<footer><button type="button" className="toolbar-button" onClick={() => setBatchTagEditor(false)}>取消</button><button className="toolbar-button primary" disabled={!batchTagName.trim() || batchTagSaving}>{batchTagSaving ? "保存中…" : "应用"}</button></footer></form></ModalShell>}
     {tagManagerOpen && <TagManager close={() => setTagManagerOpen(false)} changed={() => void refreshLibrary?.()} />}
   </>;

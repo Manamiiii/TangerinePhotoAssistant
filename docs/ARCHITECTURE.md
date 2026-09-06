@@ -173,6 +173,9 @@ schema 24 在 `capture_reviews.selection_reason_json` 保存人工入选的多�
 `components/dialogFocus.ts` 统一顶层弹窗的可见控件焦点循环、焦点恢复和照片快捷键过滤。
 `features/details/EditPreviewImage.tsx` 按来源 URL 隔离图片状态；图片失败及超时提供显式重试，
 不影响外层参数草稿，原图与参数预览切换不会沿用旧图片的加载结果。
+`features/library/SelectionReview.tsx` 按 40 张分页核对已有选择，复用受限缩略图队列；
+`GET /api/library/selection` 通过 `queries/selection.py` 只读查询显式 ID（最多 500 个），
+按请求顺序返回摘要及缺失占位，不读取源文件，不计算详情或改变当前图库筛选。
 页面业务状态和接口契约均未改变，后续模块继续使用同样的“小范围迁移 + 现有回归测试”
 方式推进。
 

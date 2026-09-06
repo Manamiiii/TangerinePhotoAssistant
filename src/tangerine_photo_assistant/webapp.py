@@ -14,7 +14,7 @@ import tomllib
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from threading import Event, Lock, Thread
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -128,6 +128,7 @@ from .queries.details import query_capture_detail
 from .queries.library import query_library_captures, query_library_filters
 from .queries.overview import query_inbox, query_overview
 from .queries.quality import query_quality
+from .queries.selection import query_selected_captures
 from .queries.similarity import query_similarity_group, query_similarity_groups
 from .similarity_batch import (
     apply_low_risk_batch,
@@ -1958,6 +1959,13 @@ def create_app(
                 status_code=500, detail=f"无法打开系统文件管理器：{exc}"
             ) from exc
         return {"opened": True, "path": str(path)}
+
+    @app.get("/api/library/selection")
+    def selected_captures(ids: Annotated[list[int], Query(min_length=1, max_length=500)]) -> dict[str, Any]:
+        try:
+            return query_selected_captures(settings.database_path, ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/library/captures")
     def library_captures(
