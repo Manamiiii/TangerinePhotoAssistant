@@ -7,7 +7,8 @@ import type { SimilarityGroupsResponse } from "../similarity/types";
 import type { LibraryCapturesResponse, LibraryFilters } from "../library/types";
 import type { Overview } from "../overview/types";
 
-export function HomeView({ overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openAnalysis, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+export function HomeView({ readErrors = {}, overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openAnalysis, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+  readErrors?: Record<string, string>;
   overview: Overview | null;
   statistics: Statistics | null;
   archive: ArchiveStatus | null;
@@ -31,6 +32,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   openMaintenance: () => void;
   openCapture: (captureId: number, context?: number[]) => void;
 }) {
+  const waiting = (url: string) => readErrors[url] ? "读取失败，请使用上方的重试读取。" : "正在读取…";
   const pendingEvents = overview?.structure.unconfirmed_event_count ?? 0;
   const unassigned = overview?.structure.unassigned_capture_count ?? 0;
   const archiveIssue = archive?.comparison && !archive.comparison.healthy;
@@ -50,8 +52,8 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
   return <>
     <section className="home-metrics">
       <article><span>全部照片</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : ""}</small></article>
-      <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{pendingEvents} 个名称待确认</small></article>
-      <article><span>最近拍摄月</span><strong>{latestMonth ? numberFormat.format(latestMonth.count) : "—"}</strong><small>{latestMonth?.month ?? "暂无拍摄日期"}</small></article>
+      <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{overview ? `${pendingEvents} 个名称待确认` : waiting("/api/overview")}</small></article>
+      <article><span>最近拍摄月</span><strong>{latestMonth ? numberFormat.format(latestMonth.count) : "—"}</strong><small>{statistics ? latestMonth?.month ?? "暂无拍摄日期" : waiting("/api/statistics")}</small></article>
     </section>
     {overview?.capture_total === 0 && <section className="panel welcome-panel">
       <div><span className="section-kicker">本地图库</span><h3>{firstRun ? "连接你的照片目录" : "图库中还没有照片"}</h3><p>{firstRun ? "先确认照片、工作数据与缓存目录；设置过程不会扫描或修改照片。" : "当前目录已经完成过扫描，可以在照片图库中手动更新索引。"}</p></div>
@@ -62,8 +64,8 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
         {overview && overview.capture_total > 0 && <section className="home-continue-card"><span className="section-kicker">继续上次工作</span><h3>{continueLabel}</h3><button className="primary-action" onClick={continueWork}><span>继续浏览</span><b>→</b></button></section>}
         <section className="panel recent-photos-panel"><div className="panel-heading"><div><h3>最近照片</h3></div><button className="text-action" onClick={openPhotos}>查看全部</button></div><div className="recent-photo-grid">
         {(library?.items ?? []).slice(0, 8).map((item, _index, recent) => <button key={item.id} onClick={() => openCapture(item.id, recent.map((entry) => entry.id))}><img src={item.thumbnail_url} alt={item.stem} /><span>{item.stem}</span></button>)}
-        </div></section>
-        {overview && overview.capture_total > 0 && <section className="panel home-insights"><div className="panel-heading"><div><h3>本月摄影摘要</h3></div><button className="text-action" onClick={openStatistics}>查看完整统计</button></div><div><article><span>最近月份</span><strong>{latestMonth?.month ?? "—"}</strong><small>{latestMonth ? `${numberFormat.format(latestMonth.count)} 张 · 相似组保留 ${latestMonth.user_picks} 张` : "暂无数据"}</small></article><article><span>最常用相机</span><strong>{topCamera?.camera_model ?? "—"}</strong><small>{topCamera ? `${numberFormat.format(topCamera.count)} 次拍摄` : "暂无器材信息"}</small></article><article><span>最常用镜头</span><strong>{topLens?.lens_model ?? "—"}</strong><small>{topLens ? `${numberFormat.format(topLens.count)} 次拍摄` : "暂无镜头信息"}</small></article></div></section>}
+        </div>{!library ? <div className="empty-state" role="status">{waiting("/api/library/captures?limit=8&offset=0&sort=newest")}</div> : !library.items.length && <div className="empty-state">还没有可显示的最近照片。</div>}</section>
+        {overview && overview.capture_total > 0 && <section className="panel home-insights"><div className="panel-heading"><div><h3>本月摄影摘要</h3></div><button className="text-action" onClick={openStatistics}>查看完整统计</button></div><div><article><span>最近月份</span><strong>{latestMonth?.month ?? "—"}</strong><small>{latestMonth ? `${numberFormat.format(latestMonth.count)} 张 · 相似组保留 ${latestMonth.user_picks} 张` : statistics ? "暂无数据" : waiting("/api/statistics")}</small></article><article><span>最常用相机</span><strong>{topCamera?.camera_model ?? "—"}</strong><small>{topCamera ? `${numberFormat.format(topCamera.count)} 次拍摄` : statistics ? "暂无器材信息" : waiting("/api/statistics")}</small></article><article><span>最常用镜头</span><strong>{topLens?.lens_model ?? "—"}</strong><small>{topLens ? `${numberFormat.format(topLens.count)} 次拍摄` : statistics ? "暂无镜头信息" : waiting("/api/statistics")}</small></article></div></section>}
       </div>
       <div className="home-dashboard-column home-dashboard-secondary">
         {overview && overview.capture_total > 0 && <section className="panel home-albums-panel"><div className="panel-heading"><div><h3>最近相册</h3></div><button className="text-action" onClick={openAlbums}>管理全部</button></div><div className="home-album-list">{recentAlbums.map((album) => <button key={album.id} onClick={() => openAlbum(album.id)}><span><strong>{album.name}</strong><small>{album.category}</small></span><b>{album.capture_count} 张</b></button>)}</div></section>}
@@ -76,7 +78,7 @@ export function HomeView({ overview, statistics, archive, activeBaseline, librar
           {unassigned > 0 && <button onClick={openUnassigned}><span><strong>{unassigned}</strong> 张照片尚未归入相册</span><b>查看照片</b></button>}
           {archiveIssue && !reviewQueue?.integrity.open_count && <button onClick={openMaintenance}><span>历史原片完整性检查存在异常</span><b>查看状态</b></button>}
           {activeIssue && !reviewQueue?.integrity.open_count && <button onClick={openMaintenance}><span>活动图库完整性检查存在异常</span><b>查看状态</b></button>}
-          {!hasPending && <div className="empty-state">{pendingLoaded ? "当前没有需要及时处理的项目。" : "正在读取待处理状态…"}</div>}
+          {!hasPending && <div className="empty-state">{pendingLoaded ? "当前没有需要及时处理的项目。" : ["/api/overview", "/api/similarity-groups?limit=1&offset=0&review_filter=all", "/api/archive/status", "/api/active-library/baseline/status"].some((url) => readErrors[url]) ? "待处理状态读取失败，请重试。" : "正在读取待处理状态…"}</div>}
         </div></section>
       </div>
     </section>

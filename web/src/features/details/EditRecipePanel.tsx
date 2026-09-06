@@ -1,3 +1,4 @@
+import { EditPreviewImage } from "./EditPreviewImage";
 import { useUnsavedChanges } from "../../unsavedChanges";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CaptureDetail, EditParameters, EditRecipe } from "./types";
@@ -52,7 +53,6 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [note, setNote] = useState(latest?.note ?? "");
   const [previewParameters, setPreviewParameters] = useState(parameters);
-  const [previewLoading, setPreviewLoading] = useState(false);
   const initialDraft = JSON.stringify({ parameters: latest?.parameters ?? suggested ?? emptyParameters, note: latest?.note ?? "" });
   const [baseline, setBaseline] = useState(initialDraft);
   const [saving, setSaving] = useState(false);
@@ -78,7 +78,6 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
     finally { saveLock.current = false; setSaving(false); }
   };
   useEffect(() => {
-    setPreviewLoading(true);
     const timer = window.setTimeout(() => setPreviewParameters(parameters), 180);
     return () => window.clearTimeout(timer);
   }, [parameters]);
@@ -91,9 +90,8 @@ export function EditRecipePanel({ detail, saveRecipe, restoreRecipe }: {
   return <div className="edit-recipe-panel">
     <div className="edit-recipe-summary"><strong>缩略图近似预览</strong><span>调整滑杆只改变当前预览；保存方案只记录参数，不修改照片。</span></div>
     <div className="edit-preview">
-      <img src={showOriginal ? detail.thumbnail_url : previewUrl} alt={`${detail.stem} 参数预览`} onLoad={() => setPreviewLoading(false)} />
-      {!showOriginal && previewLoading && <span className="edit-preview-loading">正在更新预览…</span>}
-      <button className="preview-original-toggle" aria-label="按住对比原图" title="按住对比原图" onPointerDown={() => setShowOriginal(true)} onPointerUp={() => setShowOriginal(false)} onPointerCancel={() => setShowOriginal(false)} onPointerLeave={() => setShowOriginal(false)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
+      <EditPreviewImage key={showOriginal ? detail.thumbnail_url : previewUrl} url={showOriginal ? detail.thumbnail_url : previewUrl} name={detail.stem} pending={!showOriginal && parameters !== previewParameters} />
+      <button className="preview-original-toggle" aria-label="按住对比原图" title="按住对比原图" onKeyDown={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); setShowOriginal(true); } }} onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); setShowOriginal(false); } }} onBlur={() => setShowOriginal(false)} onPointerDown={() => setShowOriginal(true)} onPointerUp={() => setShowOriginal(false)} onPointerCancel={() => setShowOriginal(false)} onPointerLeave={() => setShowOriginal(false)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
     </div>
     <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "grid", gap: 14 }}><div className="edit-parameter-grid">{controls.slice(0, 8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div>
     <details className="edit-advanced-controls"><summary>几何与细节调整</summary><div className="edit-parameter-grid">{controls.slice(8).map((control) => <label key={control.key}><span>{control.label}<b>{formatValue(control.key, parameters[control.key])}</b></span><input type="range" min={control.min} max={control.max} step={control.step} value={parameters[control.key]} onChange={(event) => setParameters((current) => ({ ...current, [control.key]: Number(event.target.value) }))} /></label>)}</div></details>

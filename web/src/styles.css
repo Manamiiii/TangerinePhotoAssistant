@@ -2441,3 +2441,6 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .edit-recipe-actions button,
 .edit-recipe-history button,
 .edit-safety-details ul { font-size: 11px; }
+
+.edit-preview-error { position: absolute; left: 10px; top: 10px; right: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(10,8,7,.9); color: #fff; font-size: 12px; }
+.edit-preview-error button { margin-left: 10px; padding: 5px 9px; border: 1px solid currentColor; border-radius: 6px; color: inherit; background: transparent; cursor: pointer; }

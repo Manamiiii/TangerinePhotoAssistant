@@ -155,8 +155,9 @@ function Distribution({ title, rows, labelKey, onSelect, selectHint, valueMode =
   );
 }
 
-export function StatisticsView({ statistics, openLibraryWith }: {
+export function StatisticsView({ statistics, openLibraryWith, loadError }: {
   statistics: Statistics | null;
+  loadError?: string;
   openLibraryWith: (changes: StatisticsLibraryQuery) => void;
 }) {
   const [statisticsView, setStatisticsView] = useState<"overview" | "parameters" | "time">("overview");
@@ -171,6 +172,7 @@ export function StatisticsView({ statistics, openLibraryWith }: {
     const lastDay = new Date(year, monthPart, 0).getDate();
     openLibraryWith({ dateFrom: `${month}-01`, dateTo: `${month}-${String(lastDay).padStart(2, "0")}` });
   };
+  if (!statistics) return <div className="empty-state" role={loadError ? "alert" : "status"}>{loadError ? "统计读取失败，请使用上方的重试读取。" : "正在读取摄影统计…"}</div>;
   return (
     <>
       <section className="structure-hero statistics-hero">

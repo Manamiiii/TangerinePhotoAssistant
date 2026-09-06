@@ -171,6 +171,8 @@ schema 24 在 `capture_reviews.selection_reason_json` 保存人工入选的多�
 `unsavedChanges.ts` 汇总已挂载编辑器的草稿与保存状态，入口在导航和关闭前检查，浏览器离开
 使用 beforeunload 提示。保存结果显式返回成功状态，编辑器收到成功后才关闭；失败保留输入。
 `components/dialogFocus.ts` 统一顶层弹窗的可见控件焦点循环、焦点恢复和照片快捷键过滤。
+`features/details/EditPreviewImage.tsx` 按来源 URL 隔离图片状态；图片失败及超时提供显式重试，
+不影响外层参数草稿，原图与参数预览切换不会沿用旧图片的加载结果。
 页面业务状态和接口契约均未改变，后续模块继续使用同样的“小范围迁移 + 现有回归测试”
 方式推进。
 
