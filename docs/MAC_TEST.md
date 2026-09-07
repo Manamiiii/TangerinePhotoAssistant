@@ -28,7 +28,7 @@ bash start-mac-test.sh
 
 The first start creates `.venv-mac`, installs dependencies, builds the React
 frontend, expands the four privacy-cleaned source samples into a deterministic
-30-file demo library, creates an isolated SQLite catalog under
+130-JPG demo library (including 100 pagination fixtures and two additional simulated RAW companions), creates an isolated SQLite catalog under
 `runtime/mac-test`, scans the demo library, and opens:
 
 ```text

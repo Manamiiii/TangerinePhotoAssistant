@@ -24,6 +24,19 @@ from tangerine_photo_assistant.visual import build_visual_fingerprints, rebuild_
 
 
 class DemoLibraryTests(unittest.TestCase):
+    def test_pagination_samples_extend_existing_demo_without_replacing_files(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "sample-library" / "photos" / "mac-test-event"
+        with TemporaryDirectory() as temporary:
+            target = Path(temporary) / "photos"
+            original = generate_demo_library(source, target)
+            first_photo = target / original["files"][0]["relative_path"]
+            before = first_photo.read_bytes()
+            extended = generate_demo_library(source, target, pagination_count=100)
+            self.assertEqual(len(list(target.rglob("*.JPG"))), 130)
+            self.assertEqual(extended["pagination_count"], 100)
+            self.assertEqual(first_photo.read_bytes(), before)
+            self.assertEqual(extended, generate_demo_library(source, target, pagination_count=100))
+
     def test_generates_deterministic_private_demo_library(self) -> None:
         source = Path(__file__).resolve().parents[1] / "sample-library" / "photos" / "mac-test-event"
         with TemporaryDirectory() as temporary:

@@ -53,7 +53,7 @@ mkdir -p runtime/mac-test/workspace runtime/mac-test/cache
 
 echo "Preparing the expanded Mac demo library..."
 .venv-mac/bin/python -m tangerine_photo_assistant.sample_data \
-  --source sample-library/photos/mac-test-event \
+  --source sample-library/photos/mac-test-event --pagination-count 100 \
   --target runtime/mac-test/sample-library/photos
 
 APP=".venv-mac/bin/tangerine-photo"
@@ -71,7 +71,7 @@ fi
 "$APP" visual --config "$CONFIG"
 "$APP" quality --config "$CONFIG"
 .venv-mac/bin/python -m tangerine_photo_assistant.sample_data \
-  --source sample-library/photos/mac-test-event \
+  --source sample-library/photos/mac-test-event --pagination-count 100 \
   --target runtime/mac-test/sample-library/photos \
   --database "$DATABASE"
 

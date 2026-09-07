@@ -32,6 +32,8 @@ function CompareImage({ photo, transform }: { photo: ComparePhoto; transform: Co
 }
 
 export function PhotoComparison({ photos, back }: { photos: [ComparePhoto, ComparePhoto]; back: () => void }) {
+  const [layout, setLayout] = useState<"side" | "stack" | "single">("side");
+  const [active, setActive] = useState(0);
   const [transform, setTransform] = useState(comparisonFit);
   const backButton = useRef<HTMLButtonElement>(null);
   useEffect(() => backButton.current?.focus(), []);
@@ -52,11 +54,13 @@ export function PhotoComparison({ photos, back }: { photos: [ComparePhoto, Compa
     element.addEventListener("wheel", wheel, { passive: false });
     return () => { element.removeEventListener("wheel", wheel); release(); };
   }, [zoom, release]);
-  return <div className="photo-comparison">
+  const changeLayout = (next: typeof layout) => { release(); setTransform(comparisonFit); setLayout(next); };
+  return <div className={`photo-comparison layout-${layout}`}>
     <div className="comparison-toolbar"><button ref={backButton} onClick={back}>返回已选清单</button><button onClick={() => { release(); setTransform(comparisonFit); }}>适应窗口</button>
       <button aria-label="同步缩小" disabled={transform.zoom <= 1} onClick={() => zoom(-.25)}>−</button><span>适应尺寸 × {transform.zoom.toFixed(2)}</span><button aria-label="同步放大" disabled={transform.zoom >= 6} onClick={() => zoom(.25)}>＋</button></div>
+    <div className="comparison-layout-toolbar"><div className="burst-view-toggle" role="group" aria-label="对比布局">{([['side', '左右并排'], ['stack', '上下排列'], ['single', '单图切换']] as const).map(([value, label]) => <button key={value} className={layout === value ? "active" : ""} aria-pressed={layout === value} onClick={() => changeLayout(value)}>{label}</button>)}</div>{layout === "single" && <div className="burst-view-toggle" role="group" aria-label="当前对比照片">{photos.map((photo, index) => <button key={photo.id} className={active === index ? "active" : ""} aria-pressed={active === index} onClick={() => { release(); setActive(index); }}>{index === 0 ? "A" : "B"} · {photo.stem ?? photo.id}</button>)}</div>}</div>
     <p>两张同步缩放与移动；放大后拖动，或聚焦图片后用方向键移动。使用最长边 1280px 的 JPG 预览，非原片像素级对比；不同构图不会自动对齐主体。</p>
-    <div ref={surface} className="photo-comparison-panes">{photos.map((photo) => <section key={photo.id}>
+    <div ref={surface} className="photo-comparison-panes">{photos.map((photo, index) => <section key={photo.id} hidden={layout === "single" && index !== active}>
       <header><strong>{photo.stem ?? `照片 ${photo.id}`}</strong><small>{photo.album_name ?? "未归入相册"}</small></header>
       <div className="photo-comparison-image" tabIndex={0} aria-label={`${photo.stem ?? photo.id} 对比预览，方向键同步移动`}
         onKeyDown={(event) => {

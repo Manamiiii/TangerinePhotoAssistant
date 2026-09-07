@@ -53,3 +53,18 @@ it("bounds zoom and pan and restores center at fit size", () => {
   expect(clampComparison({ zoom: 10, x: 100, y: -100 })).toEqual({ zoom: 6, x: 2.5, y: -2.5 });
   expect(clampComparison({ zoom: .5, x: 3, y: -2 })).toEqual({ zoom: 1, x: 0, y: -0 });
 });
+
+it("supports stacked and single-image layouts without reloading either photo", async () => {
+  const images = [...host.querySelectorAll("img")];
+  const choose = async (label: string) => { await act(() => [...host.querySelectorAll("button")].find((button) => button.textContent === label)!.click()); };
+  await choose("上下排列");
+  expect(host.querySelector(".photo-comparison")!.classList.contains("layout-stack")).toBe(true);
+  await choose("单图切换");
+  const sections = host.querySelectorAll<HTMLElement>(".photo-comparison-panes > section");
+  expect(sections[0].hidden).toBe(false);
+  expect(sections[1].hidden).toBe(true);
+  await choose("B · right");
+  expect(sections[0].hidden).toBe(true);
+  expect(sections[1].hidden).toBe(false);
+  expect([...host.querySelectorAll("img")]).toEqual(images);
+});

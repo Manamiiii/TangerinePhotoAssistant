@@ -40,7 +40,7 @@ export function SelectionReview({ selected, remove, close }: {
       .catch((reason: Error) => { if (!controller.signal.aborted) setError(reason.message); });
     return () => controller.abort();
   }, [key, retry]);
-  return <ModalShell title={showComparison ? "两张照片对比" : `已选照片 · ${selected.size} 张`} wide close={closeView}>
+  return <ModalShell title={showComparison ? "两张照片对比" : `已选照片 · ${selected.size} 张`} wide expanded={showComparison} close={closeView}>
     {showComparison ? <PhotoComparison key={pair.map((photo) => photo.id).join(",")} photos={pair as [ComparePhoto, ComparePhoto]} back={() => setComparing(false)} /> : <div className="selection-review">
       <p>包含其他分页和筛选条件下已勾选的照片，按勾选顺序展示。移除只取消勾选，不修改照片。</p>
       <div className="selection-compare-actions"><span>对比候选 {pair.length} / 2</span>{pair.map((photo) => <button key={photo.id} aria-label={`移除对比 ${photo.stem ?? photo.id}`} onClick={() => setComparison(pair.filter((item) => item.id !== photo.id))}>{photo.stem ?? photo.id} ×</button>)}<button ref={compareButton} disabled={pair.length !== 2} onClick={() => setComparing(true)}>对比两张</button></div>

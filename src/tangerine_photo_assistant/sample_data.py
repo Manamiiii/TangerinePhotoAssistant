@@ -445,7 +445,38 @@ def _render_variant(source: Path, target: Path, scene: dict[str, Any], index: in
     image.save(target, format="JPEG", quality=88, optimize=True, exif=_exif(scene, captured_at))
 
 
-def generate_demo_library(source_root: Path, target_root: Path) -> dict[str, Any]:
+def _append_pagination_samples(
+    source_root: Path, target_root: Path, manifest: dict[str, Any], count: int,
+) -> dict[str, Any]:
+    existing_count = int(manifest.get("pagination_count", 0))
+    if count <= existing_count:
+        return manifest
+    scene = {**SCENES[0], "gap_seconds": 86400}
+    for index in range(existing_count, count):
+        target = target_root / "分页验收" / f"PAGE_{index + 1:04d}.JPG"
+        if target.exists():
+            raise FileExistsError(f"Refusing to overwrite an unregistered sample: {target}")
+    for index in range(existing_count, count):
+        target = target_root / "分页验收" / f"PAGE_{index + 1:04d}.JPG"
+        source = source_root / scene["sources"][index % len(scene["sources"])]
+        _render_variant(source, target, scene, index)
+        manifest["files"].append({
+            "relative_path": target.relative_to(target_root).as_posix(),
+            "role": "pagination-fixture",
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        })
+    manifest["pagination_count"] = count
+    manifest["sample_count"] = len(manifest["files"])
+    manifest["event_count"] = len(SCENES) + 1
+    (target_root.parent / "demo-library.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    return manifest
+
+
+def generate_demo_library(source_root: Path, target_root: Path, *, pagination_count: int = 0) -> dict[str, Any]:
+    if not 0 <= pagination_count <= 1000:
+        raise ValueError("pagination_count must be between 0 and 1000")
     source_root = source_root.resolve()
     target_root = target_root.resolve()
     manifest_path = target_root.parent / "demo-library.json"
@@ -454,7 +485,7 @@ def generate_demo_library(source_root: Path, target_root: Path) -> dict[str, Any
         if existing.get("generator_version") == GENERATOR_VERSION:
             files = [target_root / item["relative_path"] for item in existing.get("files", [])]
             if files and all(path.is_file() for path in files):
-                return existing
+                return _append_pagination_samples(source_root, target_root, existing, pagination_count)
         for item in existing.get("files", []):
             stale = (target_root / item["relative_path"]).resolve()
             if target_root in stale.parents and stale.is_file():
@@ -526,7 +557,7 @@ def generate_demo_library(source_root: Path, target_root: Path) -> dict[str, Any
     }
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return manifest
+    return _append_pagination_samples(source_root, target_root, manifest, pagination_count)
 
 
 def _seed_demo_ai_results(connection: sqlite3.Connection) -> int:
@@ -776,8 +807,9 @@ def main() -> int:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--pagination-count", type=int, default=0)
     arguments = parser.parse_args()
-    result = generate_demo_library(arguments.source, arguments.target)
+    result = generate_demo_library(arguments.source, arguments.target, pagination_count=arguments.pagination_count)
     print(
         f"Mac demo library ready: {result['sample_count']} files, "
         f"{result['event_count']} events, {result['exact_duplicate_count']} exact duplicates"
