@@ -1,3 +1,4 @@
+import { GroupComparison } from "../similarity/GroupComparison";
 import { SelectionReview } from "./SelectionReview";
 import { confirmLeave, useUnsavedChanges } from "../../unsavedChanges";
 import { useEffect, useRef, useState } from "react";
@@ -139,7 +140,7 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   return <ModalShell title={`${group.event_name} · 相似照片`} close={close} wide>
     {editingGroupId === group.id ? <SimilarityGroupingEditor key={group.id} group={group} cancel={() => setEditingGroupId(null)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
-    <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><button className="toolbar-button" onClick={() => setEditingGroupId(group.id)}>调整分组</button></div>
+    <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><GroupComparison key={group.id} group={group} /><button className="toolbar-button" onClick={() => setEditingGroupId(group.id)}>调整分组</button></div>
     <div className="similarity-picker-grid">{group.items.map((item) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
       <button className="similarity-picker-photo" onClick={() => openCapture(item.capture_id, group.items.map((member) => member.capture_id), "select")}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{Boolean(item.auto_pick) && <span>技术推荐</span>}</button>
       <div className="similarity-picker-copy"><strong>{item.stem}</strong><small>{item.technical_score == null ? "未检测" : `健康度 ${Math.round(item.technical_score)}`} · ISO {item.iso ?? "—"}</small></div>
@@ -427,7 +428,6 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
       </div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张 · JPG {latestExport.jpeg_count} · RAW {latestExport.raw_count} · {formatBytes(latestExport.size_bytes)}{latestExport.missing_raw_count ? ` · ${latestExport.missing_raw_count} 张无 RAW` : ""}</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
-    {pagination}
     <div className="library-load-status" role="status">{pageState.error ? <>加载失败：{pageState.error} <button className="text-action" onClick={refreshLibrary}>重试</button></> : pending ? "正在加载，可继续切换页码…" : null}</div>
     {layout === "list" && <div className="photo-list-header" aria-hidden="true"><span>照片</span><span>拍摄时间</span><span>相册 / 相似组</span><span>大小</span><span>评价</span></div>}
     <section aria-busy={pending && !pageState.error} className={`photo-library-grid layout-${layout} ${selectionMode ? "selecting" : ""}`}>

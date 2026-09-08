@@ -236,3 +236,6 @@ npm.cmd run build
 ```
 
 涉及正式数据库结构时，还要检查 `PRAGMA integrity_check`、服务健康状态和两套图库最近一次保护结果。测试不得使用正式照片执行写入。
+
+组内双图入口由 `features/similarity/GroupComparison.tsx` 共用，按组 ID 隔离候选，
+从已加载的组详情选择两张不同照片，不新增查询或写入评价。
