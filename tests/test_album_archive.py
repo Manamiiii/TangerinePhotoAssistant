@@ -14,6 +14,7 @@ from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.metadata import PillowMetadataReader
 from tangerine_photo_assistant.pairing import rebuild_captures
+from tangerine_photo_assistant.queries.albums import query_albums
 from tangerine_photo_assistant.settings import Settings, write_safe_config
 from tangerine_photo_assistant.structure import rebuild_structure
 from tangerine_photo_assistant.webapp import ScanTaskManager, create_app
@@ -58,8 +59,12 @@ class AlbumArchiveTests(unittest.TestCase):
         extra = self.source / 'notes.txt'
         extra.write_text('keep me')
         plan = self.prepare(self.plan())
-        result = self.run_plan(plan)
+        progress = []
+        result = self.run_plan(plan, lambda current, total, phase: progress.append((current, total, phase)))
         self.assertEqual(result['archived_count'], 2)
+        self.assertEqual(list(dict.fromkeys(p[2] for p in progress)),
+                         ['复制校验', '提交前复核', '更新图库路径', '清理待整理源文件'])
+        self.assertEqual(progress[-1], (4, 4, '清理待整理源文件'))
         self.assertTrue(extra.exists())
         self.assertEqual(len(list(self.source.iterdir())), 1)
         self.assertEqual(len(list(Path(plan['target']).iterdir())), 4)
@@ -170,6 +175,19 @@ class AlbumArchiveTests(unittest.TestCase):
             self.prepare(plan)
         saved = json.loads((self.settings.workspace / 'AlbumArchive' / f"{plan['id']}.json").read_text(encoding='utf8'))
         self.assertEqual(saved['status'], 'preview')
+
+    def test_album_list_distinguishes_inbox_mixed_filed_and_pending_cleanup(self):
+        def state(pending_id=None):
+            return next(item for item in query_albums(self.settings.database_path, 50, 0, pending_id)['items'] if item['id'] == self.album)
+        self.assertEqual(state()['archive_state'], 'inbox')
+        self.assertEqual(state()['inbox_capture_count'], 2)
+        self.db.execute("UPDATE captures SET parent_relative='纪念/2026/Birthday' WHERE id=?", (self.ids[0],))
+        self.db.commit()
+        self.assertEqual(state()['archive_state'], 'mixed')
+        self.db.execute("UPDATE captures SET parent_relative='纪念/2026/Birthday'")
+        self.db.commit()
+        self.assertEqual(state()['archive_state'], 'filed')
+        self.assertEqual(state(self.album)['archive_state'], 'pending')
 
     def test_system_api_resumes_pending_blocks_other_writes_and_finishes(self):
         plan = self.prepare(self.plan())

@@ -2516,3 +2516,11 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .archive-file-list li { margin: 8px 0; }
 .archive-file-list span { display: block; }
 .archive-list-pages { display: flex; gap: 12px; align-items: center; }
+
+.album-archive-entry { justify-content: space-between; padding: 16px 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
+.album-archive-entry.needs-filing { border-color: rgba(242,113,34,.35); }
+.album-archive-copy { display: grid; gap: 6px; flex: 1; min-width: 220px; }
+.album-archive-copy strong { color: var(--text); font-size: 14px; }
+.album-archive-entry > button { flex-shrink: 0; min-height: 38px; }
+.event-main .album-filing-state { width: fit-content; border-radius: 5px; padding: 3px 6px; background: var(--surface-soft); font-size: 11px; }
+.event-main .album-filing-state.state-inbox, .event-main .album-filing-state.state-pending, .event-main .album-filing-state.state-mixed { color: var(--orange-soft); background: rgba(242,113,34,.1); }

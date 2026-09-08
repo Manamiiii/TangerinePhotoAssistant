@@ -522,8 +522,8 @@ class ScanTaskManager:
         try:
             connection = connect(self.settings.database_path)
             result = album_archive.execute(connection, self.settings, plan,
-                lambda current, total: self._update(current=current, total=total,
-                    message=f'相册归档：已复制校验 {current} / {total} 个文件'))
+                lambda current, total, phase: self._update(current=current, total=total,
+                    message=f'相册归档 · {phase}：{current} / {total}'))
             self._update(status='complete', stage='album-archive',
                          message='相册归档完成，已清理对应待整理文件', result=result)
         except Exception as exc:
@@ -1505,7 +1505,9 @@ def _query_library_filters(settings: Settings) -> dict[str, Any]:
 
 
 def _query_albums(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    return query_albums(settings.database_path, limit, offset)
+    unfinished = album_archive.pending(settings)
+    return query_albums(settings.database_path, limit, offset,
+                        unfinished['album_id'] if unfinished else None)
 
 
 def _query_analysis_overview(settings: Settings) -> dict[str, Any]:

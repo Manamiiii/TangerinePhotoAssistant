@@ -164,7 +164,7 @@ def _backup(settings: Settings, plan: dict) -> None:
 
 
 def execute(connection: sqlite3.Connection, settings: Settings, plan: dict,
-            progress: Callable[[int, int], None]) -> dict:
+            progress: Callable[[int, int, str], None]) -> dict:
     root = _root(connection, settings)
     if str(root) != plan['root']:
         raise ValueError('活动图库已改变')
@@ -218,16 +218,19 @@ def execute(connection: sqlite3.Connection, settings: Settings, plan: dict,
             else:
                 os.link(temporary, target)  # Exclusive publication; no POSIX overwrite.
                 temporary.unlink()
-        progress(index + 1, len(items))
+        progress(index + 1, len(items), '复制校验')
 
     # All targets must be good before any index change or source cleanup.
-    for item in items:
+    progress(0, len(items), '提交前复核')
+    for index, item in enumerate(items):
         _plain(Path(item['target']), root)
         _plain(Path(item['source']), root / '待整理')
         if _hash(Path(item['target'])) != item['sha256']:
             raise ValueError('提交前目标校验失败')
         if Path(item['source']).exists() and _hash(Path(item['source'])) != item['sha256']:
             raise ValueError('提交前源文件变化')
+        progress(index + 1, len(items), '提交前复核')
+    progress(0, 1, '更新图库路径')
     with transaction(connection):
         for item in items:
             target = Path(item['target'])
@@ -243,7 +246,9 @@ def execute(connection: sqlite3.Connection, settings: Settings, plan: dict,
         connection.execute('''INSERT INTO event_sources(event_id,parent_relative)
             SELECT ?,c.parent_relative FROM captures c JOIN event_captures ec ON ec.capture_id=c.id
             WHERE ec.event_id=? GROUP BY c.parent_relative''', (plan['album_id'], plan['album_id']))
-    for item in items:
+    progress(1, 1, '更新图库路径')
+    progress(0, len(items), '清理待整理源文件')
+    for index, item in enumerate(items):
         source, target = Path(item['source']), Path(item['target'])
         _plain(source, root / '待整理')
         _plain(target, root)
@@ -258,6 +263,7 @@ def execute(connection: sqlite3.Connection, settings: Settings, plan: dict,
             except OSError:
                 break
             parent = parent.parent
+        progress(index + 1, len(items), '清理待整理源文件')
     plan['status'] = 'complete'
     plan['error'] = None
     _save(settings, plan)

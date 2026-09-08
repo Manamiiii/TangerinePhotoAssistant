@@ -85,6 +85,8 @@ export type PhotoExportOptions = {
 };
 
 export type EventItem = {
+  archive_state: "pending" | "empty" | "filed" | "inbox" | "mixed";
+  inbox_capture_count: number;
   id: number;
   proposed_name: string;
   category: string;

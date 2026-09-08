@@ -50,10 +50,11 @@ export function AlbumArchive({ albumId, task, onStarted }: {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "归档未启动，请重新预览核对"); }
     finally { lock.current = false; setBusy(false); }
   };
-  return <div className="album-archive-entry">
-    <button className="toolbar-button" disabled={blocked || busy || Boolean(filed)} onClick={() => void preview()}>
+  return <div className={`album-archive-entry ${filed ? "is-filed" : "needs-filing"}`}>
+    <div className="album-archive-copy"><strong>{filed ? "照片已在正式目录" : status?.pending ? "归档尚未完成" : "下一步：完成归档"}</strong><span>{filed ? "待整理源副本已清理或照片原本就在正式目录；可继续评分和选片" : status?.pending ? "请等待当前任务完成；中断后可从此处继续" : "入库完成后，在这里将待整理照片归入正式目录，并清理对应源副本"}</span></div>
+    <button className={`toolbar-button ${filed ? "" : "primary"}`} disabled={blocked || busy || Boolean(filed)} onClick={() => void preview()}>
       {filed ? "已在正式目录" : status?.pending ? "继续归档" : "完成归档"}
-    </button><span>{filed ? "照片已离开待整理，评分和选片可继续进行" : "将本相册的待整理照片归入正式目录"}</span>
+    </button>
     {open && <ModalShell title="完成归档" close={() => { if (!busy) setOpen(false); }} wide>
       <div className="editor-form">
         {busy && <p role="status">正在处理，请稍候…</p>}

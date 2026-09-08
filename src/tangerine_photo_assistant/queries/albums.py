@@ -8,7 +8,7 @@ from ..database import connect_readonly
 
 
 def query_albums(
-    database_path: Path, limit: int, offset: int
+    database_path: Path, limit: int, offset: int, pending_album_id: int | None = None
 ) -> dict[str, Any]:
     connection = connect_readonly(database_path)
     try:
@@ -24,7 +24,11 @@ def query_albums(
                 COUNT(DISTINCT b.id) AS burst_count,
                 COALESCE(MAX(b.capture_count), 0) AS largest_burst,
                 (SELECT COUNT(*) FROM event_equipment ee
-                 WHERE ee.event_id=e.id AND ee.equipment_kind='accessory') AS equipment_count
+                 WHERE ee.event_id=e.id AND ee.equipment_kind='accessory') AS equipment_count,
+                (SELECT COUNT(*) FROM event_captures ec JOIN captures c ON c.id=ec.capture_id
+                 WHERE ec.event_id=e.id AND (
+                     REPLACE(c.parent_relative, char(92), '/') LIKE '待整理/%'
+                     OR c.parent_relative='待整理')) AS inbox_capture_count
             FROM events e
             LEFT JOIN event_sources es ON es.event_id = e.id
             LEFT JOIN bursts b ON b.event_id = e.id
@@ -38,6 +42,12 @@ def query_albums(
         items: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
+            item['archive_state'] = (
+                'pending' if row['id'] == pending_album_id else
+                'empty' if not row['capture_count'] else
+                'filed' if not row['inbox_capture_count'] else
+                'inbox' if row['inbox_capture_count'] == row['capture_count'] else 'mixed'
+            )
             item["reason"] = json.loads(item.pop("reason_json"))
             item["sources"] = [
                 source[0]
