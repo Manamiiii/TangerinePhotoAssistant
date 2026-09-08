@@ -10,10 +10,14 @@
 - 2026-09-08 已经用户明确授权导入“她的生日 · 2026”（相册 52，纪念）：从存储卡复制并
   逐文件 SHA-256 校验 956 个文件，新增 478 组 JPG/RAF；正式数据库 Capture 总数为 14,287。
   EXIF 全部完成，扫描错误为 0，数据库完整性与外键正常，原有 ID、评价和标签保持不变。
-  用户已在系统触发并完成归档，照片现位于 `D:\PhotoLibrary\Photos\纪念\2026\她的生日 · 2026`。
+  用户已在系统触发并完成归档，照片现位于 `D:\PhotoLibrary\Photos\纪念\2026\2026-08-22 · 她的生日`。
   956 个目标文件与索引正常，待整理源副本及空批次目录已清理，无复制中间文件残留；照片关联、
   相册归属、评价和标签未改变，数据库完整性与外键检查通过。归档计划及数据库备份保留在
-  `D:\PhotoLibrary\AlbumArchive`。导入前备份为 `D:\PhotoLibrary\Backups\catalog-before-birthday-import-20260908-120932.sqlite3`。
+  `D:\PhotoLibrary\AlbumArchive`。
+  相册 52 后经授权统一命名为“2026-08-22 · 她的生日”，正式目录同步改名；139 个已有连拍候选
+  归属统一到相册 52，空自动相册 53 标记 archived，未删除记录。照片、评价、标签及连拍成员
+  保持不变，修改前数据库备份为 `D:\PhotoLibrary\Backups\catalog-before-birthday-rename-20260908-221316.sqlite3`。
+  导入前备份为 `D:\PhotoLibrary\Backups\catalog-before-birthday-import-20260908-120932.sqlite3`。
 - 2026-08-31 已启动的 Windows 正式服务健康接口为 `ok / local-only / schema 32`，任务空闲，
   图库接口显示 13,806 条，数据库有 13,809 个 Capture（其中 13,806 个有现存 JPG）。
   正式库及 `catalog-pre-schema32-from26-20260825-141452-294860.sqlite3` 备份已用只读连接
