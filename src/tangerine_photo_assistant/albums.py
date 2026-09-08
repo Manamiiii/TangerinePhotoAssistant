@@ -220,6 +220,17 @@ def assign_captures_to_album(
         )
         affected.add(album_id)
         for affected_id in affected:
+            # Transfer complete burst candidates without rebuilding their similarity
+            # groups or losing manual selection. Split-album bursts stay untouched.
+            connection.execute(
+                """UPDATE bursts SET event_id=? WHERE event_id=?
+                   AND EXISTS(SELECT 1 FROM burst_captures bc WHERE bc.burst_id=bursts.id)
+                   AND NOT EXISTS(
+                       SELECT 1 FROM burst_captures bc WHERE bc.burst_id=bursts.id
+                       AND NOT EXISTS(SELECT 1 FROM event_captures ec
+                                      WHERE ec.capture_id=bc.capture_id AND ec.event_id=?))""",
+                (album_id, affected_id, album_id),
+            )
             connection.execute("DELETE FROM event_sources WHERE event_id=?", (affected_id,))
             connection.execute(
                 """INSERT INTO event_sources(event_id, parent_relative)
@@ -237,4 +248,17 @@ def assign_captures_to_album(
                        updated_at=? WHERE id=?""",
                 (affected_id, affected_id, affected_id, album_id, now, affected_id),
             )
+            if affected_id != album_id:
+                # Retain history; only hide exhausted, unconfirmed automatic suggestions.
+                # User-created/confirmed empty albums may be intentional placeholders.
+                connection.execute(
+                    """UPDATE events SET status='archived' WHERE id=? AND status='proposed'
+                       AND capture_count=0 AND event_key NOT LIKE 'manual-album:%'
+                       AND json_extract(reason_json, '$.method') IN (
+                           'directory_date_and_title', 'capture_date_and_source_title',
+                           'source_directory_only')
+                       AND NOT EXISTS(SELECT 1 FROM bursts WHERE event_id=events.id)
+                       AND NOT EXISTS(SELECT 1 FROM event_equipment WHERE event_id=events.id)""",
+                    (affected_id,),
+                )
     return len(ordered_ids)

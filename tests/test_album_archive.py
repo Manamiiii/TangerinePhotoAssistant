@@ -189,6 +189,15 @@ class AlbumArchiveTests(unittest.TestCase):
         self.assertEqual(state()['archive_state'], 'filed')
         self.assertEqual(state(self.album)['archive_state'], 'pending')
 
+    def test_import_cleanup_survives_structure_rebuild(self):
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM events WHERE status='proposed' AND capture_count=0").fetchone()[0], 0)
+        scan_library(self.db, self.settings, PillowMetadataReader())
+        rebuild_captures(self.db)
+        rebuild_structure(self.db, 3)
+        albums = query_albums(self.settings.database_path, 50, 0)['items']
+        self.assertEqual([a['id'] for a in albums], [self.album])
+        self.assertEqual(albums[0]['capture_count'], 2)
+
     def test_system_api_resumes_pending_blocks_other_writes_and_finishes(self):
         plan = self.prepare(self.plan())
         with TestClient(create_app(self.root / 'config.toml'), base_url='http://127.0.0.1') as client:
