@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import time
 import tomllib
+from contextlib import closing
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -19,11 +20,13 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from . import album_archive
 from .app_paths import resource_root
 from .service_runtime import CONTROL_HEADER, TERMINAL_TASK_STATES, ServiceControl
 
@@ -356,6 +359,11 @@ class ScanStartRequest(BaseModel):
     album_id: int = Field(ge=1)
 
 
+class AlbumArchiveRequest(BaseModel):
+    plan_id: str = Field(min_length=32, max_length=32)
+    confirmation: str = Field(min_length=1, max_length=200)
+
+
 class SimilarityOverrideRequest(BaseModel):
     action: Literal["exclude", "split_before", "auto"]
 
@@ -488,6 +496,49 @@ class ScanTaskManager:
         self._task_outcomes: list[
             tuple[tuple[str, str, str] | None, str | None]
         ] = []
+        unfinished = album_archive.pending(settings)
+        if unfinished:
+            self._state = TaskState(
+                id=unfinished['id'], status='paused', stage='album-archive',
+                message='相册归档未完成，请在对应相册继续归档',
+                result={'album_id': unfinished['album_id']},
+            )
+
+    def start_album_archive(self, plan_id: str, confirmation: str) -> dict[str, Any]:
+        with self._lock:
+            if self._state.status == 'running' or (
+                self._state.status == 'paused' and self._state.stage != 'album-archive'
+            ):
+                raise ValueError('已有运行或暂停的后台任务')
+            with closing(connect_readonly(self.settings.database_path)) as connection:
+                plan = album_archive.prepare(connection, self.settings, plan_id, confirmation)
+            self._state = TaskState(id=plan_id, status='running', stage='album-archive',
+                                    message='正在归档相册：复制并校验照片', total=len(plan['items']))
+        Thread(target=self._run_album_archive, args=(plan,), daemon=True).start()
+        return self.snapshot()
+
+    def _run_album_archive(self, plan: dict[str, Any]) -> None:
+        connection = None
+        try:
+            connection = connect(self.settings.database_path)
+            result = album_archive.execute(connection, self.settings, plan,
+                lambda current, total: self._update(current=current, total=total,
+                    message=f'相册归档：已复制校验 {current} / {total} 个文件'))
+            self._update(status='complete', stage='album-archive',
+                         message='相册归档完成，已清理对应待整理文件', result=result)
+        except Exception as exc:
+            plan['status'] = 'pending'
+            plan['error'] = str(exc)
+            try:
+                album_archive._save(self.settings, plan)
+            except OSError:
+                pass  # The durable pending receipt still prevents a new scan.
+            self._update(status='paused', stage='album-archive',
+                         message='相册归档未完成；源文件或校验副本已保留，请返回相册继续处理',
+                         error=type(exc).__name__, result={'album_id': plan['album_id']})
+        finally:
+            if connection is not None:
+                connection.close()
 
     def attach_ai_run(self, run_id: int) -> None:
         connection = connect_readonly(self.settings.database_path)
@@ -1788,11 +1839,25 @@ def create_app(
             supplied_token = request.headers.get(SESSION_TOKEN_HEADER, "")
             if not secrets.compare_digest(supplied_token, session_token):
                 return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
-        if service_control is not None and request.method not in SAFE_HTTP_METHODS:
+            state = manager.snapshot()
+            if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
+                allowed = request.url.path.endswith('/archive/preview') or (
+                    state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
+                )
+                if not allowed:
+                    return JSONResponse(status_code=409, content={'detail': '请先完成相册归档；当前暂停其他写入操作'})
+        if request.method not in SAFE_HTTP_METHODS:
             # Shutdown and task-start/config/review writes share the same gate.
             # Once draining, no new write can slip between the idle check and exit.
             async with write_gate:
-                if service_control.draining:
+                state = manager.snapshot()
+                if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
+                    allowed = request.url.path.endswith('/archive/preview') or (
+                        state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
+                    )
+                    if not allowed:
+                        return JSONResponse(status_code=409, content={'detail': '请先完成相册归档；当前暂停其他写入操作'})
+                if service_control is not None and service_control.draining:
                     return JSONResponse(status_code=503, content={"detail": "服务正在安全重启"})
                 return await call_next(request)
         return await call_next(request)
@@ -3204,6 +3269,39 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             connection.close()
+
+    @app.get('/api/albums/{album_id}/archive/status')
+    def album_archive_status(album_id: int) -> dict[str, Any]:
+        with closing(connect_readonly(settings.database_path)) as connection:
+            paths = [row[0] for row in connection.execute('''SELECT DISTINCT f.path FROM files f
+                JOIN capture_files cf ON cf.file_id=f.id
+                JOIN event_captures ec ON ec.capture_id=cf.capture_id
+                WHERE ec.event_id=?''', (album_id,))]
+        unfinished = album_archive.pending(settings)
+        return {'file_count': len(paths),
+                'inbox_count': sum(Path(p).is_relative_to(settings.originals / '待整理') for p in paths),
+                'pending': bool(unfinished and unfinished['album_id'] == album_id)}
+
+    @app.post('/api/albums/{album_id}/archive/preview')
+    def preview_album_archive(album_id: int) -> dict[str, Any]:
+        try:
+            with manager._lock:
+                if manager._state.status in {'running', 'paused'} and manager._state.stage != 'album-archive':
+                    raise ValueError('请先完成当前后台任务')
+                with closing(connect_readonly(settings.database_path)) as connection:
+                    return album_archive.preview(connection, settings, album_id)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post('/api/albums/{album_id}/archive/execute', status_code=202)
+    def execute_album_archive(album_id: int, request: AlbumArchiveRequest) -> dict[str, Any]:
+        try:
+            plan = album_archive.load(settings, request.plan_id)
+            if plan['album_id'] != album_id:
+                raise ValueError('归档计划不属于当前相册')
+            return manager.start_album_archive(request.plan_id, request.confirmation)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/album-types", status_code=201)
     def create_album_type(request: AlbumTypeCreateRequest) -> dict[str, Any]:

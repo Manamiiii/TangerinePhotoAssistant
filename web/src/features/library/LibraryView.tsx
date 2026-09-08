@@ -1,3 +1,4 @@
+import { AlbumArchive } from "./AlbumArchive";
 import { GroupComparison } from "../similarity/GroupComparison";
 import { SelectionReview } from "./SelectionReview";
 import { confirmLeave, useUnsavedChanges } from "../../unsavedChanges";
@@ -22,7 +23,7 @@ import type { EventItem, EventsResponse, LibraryCapturesResponse, LibraryFilters
 function isLibraryTask(task: Task | null) {
   if (!task || task.status === "idle") return false;
   const stage = task.stage.toLocaleLowerCase();
-  return ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(task.message);
+  return task.stage === "album-archive" || ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(task.message);
 }
 
 function ratingStars(rating: number | null) {
@@ -455,7 +456,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
   </>;
 }
 
-export function LibraryView({ overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, changeSection, task, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
+export function LibraryView({ overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, changeSection, task, acceptTask, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
   overview: Overview | null;
   pageState: LibraryPageState;
   library: LibraryCapturesResponse | null;
@@ -467,6 +468,7 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   requestedSection: LibrarySection;
   changeSection: (section: LibrarySection) => void;
   task: Task | null;
+  acceptTask: (task: Task) => void;
   startScan: (albumId: number) => void;
   cancelTask: () => void;
   updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => Promise<boolean>;
@@ -544,8 +546,9 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   return (
     <>
       {!activeAlbumId && <div className="library-navigation workspace-view-nav"><CollectionScopeTabs scope={section === "photos" ? "all" : "albums"} setScope={(scope) => setSection(scope === "all" ? "photos" : "albums")} /><div className="library-maintenance"><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button primary" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新图库"}</button></div></div>}
-      <TaskCard task={isLibraryTask(task) ? task : null} cancel={cancelTask} />
+      <TaskCard task={isLibraryTask(task) ? task : null} cancel={task?.stage === "album-archive" ? undefined : cancelTask} />
       {activeAlbumId ? <>
+        <AlbumArchive key={activeAlbumId} albumId={activeAlbumId} task={task} onStarted={acceptTask} />
         <AlbumWorkspaceHeader name={activeAlbum?.name ?? "相册照片"} category={activeAlbum?.category ?? "相册"} summary={`${numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片`} counts={albumWorkspaceCounts} current="library" back={leaveAlbum} openPhotos={() => undefined} openBursts={() => openAlbumBursts(activeAlbumId)} openQuality={() => openAlbumQuality(activeAlbumId)} />
         <PhotoLibraryView library={library} pageState={pageState} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} albumContext refreshLibrary={refreshLibrary} />
       </> : <>

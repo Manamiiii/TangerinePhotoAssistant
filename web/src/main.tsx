@@ -1220,7 +1220,7 @@ function App() {
           pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError,
             prefetchAllowed: !readErrors["/api/tasks/current"] && task?.status === "idle" && !urlCaptureId && !captureDetail && !selectedGroup }}
           updateQuery={(changes) => { setLibraryOffset(0); setLibraryCaptures(null); setLibraryQuery((current) => ({ ...current, ...changes })); }}
-          task={task} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
+          task={task} acceptTask={acceptTask} startScan={startScan} cancelTask={cancelTask} updateAlbum={updateEvent}
           createAlbum={createAlbum} createAlbumType={createAlbumType} renameAlbumType={renameAlbumType} deleteAlbumType={deleteAlbumType} assignToAlbum={assignToAlbum} batchTag={batchTagCaptures} batchReview={batchReviewCaptures}
           openCapture={openCapture} selectedGroup={selectedGroup} openGroup={openGroup} closeGroup={() => setSelectedGroup(null)} saveReview={saveReview} editGrouping={editGrouping} saveGrouping={saveGrouping} restoreGroupingRevision={restoreGroupingRevision} exportPhotos={exportPhotos} changePage={setLibraryOffset}
           changePageSize={(limit) => { setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, pageSize: limit })); }}

@@ -82,6 +82,11 @@ def scan_library(
     metadata_reader: MetadataReader | None = None,
     progress: Callable[[int], None] | None = None,
 ) -> int:
+    # Also protect command-line scans from indexing unfinished archive copies.
+    from .album_archive import pending
+
+    if pending(settings):
+        raise ValueError('相册归档未完成，请先从原计划继续归档后再扫描')
     errors = settings.validate()
     if errors:
         raise ValueError("; ".join(errors))
