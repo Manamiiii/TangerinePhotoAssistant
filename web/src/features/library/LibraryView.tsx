@@ -140,7 +140,7 @@ function SimilarityPickerModal({ group, close, openCapture, saveReview, editGrou
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   return <ModalShell title={`${group.event_name} · 相似照片`} close={close} wide>
     {editingGroupId === group.id ? <SimilarityGroupingEditor key={group.id} group={group} cancel={() => setEditingGroupId(null)} save={saveGrouping} restore={(captureId) => editGrouping(captureId, "auto")} restoreRevision={restoreGroupingRevision} /> : <>
-    <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><GroupComparison key={group.id} group={group} /><button className="toolbar-button" onClick={() => setEditingGroupId(group.id)}>调整分组</button></div>
+    <div className="similarity-picker-summary"><span>共 {group.capture_count} 张，按拍摄顺序排列</span><div className="similarity-picker-actions"><GroupComparison key={group.id} group={group} /><button className="toolbar-button" onClick={() => setEditingGroupId(group.id)}>调整分组</button></div></div>
     <div className="similarity-picker-grid">{group.items.map((item) => <article className={`${item.auto_pick ? "auto-pick" : ""} ${item.user_pick ? "user-pick" : ""} ${item.user_reject ? "user-reject" : ""}`} key={item.capture_id}>
       <button className="similarity-picker-photo" onClick={() => openCapture(item.capture_id, group.items.map((member) => member.capture_id), "select")}><img src={item.thumbnail_url} loading="lazy" alt={item.stem} />{Boolean(item.auto_pick) && <span>技术推荐</span>}</button>
       <div className="similarity-picker-copy"><strong>{item.stem}</strong><small>{item.technical_score == null ? "未检测" : `健康度 ${Math.round(item.technical_score)}`} · ISO {item.iso ?? "—"}</small></div>

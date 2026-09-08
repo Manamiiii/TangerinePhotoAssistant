@@ -750,7 +750,8 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em;
 .update-library-note { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--surface-soft); font-size: 10px; line-height: 1.5; }
 .photo-card-status > div { display: flex; align-items: center; gap: 5px; }
 .similarity-inline { padding: 3px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--orange-soft); background: transparent; font: inherit; font-size: 10px; cursor: pointer; }
-.similarity-picker-summary { padding: 14px 20px 0; color: var(--muted); font-size: 11px; display: flex; align-items: center; justify-content: space-between; }
+.similarity-picker-summary { padding: 14px 20px 0; color: var(--muted); font-size: 11px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.similarity-picker-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
 .similarity-picker-grid { padding: 16px 20px 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .similarity-picker-grid article { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .similarity-picker-grid article.user-pick { border-color: #77aa85; box-shadow: inset 0 0 0 1px #77aa85; }
@@ -2463,7 +2464,7 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .selection-review-list article > .selection-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .photo-comparison { padding: 16px; }
 .photo-comparison > p { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.photo-comparison button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--text); background: var(--surface-soft); cursor: pointer; }
+.comparison-toolbar button, .comparison-image-notice button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--text); background: var(--surface-soft); cursor: pointer; }
 .photo-comparison button:disabled { opacity: .45; cursor: default; }
 .photo-comparison-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .photo-comparison-panes header { display: grid; gap: 4px; margin-bottom: 8px; overflow-wrap: anywhere; font-size: 12px; }
@@ -2487,7 +2488,6 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .editor-modal.expanded > header { flex: 0 0 auto; }
 .editor-modal.expanded .photo-comparison { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .comparison-layout-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
-.comparison-layout-toolbar .burst-view-toggle button { max-width: min(36vw, 320px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-modal.expanded .photo-comparison-panes { flex: 1; min-height: 220px; }
 .editor-modal.expanded .photo-comparison-panes > section { min-height: 0; display: flex; flex-direction: column; }
 .editor-modal.expanded .photo-comparison-panes > section[hidden] { display: none; }
@@ -2503,10 +2503,8 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .editor-backdrop.is-expanded { padding: 16px; }
 @media (max-width: 620px) { .editor-backdrop.is-expanded { padding: 8px; } }
 
-.comparison-layout-options, .comparison-photo-options { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.comparison-layout-options button, .comparison-photo-options button { min-height: 36px; padding: 8px 14px; border: 1px solid transparent; background: transparent; font-size: 12px; }
-.comparison-layout-options button:hover, .comparison-photo-options button:hover { background: var(--surface-soft); }
-.comparison-layout-options button.active, .comparison-photo-options button.active { color: var(--orange-soft); background: rgba(242,113,34,.1); border-color: rgba(242,113,34,.24); }
+.comparison-layout-toolbar .section-tabs { margin: 0; max-width: 100%; flex-shrink: 1; flex-wrap: wrap; gap: 6px; }
+.comparison-layout-toolbar .section-tabs button { min-height: 36px; padding: 8px 16px; font-size: 12px; }
 .comparison-photo-options button { max-width: min(400px, 80vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-comparison-choices { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 16px 0; }
 .group-comparison-choices label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; min-width: 0; }
