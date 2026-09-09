@@ -31,7 +31,8 @@ it("queries only a page of explicit IDs and moves back after removing the final 
   expect(host.querySelectorAll("article")).toHaveLength(1);
   expect(host.textContent).toContain("photo-41");
   await click("移除");
-  expect(host.textContent).toContain("第 1 / 1 页 · 共 40 张");
+  expect(host.textContent).toContain("共 40 张");
+  expect(host.querySelector('[aria-label="简化分页"]')).toBeNull();
   expect(host.textContent).not.toContain("photo-41");
 });
 

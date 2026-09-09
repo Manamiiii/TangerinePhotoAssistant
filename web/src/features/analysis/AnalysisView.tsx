@@ -280,6 +280,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           <label>置信度<select value={resultConfidence} onChange={(event) => { setResultConfidence(event.target.value); setResultOffset(0); }}><option value="all">全部区间</option><option value="low">低于 0.5</option><option value="medium">0.5–0.8</option><option value="high">0.8–0.99</option><option value="overconfident">0.99 以上</option><option value="unknown">未记录</option></select></label>
           <label>问题类型<select value={resultProblem} onChange={(event) => { setResultProblem(event.target.value); setResultOffset(0); }}><option value="all">全部类型</option><option value="parse">解析失败</option><option value="schema">结构/逻辑</option><option value="unsafe">危险操作提及</option><option value="overconfident">过度自信</option><option value="low_confidence">低置信度</option><option value="visible">可见问题</option><option value="none">未标记问题</option></select></label>
         </div>
+        {resultPage && <Pagination count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
         {!!resultPage?.items.length && <div className="ai-result-grid">
           {resultPage.items.map((result) => <article key={result.id} className="ai-result-card">
             <button className="ai-result-open" onClick={() => openCapture(result.capture_id, resultPage.items.map((entry) => entry.capture_id))}><img src={result.thumbnail_url} loading="lazy" alt={`${result.stem} 缩略图`} /><span><strong>{result.stem} · {result.subject_type ?? "未分类"}</strong><small>{result.quality_summary ?? "没有摘要"}</small><em className={result.review_flags?.length ? "result-review-warning" : ""}>{result.review_flags?.length ? "需优先人工复核" : `${result.visible_problem_count} 个问题`} · {result.prompt_version} · {result.user_verdict ?? "未复核"}</em></span></button>
@@ -287,7 +288,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           </article>)}
         </div>}
         {resultPage && !resultPage.items.length && <div className="empty-state">当前筛选条件没有模型结果。</div>}
-        {resultPage && <Pagination count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
+        {resultPage && <Pagination compact count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
       </section>}
       {analysisTab === "history" && !!ai?.recent_runs.length && (
         <section className="panel ai-history-panel">
@@ -327,6 +328,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           <select aria-label="待办处理状态" value={qualityWorkflowFilter} onChange={(event) => setQualityWorkflowFilter(event.target.value as WorkItemFilter)}><option value="open">当前待处理</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option></select>
         </div>
         {!!visibleQualityItems.some((item) => item.has_error || item.issues.length > 0) && <div className="quality-batch-review"><span>{qualityBatchSaving ? "正在更新…" : `已选 ${qualitySelected.size} 项`}</span><button disabled={qualityBatchSaving} onClick={() => setQualitySelected(new Set(visibleQualityItems.filter((item) => item.has_error || item.issues.length > 0).map((item) => item.capture_id)))}>选择本页</button><button disabled={!qualitySelected.size || qualityBatchSaving} onClick={() => setQualitySelected(new Set())}>清空</button><button disabled={!qualitySelected.size || qualityBatchSaving} onClick={() => void updateSelectedQualityItems("confirmed")}>批量核对</button><button disabled={!qualitySelected.size || qualityBatchSaving} onClick={() => void updateSelectedQualityItems("snoozed")}>7天后处理</button></div>}
+        {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
         <div className="quality-review-grid">
           {visibleQualityItems.map((item) => {
             const technicalSummary = item.has_error ? "技术检测未能读取这张照片" : item.issues[0]?.message || "未发现明确技术问题";
@@ -348,7 +350,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           );})}
           {!visibleQualityItems.length && <div className="empty-state">{!quality ? "正在读取质量结果…" : qualityHidden.size ? "本页待办已处理，正在刷新队列。" : "当前筛选条件没有照片。尚未分析时，请先运行技术检测。"}</div>}
         </div>
-        {quality && <Pagination count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
+        {quality && <Pagination compact count={quality.count} limit={quality.limit} offset={quality.offset} onChange={changeQualityPage} onLimitChange={changeQualityPageSize} />}
       </section>}
       {healthHelpOpen && <ModalShell title="技术健康度是什么？" close={() => setHealthHelpOpen(false)}>
         <div className="technical-health-help"><p>它用于发现明显的基础技术风险，不是照片的综合质量或审美评分。</p><dl><div><dt>曝光 34%</dt><dd>检查整体亮度以及大面积亮部、暗部裁切。</dd></div><div><dt>全局细节 46%</dt><dd>检查画面整体边缘信息；浅景深、柔焦和运动画面仍需人工判断。</dd></div><div><dt>参数风险 20%</dt><dd>结合焦距、快门和 ISO 提示手抖、动作模糊或高感风险。</dd></div></dl><strong>不评价</strong><p>构图、表情、时机、主体价值和个人审美。高分只表示没有检测到明显基础故障。</p></div>

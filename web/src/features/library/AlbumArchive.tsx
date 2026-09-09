@@ -1,3 +1,4 @@
+import { Pagination } from "../../components/Navigation";
 import { useEffect, useRef, useState } from "react";
 import { getJson } from "../../api";
 import { ModalShell } from "../../components/ModalShell";
@@ -67,7 +68,7 @@ export function AlbumArchive({ albumId, task, onStarted }: {
           {plan.error && <p role="alert">上次未完成原因：{plan.error}</p>}
           <details><summary>查看逐文件清单</summary>
             <ol className="archive-file-list" start={page * 40 + 1}>{plan.items.slice(page * 40, page * 40 + 40).map((item) => <li key={item.source}><span>{item.source}</span><span>→ {item.target}</span></li>)}</ol>
-            <div className="archive-list-pages"><button disabled={!page} onClick={() => setPage(page - 1)}>上一页</button><span>{page + 1} / {Math.ceil(plan.items.length / 40)}</span><button disabled={(page + 1) * 40 >= plan.items.length} onClick={() => setPage(page + 1)}>下一页</button></div>
+            <Pagination compact count={plan.items.length} limit={40} offset={page * 40} onChange={(offset) => setPage(offset / 40)} />
           </details>
           <label><span>确认后将清理对应待整理文件。请输入“归档 {plan.album_name}”</span><input value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} /></label>
         </>}

@@ -235,6 +235,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
         <section className="panel similarity-panel">
           {albumUndo && <div className="similarity-recovery-bar"><span>本相册最近一次人工分组仍可撤销</span><button className="toolbar-button" onClick={() => { if (window.confirm("撤销本相册最近一次人工分组调整？")) void restoreGroupingRevision(albumUndo.id, true); }}>撤销最近调整</button></div>}
           <div className="similarity-list-controls"><div className="similarity-filter-cluster"><div className="burst-view-toggle" role="tablist" aria-label="选片进度筛选">{([['pending', '待选'], ['completed', '已完成'], ['adjusted', '人工调整'], ['all', '全部']] as const).map(([value, label]) => <button key={value} className={reviewFilter === value ? "active" : ""} onClick={() => setReviewFilter(value)}>{label}</button>)}</div><label>置信度<select value={confidenceFilter} onChange={(event) => setConfidenceFilter(event.target.value as SimilarityConfidenceFilter)}><option value="all">全部</option><option value="low">需重点看 · {groups?.confidence_counts.low ?? 0}</option><option value="medium">一般 · {groups?.confidence_counts.medium ?? 0}</option><option value="high">高 · {groups?.confidence_counts.high ?? 0}</option></select></label><label>拍摄距今<select value={ageFilter} onChange={(event) => setAgeFilter(event.target.value as SimilarityAgeFilter)}><option value="all">全部</option><option value="older">半年以上</option><option value="month">1–6 个月</option><option value="recent">30 天内</option></select></label></div><div className="similarity-scale-actions"><span className="batch-count">当前 {numberFormat.format(groups?.count ?? 0)} 组</span><button className="toolbar-button" onClick={openBatchWorkspace}>批量预览</button></div></div>
+          {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
           <div className="similarity-grid">
             {groupItems.map((group) => (
               <button className="similarity-card" key={group.id} onClick={() => openGroup(group.id)}>
@@ -244,7 +245,7 @@ export function BurstsView({ groups, selectedGroup, task, startVisual, openGroup
             ))}
             {!groupItems.length && <div className="empty-state">{groups ? { pending: "所有相似组都已处理完，可切换到“全部”回顾。", completed: "还没有完成选片的相似组。", adjusted: "当前没有生效中的人工分组调整。", all: "还没有相似分组，先运行相似分析。" }[reviewFilter] : "正在读取相似组…"}</div>}
           </div>
-          {groups && <Pagination count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
+          {groups && <Pagination compact count={groups.count} limit={groups.limit} offset={groups.offset} onChange={changeGroupPage} onLimitChange={changeGroupPageSize} />}
         </section>
       </>)}
       {reasonEditorItem && <ModalShell title={`${reasonEditorItem.stem} · 保留依据`} close={() => setReasonEditorCaptureId(null)}>

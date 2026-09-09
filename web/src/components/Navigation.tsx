@@ -1,12 +1,13 @@
 import { numberFormat } from "../formatters";
 import { useEffect, useState } from "react";
 
-export function Pagination({ count, limit, offset, onChange, onLimitChange }: {
+export function Pagination({ count, limit, offset, onChange, onLimitChange, compact = false }: {
   count: number;
   limit: number;
   offset: number;
   onChange: (offset: number) => void;
-  onLimitChange: (limit: number) => void;
+  onLimitChange?: (limit: number) => void;
+  compact?: boolean;
 }) {
   const pageCount = Math.max(1, Math.ceil(count / limit));
   const currentPage = Math.min(pageCount, Math.floor(offset / limit) + 1);
@@ -20,10 +21,15 @@ export function Pagination({ count, limit, offset, onChange, onLimitChange }: {
     if (pageDraft.trim() && Number.isFinite(value)) goToPage(value);
     setPageDraft(String(pageDraft.trim() && Number.isFinite(value) ? Math.max(1, Math.min(pageCount, Math.trunc(value))) : currentPage));
   };
+  if (compact) return pageCount <= 1 ? null : <nav className="pagination-controls pagination-compact" aria-label="简化分页">
+    <button disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)}>上一页</button>
+    <span>第 {numberFormat.format(currentPage)} / {numberFormat.format(pageCount)} 页</span>
+    <button disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)}>下一页</button>
+  </nav>;
   return <div className="pagination-controls" aria-label="分页">
-    <label>每页<select value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}>
+    {onLimitChange && <label>每页<select value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}>
       {[20, 40, 80, 120, 200].map((size) => <option key={size} value={size}>{size}</option>)}
-    </select></label>
+    </select></label>}
     <div className="pagination-buttons">
       <button disabled={currentPage === 1} onClick={() => goToPage(1)} aria-label="第一页">«</button>
       <button disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)} aria-label="上一页">‹</button>

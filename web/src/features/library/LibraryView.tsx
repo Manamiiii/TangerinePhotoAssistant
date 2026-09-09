@@ -92,6 +92,7 @@ export function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbu
     <>
       <section className="panel event-panel album-panel">
         <div className="panel-heading"><div><h3>全部相册</h3><span className="batch-count">{numberFormat.format(albums?.count ?? 0)} 个 · 按最近拍摄时间排列</span></div><button className="toolbar-button primary" onClick={() => openAlbumEditor("new")}>新建相册</button></div>
+        {albums && <Pagination count={albums.count} limit={albums.limit} offset={albums.offset} onChange={changePage} onLimitChange={changePageSize} />}
         <div className="event-list">
           {(albums?.items ?? []).map((album) => (
             <article className="event-row album-row" key={album.id}>
@@ -105,7 +106,7 @@ export function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbu
           {!albums?.items.length && <div className="empty-state">{albums ? "还没有相册，可以新建一个空相册。" : "正在读取相册…"}</div>}
         </div>
       </section>
-      {albums && <Pagination count={albums.count} limit={albums.limit} offset={albums.offset} onChange={changePage} onLimitChange={changePageSize} />}
+      {albums && <Pagination compact count={albums.count} limit={albums.limit} offset={albums.offset} onChange={changePage} onLimitChange={changePageSize} />}
       <section className="panel album-types-panel">
         <div className="panel-heading"><div><h3>相册类型</h3></div><span className="batch-count">用于筛选和归类相册</span></div>
         <div className="type-manager-list">
@@ -431,6 +432,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
       </div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张 · JPG {latestExport.jpeg_count} · RAW {latestExport.raw_count} · {formatBytes(latestExport.size_bytes)}{latestExport.missing_raw_count ? ` · ${latestExport.missing_raw_count} 张无 RAW` : ""}</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}
+    {pagination}
     <div className="library-load-status" role="status">{pageState.error ? <>加载失败：{pageState.error} <button className="text-action" onClick={refreshLibrary}>重试</button></> : pending ? "正在加载，可继续切换页码…" : null}</div>
     {layout === "list" && <div className="photo-list-header" aria-hidden="true"><span>照片</span><span>拍摄时间</span><span>相册 / 相似组</span><span>大小</span><span>评价</span></div>}
     <section aria-busy={pending && !pageState.error} className={`photo-library-grid layout-${layout} ${selectionMode ? "selecting" : ""}`}>
@@ -446,7 +448,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
       </article>})}
       {!pending && !pageState.error && !items.length && <div className="empty-state" aria-live="polite">图库中还没有符合条件的 JPEG 照片。</div>}
     </section>
-    {pagination}
+    {library && <Pagination compact count={library.count} limit={query.pageSize} offset={pageState.offset} onChange={changePage} />}
     {selectionGroup && <ModalShell title={`选择组内照片 · ${selectionGroup.capture_count} 张`} close={() => setSelectionGroup(null)} wide>
       <div className="group-export-tools"><span>这只是本次归类或导出的临时选择，不会改变正式入选结果。</span><div><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.filter((item) => item.user_pick).map((item) => item.capture_id)))}>人工入选</button><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.filter((item) => item.auto_pick).map((item) => item.capture_id)))}>技术推荐</button><button onClick={() => setSelectionGroupDraft(new Set(selectionGroup.items.map((item) => item.capture_id)))}>全选</button><button onClick={() => setSelectionGroupDraft(new Set())}>清空</button></div></div>
       <div className="group-export-grid">{selectionGroup.items.map((item) => <button key={item.capture_id} className={selectionGroupDraft.has(item.capture_id) ? "selected" : ""} onClick={() => setSelectionGroupDraft((current) => { const next = new Set(current); next.has(item.capture_id) ? next.delete(item.capture_id) : next.add(item.capture_id); return next; })}><img src={item.thumbnail_url} alt={item.stem} /><span>{selectionGroupDraft.has(item.capture_id) ? "✓ " : ""}{item.stem}{item.user_pick ? " · 已入选" : item.auto_pick ? " · 技术推荐" : ""}</span></button>)}</div>

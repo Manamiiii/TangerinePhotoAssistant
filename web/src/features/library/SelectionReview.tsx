@@ -1,3 +1,4 @@
+import { Pagination } from "../../components/Navigation";
 import { PhotoComparison, type ComparePhoto } from "../details/PhotoComparison";
 import { useEffect, useRef, useState } from "react";
 import { getJson } from "../../api";
@@ -51,7 +52,8 @@ export function SelectionReview({ selected, remove, close }: {
           <div><strong>{item.stem ?? `照片 ID ${item.id}`}</strong><small>{item.missing ? "索引记录已不存在" : item.album_name ?? "未归入相册"}</small><small>{item.captured_at?.slice(0, 10) ?? "日期未知"}{!item.missing && !item.jpeg_present ? " · 索引中无现存 JPG" : ""}</small></div>
           <div className="selection-review-actions"><button disabled={!item.jpeg_present || (!pair.some((photo) => photo.id === item.id) && pair.length >= 2)} aria-pressed={pair.some((photo) => photo.id === item.id)} onClick={() => setComparison(pair.some((photo) => photo.id === item.id) ? pair.filter((photo) => photo.id !== item.id) : [...pair, item])}>{pair.some((photo) => photo.id === item.id) ? "取消对比" : "加入对比"}</button><button aria-label={`取消选择 ${item.stem ?? item.id}`} onClick={() => { setComparison(pair.filter((photo) => photo.id !== item.id)); remove(item.id); }}>移除</button></div>
         </article>)}</div>}
-      <footer><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>上一页</button><span>第 {currentPage + 1} / {pages} 页 · 共 {ids.length} 张</span><button disabled={currentPage + 1 >= pages} onClick={() => setPage(currentPage + 1)}>下一页</button><button onClick={close}>完成核对</button></footer>
+      <Pagination compact count={ids.length} limit={40} offset={currentPage * 40} onChange={(offset) => setPage(offset / 40)} />
+      <footer><span>共 {ids.length} 张</span><button onClick={close}>完成核对</button></footer>
     </div>}
   </ModalShell>;
 }
