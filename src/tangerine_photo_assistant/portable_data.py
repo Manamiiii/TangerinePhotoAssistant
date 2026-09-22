@@ -23,6 +23,16 @@ def _rows(connection: sqlite3.Connection, sql: str) -> list[dict[str, Any]]:
 
 
 def build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) -> dict[str, Any]:
+    # A savepoint also preserves any transaction owned by the caller.
+    savepoint = f"portable_export_{uuid4().hex}"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        return _build_portable_backup(connection, inventory_path)
+    finally:
+        connection.execute(f"RELEASE {savepoint}")
+
+
+def _build_portable_backup(connection: sqlite3.Connection, inventory_path: Path) -> dict[str, Any]:
     work_items = _rows(connection, """SELECT s.source_kind, c.capture_key,
         NULL AS model_id, NULL AS prompt_version, s.status, s.due_at, s.note,
         s.first_seen_at, s.last_seen_at, s.reviewed_at, s.occurrence_count,
@@ -120,7 +130,7 @@ def write_portable_backup(connection: sqlite3.Connection, inventory_path: Path, 
 
 
 def _validate(data: dict[str, Any]) -> None:
-    if data.get("format") != FORMAT or data.get("format_version") != FORMAT_VERSION:
+    if not isinstance(data, dict) or data.get("format") != FORMAT or type(data.get("format_version")) is not int or data.get("format_version") != FORMAT_VERSION:
         raise ValueError("不是受支持的 Tangerine 人工数据备份")
     data.setdefault("ai_reviews", [])
     data.setdefault("ai_benchmark", [])
@@ -133,12 +143,32 @@ def _validate(data: dict[str, Any]) -> None:
     ):
         if not isinstance(data.get(key), list) or len(data[key]) > 1_000_000:
             raise ValueError(f"备份字段无效：{key}")
+        for row in data[key]:
+            if not isinstance(row, dict):
+                raise ValueError(f"备份记录必须是对象：{key}")
+            if key not in {"ai_version_reviews", "similarity_review_batches"} and (
+                not isinstance(row.get("capture_key"), str) or not row["capture_key"]
+            ):
+                raise ValueError(f"备份拍摄单元标识无效：{key}")
+            if key != "similarity_review_batches" and any(isinstance(value, (dict, list)) for value in row.values()):
+                raise ValueError(f"备份记录字段类型无效：{key}")
     for batch in data["similarity_review_batches"]:
         if not isinstance(batch, dict):
             raise ValueError("批量选片备份字段无效")
         for key, maximum in (("before", 200), ("after", 200), ("groups", 200)):
             if not isinstance(batch.get(key, []), list) or len(batch.get(key, [])) > maximum:
                 raise ValueError("批量选片备份字段无效")
+        before = batch.get("before", [])
+        after = batch.get("after", [])
+        for row in [*before, *after]:
+            if not isinstance(row, dict) or not isinstance(row.get("capture_key"), str) or not row["capture_key"]:
+                raise ValueError("批量选片快照的拍摄单元标识无效")
+        before_keys = {row["capture_key"] for row in before}
+        after_keys = {row["capture_key"] for row in after}
+        if not before_keys or before_keys != after_keys or len(before_keys) != len(before) or len(after_keys) != len(after):
+            raise ValueError("批量选片前后快照必须包含相同且不重复的拍摄单元")
+        if batch.get("status") not in ("applied", "undone"):
+            raise ValueError("批量选片状态无效")
         if any(
             not isinstance(group, dict)
             or not isinstance(group.get("capture_keys", []), list)
@@ -146,8 +176,28 @@ def _validate(data: dict[str, Any]) -> None:
             for group in batch.get("groups", [])
         ):
             raise ValueError("批量选片组备份字段无效")
+        for group in batch.get("groups", []):
+            members = group.get("capture_keys", [])
+            if not members or any(not isinstance(key, str) or not key for key in members):
+                raise ValueError("批量选片组拍摄单元标识无效")
+            if group.get("representative_capture_key") not in members or not set(members).issubset(before_keys):
+                raise ValueError("批量选片组成员与快照不一致")
     if not isinstance(data.get("equipment", {}), dict):
         raise ValueError("设备备份字段无效")
+    for container, kinds in _empty_inventory().items():
+        if container == "version" or container not in data.get("equipment", {}):
+            continue
+        supplied = data["equipment"][container]
+        if not isinstance(supplied, dict):
+            raise ValueError(f"设备备份字段无效：{container}")
+        for kind, default in kinds.items():
+            if kind in supplied and not isinstance(supplied[kind], type(default)):
+                raise ValueError(f"设备备份字段无效：{container}.{kind}")
+            entries = supplied.get(kind, default)
+            values = entries.values() if isinstance(entries, dict) else entries
+            expected = {"ownership": bool, "custom": dict, "overrides": dict, "hidden": str}[container]
+            if any(not isinstance(entry, expected) for entry in values):
+                raise ValueError(f"设备备份记录无效：{container}.{kind}")
 
 
 def backup_summary(data: dict[str, Any]) -> dict[str, int]:
@@ -185,9 +235,15 @@ def preflight_restore(connection: sqlite3.Connection, data: dict[str, Any]) -> d
     if keys & ambiguous:
         raise ValueError(f'备份中有 {len(keys & ambiguous)} 个路径对应多个拍摄单元，不能安全恢复')
     existing = set(matches)
+    batch_keys = {
+        row["capture_key"] for batch in data["similarity_review_batches"]
+        for row in batch.get("before", [])
+    }
+    if batch_keys - existing:
+        raise ValueError("批量选片历史包含未匹配的照片，不能安全替换现有历史；请先连接对应图库")
     return {"valid": True, "summary": backup_summary(data), "capture_keys": len(keys),
             "matched_captures": len(keys & existing), "missing_captures": len(keys - existing),
-            "equipment_included": bool(data.get("equipment")), "confirmation": RESTORE_CONFIRMATION}
+            "equipment_included": "equipment" in data, "confirmation": RESTORE_CONFIRMATION}
 
 
 def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any], inventory_path: Path, backup_root: Path, confirmation: str) -> dict[str, Any]:
@@ -352,8 +408,9 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
             for kind in inventory[container]:
                 if isinstance(supplied.get(container, {}).get(kind), type(inventory[container][kind])):
                     inventory[container][kind] = supplied[container][kind]
-        inventory_write_started = True
-        _write_inventory(inventory_path, inventory)
+        if "equipment" in data:
+            inventory_write_started = True
+            _write_inventory(inventory_path, inventory)
         connection.commit()
     except BaseException:
         try:

@@ -21,7 +21,7 @@ export type ArchiveStatus = {
     checked_at?: string;
   } | null;
 };
-type PortableStatus = { download_url?: string; size_bytes?: number; valid?: boolean; matched_captures?: number; missing_captures?: number; confirmation?: string; restored?: boolean };
+type PortableStatus = { download_url?: string; size_bytes?: number; valid?: boolean; matched_captures?: number; missing_captures?: number; confirmation?: string; equipment_included?: boolean; restored?: boolean };
 type DiagnosticStatus = { download_url: string; size_bytes: number; integrity: string };
 type IntegrityPage = {
   check_id: number | null;
@@ -64,6 +64,9 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   const [portableError, setPortableError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [portableBusy, setPortableBusy] = useState(false);
+  const portableGuard = useRef(createLatestRequestGuard());
+  const portableOperation = useRef<"preflight" | "export" | "restore" | null>(null);
+  useEffect(() => () => portableGuard.current.invalidate(), []);
   const [diagnosticStatus, setDiagnosticStatus] = useState<DiagnosticStatus | null>(null);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
@@ -185,27 +188,51 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
     </section>
   );
   const exportHumanData = async () => {
-    setPortableBusy(true);
-    try { setPortableError(null); setPortableStatus(await getJson<PortableStatus>("/api/human-data/export", { method: "POST" })); }
-    catch (reason) { setPortableError((reason as Error).message); }
-    finally { setPortableBusy(false); }
+    if (portableOperation.current) return;
+    portableOperation.current = "export";
+    const token = portableGuard.current.begin();
+    setPortableBusy(true); setPortableStatus(null); setPortableBackup(null); setConfirmation("");
+    try {
+      setPortableError(null);
+      const status = await getJson<PortableStatus>("/api/human-data/export", { method: "POST" });
+      if (portableGuard.current.isCurrent(token)) setPortableStatus(status);
+    } catch (reason) {
+      if (portableGuard.current.isCurrent(token)) setPortableError((reason as Error).message);
+    } finally {
+      if (portableGuard.current.isCurrent(token)) { portableOperation.current = null; setPortableBusy(false); }
+    }
   };
   const selectBackup = async (file: File | undefined) => {
-    if (!file) return;
-    setPortableBusy(true);
+    if (!file || portableOperation.current === "restore" || portableOperation.current === "export") return;
+    portableOperation.current = "preflight";
+    const token = portableGuard.current.begin();
+    setPortableBusy(true); setPortableBackup(null); setPortableStatus(null); setConfirmation(""); setPortableError(null);
     try {
       const backup = JSON.parse(await file.text()) as Record<string, unknown>;
-      setPortableBackup(backup);
-      setPortableError(null); setPortableStatus(await getJson<PortableStatus>("/api/human-data/restore/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backup) }));
-      setConfirmation("");
-    } catch (reason) { setPortableError((reason as Error).message); setPortableStatus(null); } finally { setPortableBusy(false); }
+      if (!portableGuard.current.isCurrent(token)) return;
+      const status = await getJson<PortableStatus>("/api/human-data/restore/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backup) });
+      if (!portableGuard.current.isCurrent(token)) return;
+      setPortableBackup(status.valid ? backup : null); setPortableStatus(status);
+    } catch (reason) {
+      if (portableGuard.current.isCurrent(token)) { setPortableError((reason as Error).message); setPortableStatus(null); }
+    } finally {
+      if (portableGuard.current.isCurrent(token)) { portableOperation.current = null; setPortableBusy(false); }
+    }
   };
   const restoreHumanData = async () => {
-    if (!portableBackup) return;
+    if (!portableBackup || !portableStatus?.valid || portableStatus.restored || portableOperation.current || confirmation !== portableStatus.confirmation) return;
+    portableOperation.current = "restore";
+    const token = portableGuard.current.begin();
     setPortableBusy(true);
-    try { setPortableError(null); setPortableStatus(await getJson<PortableStatus>("/api/human-data/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backup: portableBackup, confirmation }) })); }
-    catch (reason) { setPortableError((reason as Error).message); }
-    finally { setPortableBusy(false); }
+    try {
+      setPortableError(null);
+      const status = await getJson<PortableStatus>("/api/human-data/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backup: portableBackup, confirmation }) });
+      if (portableGuard.current.isCurrent(token)) { setPortableStatus(status); setPortableBackup(null); setConfirmation(""); }
+    } catch (reason) {
+      if (portableGuard.current.isCurrent(token)) setPortableError((reason as Error).message);
+    } finally {
+      if (portableGuard.current.isCurrent(token)) { portableOperation.current = null; setPortableBusy(false); }
+    }
   };
   const exportDiagnostics = async () => {
     setDiagnosticBusy(true);
@@ -242,9 +269,9 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
       <Pagination compact count={differences.count} limit={differences.limit} offset={differences.offset} onChange={(offset) => void loadDifferences(differenceScope, offset, differenceWorkflow, directoryPrefix)} />
     </section>}
     <section className="integrity-guidance"><strong>适合什么时候检查</strong><span>更换硬盘、恢复备份、手动整理目录、异常断电或每隔一至三个月例行检查时使用。检查只报告差异，不会修改或修复照片。</span></section>
-    <section className="panel portable-data-panel"><div className="panel-heading"><div><span className="section-kicker">个人数据保护</span><h3>人工数据备份与恢复</h3></div><button className="toolbar-button primary" disabled={portableBusy} onClick={() => void exportHumanData()}>{portableBusy ? "处理中" : "导出人工数据"}</button></div><p>包含评分、入选、备注、人工/导入标签、分组调整、批量选片与抽检、修图方案、审计状态和设备配置；不包含照片、绝对路径、GPS、缩略图或模型结果正文。</p>
+    <section className="panel portable-data-panel"><div className="panel-heading"><div><span className="section-kicker">个人数据保护</span><h3>人工数据备份与恢复</h3></div><button className="toolbar-button primary" disabled={portableBusy} onClick={() => void exportHumanData()}>{portableBusy ? "处理中" : "导出人工数据"}</button></div><p>包含评分、入选、备注、人工/导入标签、分组调整、批量选片与抽检、修图方案、审计状态和设备配置；不包含相册定义、照片的相册归属、相册器材关联、照片、GPS、缩略图或模型结果正文，不能替代完整工作目录备份。备注、标签和自定义设备字段可能包含你填写的私人信息。</p>
       {portableStatus?.download_url && <div className="portable-result"><span>备份已生成 · {formatBytes(portableStatus.size_bytes ?? 0)}</span><a href={portableStatus.download_url} download>下载 JSON</a></div>}
-      <div className="portable-restore"><label className="toolbar-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => void selectBackup(event.target.files?.[0])} /></label>{portableStatus?.valid && <><span>匹配 {portableStatus.matched_captures} 个拍摄单元 · 缺少 {portableStatus.missing_captures} 个</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={portableStatus.confirmation} /><button className="toolbar-button" disabled={portableBusy || confirmation !== portableStatus.confirmation} onClick={() => void restoreHumanData()}>恢复人工数据</button></>}{portableStatus?.restored && <strong>恢复完成，操作前数据库备份已保留。</strong>}</div>
+      <div className="portable-restore"><label className="toolbar-button">选择备份文件<input type="file" accept="application/json,.json" disabled={portableBusy && portableOperation.current !== "preflight"} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void selectBackup(file); }} /></label>{portableStatus?.valid && !portableStatus.restored && <><span>匹配 {portableStatus.matched_captures} 个拍摄单元 · 缺少 {portableStatus.missing_captures} 个{portableStatus.equipment_included ? " · 将替换设备配置" : " · 保留现有设备配置"}</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={portableStatus.confirmation} /><button className="toolbar-button" disabled={portableBusy || confirmation !== portableStatus.confirmation} onClick={() => void restoreHumanData()}>恢复人工数据</button></>}{portableStatus?.restored && <strong>恢复完成，操作前数据库备份已保留。</strong>}</div>
       {portableError && <div className="portable-error" role="alert">{portableError}</div>}
     </section>
     <section className="panel portable-data-panel"><div className="panel-heading"><div><span className="section-kicker">故障排查</span><h3>脱敏诊断包</h3></div><button className="toolbar-button" disabled={diagnosticBusy} onClick={() => void exportDiagnostics()}>{diagnosticBusy ? "正在生成" : "生成诊断包"}</button></div><p>仅按白名单汇总版本、运行能力、数据库完整性、数据量和任务状态；不读取或打包照片，不包含文件名、路径、GPS、设备序列号、备注、标签文字、模型提示词或结果正文。</p>

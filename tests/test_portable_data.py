@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+from tangerine_photo_assistant import portable_data
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.portable_data import (
     RESTORE_CONFIRMATION,
@@ -16,6 +17,112 @@ from tangerine_photo_assistant.work_queue import save_work_item_state
 
 
 class PortableDataTests(unittest.TestCase):
+    def test_concurrent_update_cannot_mix_old_reviews_with_new_tags(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = self._catalog(root / "catalog.sqlite3")
+            writer = connect(root / "catalog.sqlite3")
+            try:
+                connection.execute("INSERT INTO capture_reviews(capture_id,user_rating,updated_at) VALUES (1,3,'now')")
+                connection.commit()
+                original_rows = portable_data._rows
+
+                def rows_with_concurrent_write(db, sql):
+                    result = original_rows(db, sql)
+                    if "FROM capture_reviews" in sql:
+                        writer.execute("UPDATE capture_reviews SET user_rating=5")
+                        writer.execute("INSERT INTO tag_definitions(dimension,name,built_in,sort_order,created_at) VALUES ('location','New',0,100,'now')")
+                        tag_id = writer.execute("SELECT id FROM tag_definitions WHERE name='New'").fetchone()[0]
+                        writer.execute("INSERT INTO capture_tags(capture_id,tag_id,source,created_at) VALUES (1,?,'manual','now')", (tag_id,))
+                        writer.commit()
+                    return result
+
+                with patch.object(portable_data, "_rows", side_effect=rows_with_concurrent_write):
+                    backup = build_portable_backup(connection, root / "inventory.json")
+                self.assertEqual(backup["reviews"][0]["user_rating"], 3)
+                self.assertEqual(backup["tags"], [])
+                self.assertEqual(connection.execute("SELECT user_rating FROM capture_reviews").fetchone()[0], 5)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM capture_tags").fetchone()[0], 1)
+            finally:
+                writer.close()
+                connection.close()
+
+    def test_missing_equipment_section_preserves_inventory(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = self._catalog(root / "catalog.sqlite3")
+            try:
+                inventory = root / "inventory.json"
+                original = b'{"version":2,"ownership":{"camera":{"owned":true}}}'
+                inventory.write_bytes(original)
+                data = build_portable_backup(connection, inventory)
+                del data["equipment"]
+                self.assertFalse(preflight_restore(connection, data)["equipment_included"])
+                restore_portable_backup(connection, data, inventory, root / "backups", RESTORE_CONFIRMATION)
+                self.assertEqual(inventory.read_bytes(), original)
+            finally:
+                connection.close()
+
+    def test_malformed_records_are_rejected_before_backup_or_writes(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = self._catalog(root / "catalog.sqlite3")
+            try:
+                cases = [
+                    ("reviews", [None]), ("reviews", [{"capture_key": []}]),
+                    ("reviews", [{"capture_key": "album/IMG_1", "user_rating": {}}]),
+                    ("equipment", {"custom": {"camera": ["invalid"]}}),
+                    ("equipment", {"ownership": []}),
+                    ("similarity_review_batches", [{"before": [None], "after": []}]),
+                ]
+                for key, value in cases:
+                    with self.subTest(key=key, value=value):
+                        data = build_portable_backup(connection, root / "inventory.json")
+                        data[key] = value
+                        with self.assertRaises(ValueError):
+                            restore_portable_backup(connection, data, root / "inventory.json", root / "backups", RESTORE_CONFIRMATION)
+                        self.assertFalse((root / "backups").exists())
+                        self.assertFalse((root / "inventory.json").exists())
+            finally:
+                connection.close()
+
+    def test_incomplete_batch_history_is_rejected_before_replacement(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = self._catalog(root / "catalog.sqlite3")
+            try:
+                data = build_portable_backup(connection, root / "inventory.json")
+                data["similarity_review_batches"] = [{
+                    "before": [{"capture_key": "missing/photo", "user_pick": None}],
+                    "after": [{"capture_key": "missing/photo", "user_pick": 1}],
+                    "status": "applied", "groups": [],
+                }]
+                with self.assertRaisesRegex(ValueError, "未匹配"):
+                    restore_portable_backup(connection, data, root / "inventory.json", root / "backups", RESTORE_CONFIRMATION)
+                self.assertFalse((root / "backups").exists())
+                data["similarity_review_batches"][0]["after"][0]["capture_key"] = "album/IMG_1"
+                with self.assertRaisesRegex(ValueError, "相同"):
+                    preflight_restore(connection, data)
+            finally:
+                connection.close()
+
+    def test_export_uses_one_database_snapshot_without_committing_caller(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = self._catalog(root / "catalog.sqlite3")
+            try:
+                connection.execute("INSERT INTO capture_reviews(capture_id,user_rating,updated_at) VALUES (1,5,'now')")
+                self.assertTrue(connection.in_transaction)
+                backup = build_portable_backup(connection, root / "inventory.json")
+                self.assertEqual(backup["reviews"][0]["user_rating"], 5)
+                self.assertTrue(connection.in_transaction)
+                connection.rollback()
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM capture_reviews").fetchone()[0], 0)
+                build_portable_backup(connection, root / "inventory.json")
+                self.assertFalse(connection.in_transaction)
+            finally:
+                connection.close()
+
     def test_failed_commit_restores_inventory_and_database(self):
         for existing in (False, True):
             with self.subTest(existing=existing), TemporaryDirectory() as directory:

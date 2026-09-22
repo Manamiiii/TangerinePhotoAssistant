@@ -53,3 +53,44 @@ it("does not reopen differences after the panel is closed", async () => {
   await act(() => finish({ count: 0, items: [], limit: 50, offset: 0 }));
   expect(host.textContent).not.toContain("完整差异清单");
 });
+
+const chooseBackup = async (name: string) => {
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { configurable: true, value: [{ text: async () => JSON.stringify({ name }) }] });
+  await act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
+};
+
+it("binds restore to the latest successfully preflighted file", async () => {
+  await act(render);
+  const finishes: Array<(value: unknown) => void> = [];
+  vi.mocked(getJson).mockImplementation((url) => url.endsWith("/preflight")
+    ? new Promise((resolve) => finishes.push(resolve))
+    : Promise.resolve({ valid: true, restored: true }) as never);
+  await chooseBackup("old");
+  await chooseBackup("new");
+  await act(() => finishes[1]({ valid: true, matched_captures: 2, missing_captures: 0, confirmation: "恢复人工数据" }));
+  await act(() => finishes[0]({ valid: true, matched_captures: 99, missing_captures: 0, confirmation: "恢复人工数据" }));
+  expect(host.textContent).toContain("匹配 2 个拍摄单元");
+  expect(host.textContent).not.toContain("匹配 99");
+  const input = host.querySelector<HTMLInputElement>('input[placeholder="恢复人工数据"]')!;
+  await act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "恢复人工数据");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => button("恢复人工数据").click());
+  const call = vi.mocked(getJson).mock.calls.find(([url]) => url === "/api/human-data/restore")!;
+  expect(JSON.parse(call[1]!.body as string).backup).toEqual({ name: "new" });
+  expect(button("恢复人工数据")).toBeUndefined();
+  expect(host.textContent).toContain("恢复完成");
+});
+
+it("clears prior restore eligibility immediately when selecting an invalid file", async () => {
+  await act(render);
+  vi.mocked(getJson).mockResolvedValueOnce({ valid: true, matched_captures: 1, missing_captures: 0, confirmation: "恢复人工数据" });
+  await chooseBackup("valid");
+  expect(button("恢复人工数据")).toBeDefined();
+  vi.mocked(getJson).mockRejectedValueOnce(new Error("备份字段无效"));
+  await chooseBackup("invalid");
+  expect(button("恢复人工数据")).toBeUndefined();
+  expect(host.textContent).toContain("备份字段无效");
+});
