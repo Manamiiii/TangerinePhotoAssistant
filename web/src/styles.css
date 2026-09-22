@@ -79,8 +79,7 @@
   font-size: 13px;
 }
 
-.ai-results-toolbar,
-.ai-results-pagination {
+.ai-results-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -104,9 +103,6 @@
   background: #181613;
 }
 
-.ai-results-pagination { justify-content: center; }
-.ai-results-pagination .secondary-action { min-height: 38px; padding: 0 16px; }
-.ai-results-pagination span { color: var(--muted); font-size: 12px; }
 .ai-result-card .result-review-warning { color: #ffb36f; }
 
 .ai-version-table { display: grid; gap: 6px; }
@@ -2515,7 +2511,6 @@ textarea:focus-visible { outline: 1px solid rgba(159, 152, 141, .72); outline-of
 .archive-file-list { max-height: 300px; overflow: auto; font-size: 12px; }
 .archive-file-list li { margin: 8px 0; }
 .archive-file-list span { display: block; }
-.archive-list-pages { display: flex; gap: 12px; align-items: center; }
 
 .album-archive-entry { justify-content: space-between; padding: 16px 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
 .album-archive-entry.needs-filing { border-color: rgba(242,113,34,.35); }

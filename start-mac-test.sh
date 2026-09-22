@@ -30,20 +30,32 @@ fi
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "Node.js and npm are required to build the local web interface."
-  echo "Install Node.js 20 or newer, then run this script again."
+  echo "Install Node.js 20.19+ or 22.12+, then run this script again."
   exit 1
 fi
 
+if ! command -v node >/dev/null 2>&1 || ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22 ? 0 : 1)'; then
+  echo "Node.js 20.19+ or 22.12+ is required by the frontend build."
+  exit 1
+fi
+
+mkdir -p runtime/mac-test
+PYTHON_DEPENDENCY_HASH="$(shasum -a 256 pyproject.toml)"
+FRONTEND_DEPENDENCY_HASH="$(shasum -a 256 web/package.json web/package-lock.json)"
 if [[ ! -x ".venv-mac/bin/python" ]]; then
   echo "Creating isolated Mac test environment..."
   "$PYTHON_BIN" -m venv .venv-mac
   .venv-mac/bin/python -m pip install --upgrade pip
+fi
+if [[ "$(cat runtime/mac-test/python-dependencies.sha256 2>/dev/null || true)" != "$PYTHON_DEPENDENCY_HASH" ]] || ! .venv-mac/bin/python -c 'import tangerine_photo_assistant' >/dev/null 2>&1; then
   .venv-mac/bin/python -m pip install -e .
+  printf '%s\n' "$PYTHON_DEPENDENCY_HASH" > runtime/mac-test/python-dependencies.sha256
 fi
 
-if [[ ! -d "web/node_modules" ]]; then
+if [[ ! -d "web/node_modules" || "$(cat runtime/mac-test/frontend-dependencies.sha256 2>/dev/null || true)" != "$FRONTEND_DEPENDENCY_HASH" ]]; then
   echo "Installing frontend dependencies..."
   (cd web && npm ci)
+  printf '%s\n' "$FRONTEND_DEPENDENCY_HASH" > runtime/mac-test/frontend-dependencies.sha256
 fi
 
 echo "Building the latest frontend..."

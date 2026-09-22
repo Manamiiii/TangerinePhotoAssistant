@@ -69,6 +69,8 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
   const [resultMonth, setResultMonth] = useState("all");
   const [resultConfidence, setResultConfidence] = useState("all");
   const [resultProblem, setResultProblem] = useState("all");
+  const [resultError, setResultError] = useState<string | null>(null);
+  const [resultRetry, setResultRetry] = useState(0);
   const [resultPage, setResultPage] = useState<AiResultsResponse | null>(null);
   const [auditBenchmark, setAuditBenchmark] = useState<AiAuditBenchmark | null>(null);
   const [auditFacets, setAuditFacets] = useState<AiAuditFacets | null>(null);
@@ -144,6 +146,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
     : null;
   useEffect(() => {
     let active = true;
+    setResultPage(null); setResultError(null);
     const parameters = new URLSearchParams({ limit: String(resultLimit), offset: String(resultOffset) });
     if (resultVersion !== "all") parameters.set("prompt_version", resultVersion);
     if (resultVerdict !== "all") parameters.set("verdict", resultVerdict);
@@ -156,9 +159,9 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
     if (resultProblem !== "all") parameters.set("problem", resultProblem);
     getJson<AiResultsResponse>(`/api/ai/results?${parameters.toString()}`)
       .then((page) => { if (active) setResultPage(page); })
-      .catch(() => { if (active) setResultPage(null); });
+      .catch((reason) => { if (active) setResultError(reason instanceof Error ? reason.message : "模型结果读取失败"); });
     return () => { active = false; };
-  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, resultWorkflow, resultAlbum, resultSubject, resultMonth, resultConfidence, resultProblem, ai?.completed_analysis_count, workQueueRevision]);
+  }, [resultLimit, resultOffset, resultVersion, resultVerdict, resultAudit, resultWorkflow, resultAlbum, resultSubject, resultMonth, resultConfidence, resultProblem, ai?.completed_analysis_count, workQueueRevision, resultRetry]);
   const refreshAuditWorkbench = () => Promise.all([
     getJson<AiAuditBenchmark>("/api/ai/audit/benchmark"),
     getJson<AiAuditFacets>("/api/ai/audit/facets"),
@@ -280,6 +283,7 @@ export function AnalysisView({ analysis, preflight, quality, qualityFilter, qual
           <label>置信度<select value={resultConfidence} onChange={(event) => { setResultConfidence(event.target.value); setResultOffset(0); }}><option value="all">全部区间</option><option value="low">低于 0.5</option><option value="medium">0.5–0.8</option><option value="high">0.8–0.99</option><option value="overconfident">0.99 以上</option><option value="unknown">未记录</option></select></label>
           <label>问题类型<select value={resultProblem} onChange={(event) => { setResultProblem(event.target.value); setResultOffset(0); }}><option value="all">全部类型</option><option value="parse">解析失败</option><option value="schema">结构/逻辑</option><option value="unsafe">危险操作提及</option><option value="overconfident">过度自信</option><option value="low_confidence">低置信度</option><option value="visible">可见问题</option><option value="none">未标记问题</option></select></label>
         </div>
+        {resultError ? <div className="empty-state" role="alert">{resultError}<button onClick={() => setResultRetry((value) => value + 1)}>重试模型结果</button></div> : !resultPage && <div className="empty-state" role="status">正在读取模型结果…</div>}
         {resultPage && <Pagination count={resultPage.count} limit={resultPage.limit} offset={resultPage.offset} onChange={setResultOffset} onLimitChange={(limit) => { setResultOffset(0); setResultLimit(limit); }} />}
         {!!resultPage?.items.length && <div className="ai-result-grid">
           {resultPage.items.map((result) => <article key={result.id} className="ai-result-card">

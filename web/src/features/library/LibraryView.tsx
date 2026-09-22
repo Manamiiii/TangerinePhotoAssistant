@@ -26,7 +26,7 @@ function isLibraryTask(task: Task | null) {
   return task.stage === "album-archive" || ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(task.message);
 }
 
-const archiveLabels = { pending: "归档未完成", inbox: "待归档", mixed: "部分待归档", filed: "已在正式目录", empty: "暂无照片" };
+const archiveLabels = { pending: "归档未完成", inbox: "待归档", mixed: "部分待归档", filed: "待整理目录外", empty: "暂无照片" };
 
 function ratingStars(rating: number | null) {
   return rating ? "★".repeat(rating) : "—";
@@ -303,7 +303,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
     setSelected(next);
   };
   const exportSelected = async () => {
-    if (!selected.size) return;
+    if (!selected.size || selected.size > 100) return;
     setExporting(true);
     try {
       const result = await exportPhotos(Array.from(selected), { includeJpeg, includeRaw, originalJpeg, maxEdge });
@@ -428,7 +428,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
           <label><input type="checkbox" checked={includeRaw} onChange={(event) => setIncludeRaw(event.target.checked)} />RAW</label>
           {includeJpeg && <select aria-label="JPG 尺寸" value={originalJpeg ? "original" : String(maxEdge)} onChange={(event) => { setOriginalJpeg(event.target.value === "original"); if (event.target.value !== "original") setMaxEdge(Number(event.target.value)); }}><option value="original">JPG 原文件（含 EXIF）</option><option value="1080">JPG · 1080px</option><option value="2048">JPG · 2048px</option><option value="3840">JPG · 3840px</option></select>}
         </div>
-        <button className="toolbar-button primary export-share-button" disabled={!selected.size || exporting || (!includeJpeg && !includeRaw)} onClick={exportSelected}>{exporting ? "正在生成" : "生成导出 ZIP"}</button>
+        <button className="toolbar-button primary export-share-button" disabled={!selected.size || selected.size > 100 || exporting || (!includeJpeg && !includeRaw)} title="单次导出最多 100 张照片" onClick={exportSelected}>{exporting ? "正在生成" : selected.size > 100 ? "导出最多 100 张，请减少选择" : "生成导出 ZIP"}</button>
       </div>
     </section>
     {latestExport && <div className="export-success"><span>已生成 {latestExport.photo_count} 张 · JPG {latestExport.jpeg_count} · RAW {latestExport.raw_count} · {formatBytes(latestExport.size_bytes)}{latestExport.missing_raw_count ? ` · ${latestExport.missing_raw_count} 张无 RAW` : ""}</span><a href={latestExport.download_url} download={latestExport.filename}>再次下载</a></div>}

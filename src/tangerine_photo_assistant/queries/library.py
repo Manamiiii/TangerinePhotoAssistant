@@ -166,7 +166,7 @@ def query_library_captures(
         ordering = {
             "oldest": "c.captured_at IS NULL, c.captured_at ASC, c.id ASC",
             "name": "c.stem COLLATE NOCASE ASC, c.id ASC",
-            "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC",
+            "rating": "cr.user_rating IS NULL, cr.user_rating DESC, c.captured_at DESC, c.id DESC",
         }.get(sort, "c.captured_at IS NULL, c.captured_at DESC, c.id DESC")
         # A selective model JSON predicate is already the expensive part; do not
         # repeat it in an additional ID page query for that path.
@@ -198,7 +198,7 @@ def query_library_captures(
             outer_ordering = {
                 "oldest": "captured_at IS NULL, captured_at ASC, id ASC",
                 "name": "stem COLLATE NOCASE ASC, id ASC",
-                "rating": "user_rating IS NULL, user_rating DESC, captured_at DESC",
+                "rating": "user_rating IS NULL, user_rating DESC, captured_at DESC, id DESC",
             }.get(sort, "captured_at IS NULL, captured_at DESC, id DESC")
             collapsed_sql = f"""
                 WITH matched AS ({select_sql}),

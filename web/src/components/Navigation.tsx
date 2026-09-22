@@ -47,9 +47,9 @@ export function CollectionScopeTabs({ scope, setScope, allLabel = "全部" }: {
   setScope: (scope: "all" | "albums") => void;
   allLabel?: string;
 }) {
-  return <div className="collection-scope-tabs" role="tablist" aria-label="浏览范围">
-    <button role="tab" aria-selected={scope === "all"} className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>{allLabel}</button>
-    <button role="tab" aria-selected={scope === "albums"} className={scope === "albums" ? "active" : ""} onClick={() => setScope("albums")}>相册</button>
+  return <div className="collection-scope-tabs" role="group" aria-label="浏览范围">
+    <button aria-pressed={scope === "all"} className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>{allLabel}</button>
+    <button aria-pressed={scope === "albums"} className={scope === "albums" ? "active" : ""} onClick={() => setScope("albums")}>相册</button>
   </div>;
 }
 

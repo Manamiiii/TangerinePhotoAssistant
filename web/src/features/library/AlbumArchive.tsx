@@ -22,14 +22,17 @@ export function AlbumArchive({ albumId, task, onStarted }: {
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [page, setPage] = useState(0);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusRetry, setStatusRetry] = useState(0);
   const [status, setStatus] = useState<{ file_count: number; inbox_count: number; pending: boolean } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
+    setStatus(null); setStatusError(null);
     void getJson<{ file_count: number; inbox_count: number; pending: boolean }>(`/api/albums/${albumId}/archive/status`, { signal: controller.signal })
       .then((value) => { if (!controller.signal.aborted) setStatus(value); })
-      .catch(() => { if (!controller.signal.aborted) setStatus(null); });
+      .catch((reason) => { if (!controller.signal.aborted) setStatusError(reason instanceof Error ? reason.message : "归档状态读取失败"); });
     return () => controller.abort();
-  }, [albumId, task?.id, task?.status]);
+  }, [albumId, task?.id, task?.status, statusRetry]);
   const filed = status && !status.pending && status.file_count > 0 && status.inbox_count === 0;
   const blocked = !task || task.status === "running" || (task.status === "paused" && task.stage !== "album-archive");
   const preview = async () => {
@@ -52,10 +55,11 @@ export function AlbumArchive({ albumId, task, onStarted }: {
     finally { lock.current = false; setBusy(false); }
   };
   return <div className={`album-archive-entry ${filed ? "is-filed" : "needs-filing"}`}>
-    <div className="album-archive-copy"><strong>{filed ? "照片已在正式目录" : status?.pending ? "归档尚未完成" : "下一步：完成归档"}</strong><span>{filed ? "待整理源副本已清理或照片原本就在正式目录；可继续评分和选片" : status?.pending ? "请等待当前任务完成；中断后可从此处继续" : "入库完成后，在这里将待整理照片归入正式目录，并清理对应源副本"}</span></div>
-    <button className={`toolbar-button ${filed ? "" : "primary"}`} disabled={blocked || busy || Boolean(filed)} onClick={() => void preview()}>
-      {filed ? "已在正式目录" : status?.pending ? "继续归档" : "完成归档"}
+    <div className="album-archive-copy"><strong>{filed ? "照片不在待整理中" : !status ? (statusError ? "归档状态读取失败" : "正在读取归档状态…") : status?.pending ? "归档尚未完成" : "下一步：完成归档"}</strong><span>{filed ? "可继续评分和选片；系统维护中的完整性检查可核对文件是否现存" : !status ? "状态确认后才可操作归档" : status?.pending ? "请等待当前任务完成；中断后可从此处继续" : "入库完成后，在这里将待整理照片归入正式目录，并清理对应源副本"}</span></div>
+    <button className={`toolbar-button ${filed ? "" : "primary"}`} disabled={blocked || busy || !status || Boolean(filed)} onClick={() => void preview()}>
+      {filed ? "待整理目录外" : status?.pending ? "继续归档" : "完成归档"}
     </button>
+    {statusError && <p role="alert">{statusError}<button onClick={() => setStatusRetry((value) => value + 1)}>重试归档状态</button></p>}
     {open && <ModalShell title="完成归档" close={() => { if (!busy) setOpen(false); }} wide>
       <div className="editor-form">
         {busy && <p role="status">正在处理，请稍候…</p>}

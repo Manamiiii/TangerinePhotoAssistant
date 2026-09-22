@@ -102,12 +102,6 @@ class MetadataReader(Protocol):
     def read(self, paths: Iterable[Path]) -> Iterator[MetadataResult]: ...
 
 
-class UnavailableMetadataReader:
-    def read(self, paths: Iterable[Path]) -> Iterator[MetadataResult]:
-        for path in paths:
-            yield MetadataResult(path=path, values=None, error="ExifTool is not available")
-
-
 class PillowMetadataReader:
     """Read the common photographic EXIF fields from formats Pillow supports.
 

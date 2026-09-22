@@ -50,3 +50,23 @@ it("disables the entry while another task occupies the slot", async () => {
   await act(() => root.render(<AlbumArchive albumId={52} task={{ status: "paused", stage: "ai-analysis" } as Task} onStarted={vi.fn()} />));
   expect(button("完成归档").disabled).toBe(true);
 });
+it("blocks filing when status fails and allows retry", async () => {
+  vi.mocked(getJson).mockRejectedValueOnce(new Error("状态服务不可用"));
+  await act(() => root.render(<AlbumArchive albumId={52} task={{ status: "idle" } as Task} onStarted={vi.fn()} />));
+  expect(button("完成归档").disabled).toBe(true);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("状态服务不可用");
+  await act(() => button("重试归档状态").click());
+  expect(button("完成归档").disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it("ignores late status from the previous album", async () => {
+  let finish!: (value: unknown) => void;
+  vi.mocked(getJson).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const render = (id: number) => root.render(<AlbumArchive albumId={id} task={{ status: "idle" } as Task} onStarted={vi.fn()} />);
+  await act(() => render(52));
+  expect(button("完成归档").disabled).toBe(true);
+  await act(() => render(53));
+  await act(() => finish({ file_count: 1, inbox_count: 0, pending: false }));
+  expect(button("完成归档").disabled).toBe(false);
+  expect(host.textContent).not.toContain("待整理目录外");
+});

@@ -1,5 +1,6 @@
+import { createLatestRequestGuard } from "../../requestGuard";
 import { Pagination } from "../../components/Navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getJson } from "../../api";
 import { formatBytes, formatDate, numberFormat } from "../../formatters";
 
@@ -80,11 +81,25 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
   const [taskWorkflow, setTaskWorkflow] = useState("open");
   const [savingTask, setSavingTask] = useState<string | null>(null);
   const [taskIncidentError, setTaskIncidentError] = useState<string | null>(null);
+  const incidentGuard = useRef(createLatestRequestGuard());
+  const differenceGuard = useRef(createLatestRequestGuard());
+  const taskWorkflowRef = useRef(taskWorkflow); taskWorkflowRef.current = taskWorkflow;
+  const differenceRequest = useRef<{ scope: "archive" | "active"; offset: number; workflow: string; prefix: string } | null>(null);
+  const [differenceError, setDifferenceError] = useState<string | null>(null);
+  const [differenceLoading, setDifferenceLoading] = useState(false);
+  useEffect(() => () => { incidentGuard.current.invalidate(); differenceGuard.current.invalidate(); }, []);
+  const closeDifferences = () => {
+    differenceGuard.current.invalidate(); differenceRequest.current = null;
+    setDifferenceScope(null); setDifferences(null); setDirectorySummary(null); setDifferenceError(null); setDifferenceLoading(false);
+  };
   const loadTaskIncidents = async (workflow = taskWorkflow) => {
+    const token = incidentGuard.current.begin();
+    setTaskIncidents(null);
     try {
       setTaskIncidentError(null);
-      setTaskIncidents(await getJson<TaskIncidentPage>(`/api/task-incidents?workflow=${workflow}`));
-    } catch (reason) { setTaskIncidentError((reason as Error).message); }
+      const result = await getJson<TaskIncidentPage>(`/api/task-incidents?workflow=${workflow}`);
+      if (incidentGuard.current.isCurrent(token)) setTaskIncidents(result);
+    } catch (reason) { if (incidentGuard.current.isCurrent(token)) setTaskIncidentError((reason as Error).message); }
   };
   useEffect(() => {
     void loadTaskIncidents("open");
@@ -101,11 +116,14 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, snooze_days: status === "snoozed" ? 7 : null }),
       });
-      await loadTaskIncidents();
+      await loadTaskIncidents(taskWorkflowRef.current);
     } catch (reason) { setTaskIncidentError((reason as Error).message); }
     finally { setSavingTask(null); }
   };
   const loadDifferences = async (scope: "archive" | "active", offset = 0, workflow = differenceWorkflow, prefix = "") => {
+    const token = differenceGuard.current.begin();
+    differenceRequest.current = { scope, offset, workflow, prefix };
+    setDifferences(null); setDirectorySummary(null); setDifferenceError(null); setDifferenceLoading(true);
     setDifferenceScope(scope);
     setDirectoryPrefix(prefix);
     setIntegrityExport(null);
@@ -113,19 +131,23 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
     const parameters = new URLSearchParams({ limit: "50", offset: String(offset), workflow });
     const directoryParameters = new URLSearchParams({ workflow });
     if (prefix) { parameters.set("prefix", prefix); directoryParameters.set("prefix", prefix); }
-    const [page, directories] = await Promise.all([
-      getJson<IntegrityPage>(`/api/integrity/differences/${scope}?${parameters}`),
-      getJson<IntegrityDirectoryPage>(`/api/integrity/directories/${scope}?${directoryParameters}`),
-    ]);
-    setDifferences(page);
-    setDirectorySummary(directories);
+    try {
+      const [page, directories] = await Promise.all([
+        getJson<IntegrityPage>(`/api/integrity/differences/${scope}?${parameters}`),
+        getJson<IntegrityDirectoryPage>(`/api/integrity/directories/${scope}?${directoryParameters}`),
+      ]);
+      if (differenceGuard.current.isCurrent(token)) { setDifferences(page); setDirectorySummary(directories); }
+    } catch (reason) {
+      if (differenceGuard.current.isCurrent(token)) setDifferenceError(reason instanceof Error ? reason.message : "差异读取失败");
+    } finally { if (differenceGuard.current.isCurrent(token)) setDifferenceLoading(false); }
   };
   const updateDifference = async (relativePath: string, status: "pending" | "confirmed" | "ignored" | "snoozed" | "resolved") => {
     if (!differenceScope) return;
+    const currentRequest = differenceRequest.current;
     setSavingDifference(relativePath);
     try {
       await saveInvestigation(differenceScope, relativePath, status);
-      await loadDifferences(differenceScope, differences?.offset ?? 0, differenceWorkflow, directoryPrefix);
+      if (differenceRequest.current === currentRequest) await loadDifferences(differenceScope, differences?.offset ?? 0, differenceWorkflow, directoryPrefix);
     } catch {
       // The application-level error banner keeps the API message visible.
     } finally { setSavingDifference(null); }
@@ -207,8 +229,9 @@ export function ArchiveView({ archive, activeLibrary, createBaseline, createActi
       {baselineCard("活动图库", activeLibrary, createActiveBaseline, "active")}
     </section>
     {Object.values(integrityHistories).some((history) => (history?.count ?? 0) >= 2) && <section className="panel archive-panel integrity-history-panel"><div className="panel-heading"><div><span className="section-kicker">跨检查比较</span><h3>最近完整性变化</h3></div></div><div className="integrity-history-grid">{(["archive", "active"] as const).map((scope) => { const history = integrityHistories[scope]; if (!history || history.count < 2) return null; return <article key={scope}><strong>{scope === "archive" ? "历史存档" : "活动图库"}</strong>{history.items.slice(0, 6).map((item) => <div key={item.id}><span>{formatDate(item.checked_at)}</span><b>{item.difference_count} 项</b><small>{item.difference_delta == null ? "首次记录" : `${item.difference_delta > 0 ? "+" : ""}${item.difference_delta} 净变化 · 新出现 ${item.introduced_since_previous} · 已恢复 ${item.resolved_since_previous}${item.type_changed_since_previous ? ` · 类型变化 ${item.type_changed_since_previous}` : ""}`}</small></div>)}</article>; })}</div></section>}
+    {differenceScope && (differenceLoading || differenceError) && <div role={differenceError ? "alert" : "status"} className="empty-state">{differenceError ?? "正在读取差异…"}{differenceError && <button onClick={() => { const request = differenceRequest.current; if (request) void loadDifferences(request.scope, request.offset, request.workflow, request.prefix); }}>重试差异</button>}<button onClick={closeDifferences}>关闭</button></div>}
     {differenceScope && differences && <section className="panel archive-panel">
-      <div className="panel-heading"><div><span className="section-kicker">完整差异清单</span><h3>{differenceScope === "archive" ? "历史存档" : "活动图库"} · {numberFormat.format(differences.count)} 项</h3></div><div className="integrity-investigation-toolbar"><select aria-label="调查状态" value={differenceWorkflow} onChange={(event) => { const workflow = event.target.value; setDifferenceWorkflow(workflow); void loadDifferences(differenceScope, 0, workflow, directoryPrefix); }}><option value="open">当前待调查</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option></select><button className="toolbar-button" disabled={exportingIntegrity} onClick={() => void exportDifferences()}>{exportingIntegrity ? "正在导出" : "导出当前结果"}</button><button className="toolbar-button" onClick={() => { setDifferenceScope(null); setDifferences(null); setDirectorySummary(null); }}>关闭</button></div></div>
+      <div className="panel-heading"><div><span className="section-kicker">完整差异清单</span><h3>{differenceScope === "archive" ? "历史存档" : "活动图库"} · {numberFormat.format(differences.count)} 项</h3></div><div className="integrity-investigation-toolbar"><select aria-label="调查状态" value={differenceWorkflow} onChange={(event) => { const workflow = event.target.value; setDifferenceWorkflow(workflow); void loadDifferences(differenceScope, 0, workflow, directoryPrefix); }}><option value="open">当前待调查</option><option value="new">新发现</option><option value="reappeared">重新出现</option><option value="snoozed">稍后处理</option><option value="confirmed">已核对</option><option value="ignored">已忽略</option><option value="resolved">已解决</option><option value="all">全部状态</option></select><button className="toolbar-button" disabled={exportingIntegrity} onClick={() => void exportDifferences()}>{exportingIntegrity ? "正在导出" : "导出当前结果"}</button><button className="toolbar-button" onClick={closeDifferences}>关闭</button></div></div>
       <div className="integrity-directory-breadcrumb"><button onClick={() => void loadDifferences(differenceScope, 0, differenceWorkflow, "")}>全部目录</button>{directoryPrefix.split("/").filter(Boolean).map((part, index, parts) => { const prefix = parts.slice(0, index + 1).join("/"); return <button key={prefix} onClick={() => void loadDifferences(differenceScope, 0, differenceWorkflow, prefix)}>› {part}</button>; })}</div>
       {!!directorySummary?.directories.length && <div className="integrity-directory-grid">{directorySummary.directories.map((directory) => <button key={directory.prefix} onClick={() => void loadDifferences(differenceScope, 0, differenceWorkflow, directory.prefix)}><span><strong>{directory.name}</strong><small>{directory.open_count} 项待处理 · 缺失 {directory.missing} · 变化 {directory.changed} · 新增 {directory.new}</small></span><b>{numberFormat.format(directory.count)}</b></button>)}</div>}
       {integrityExport && <div className="portable-result"><span>已导出当前范围 · {numberFormat.format(integrityExport.count)} 项</span><a href={integrityExport.csv_url} download>下载 CSV</a><a href={integrityExport.json_url} download>下载 JSON</a></div>}

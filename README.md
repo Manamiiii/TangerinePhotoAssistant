@@ -1,6 +1,6 @@
 # TangerinePhotoAssistant
 
-> macOS 功能测试：项目提供隔离的四张缩小样片、独立配置和一条启动命令。Mac clone 后运行 `bash start-mac-test.sh`；完整说明见 [docs/MAC_TEST.md](docs/MAC_TEST.md)。Windows 本机仍是长期正式运行环境，Mac 测试不会连接正式图库、数据库、Lightroom 或本地 8B 模型。
+> macOS 功能测试：项目提供隔离样片、100 张分页演示数据、独立配置和一条启动命令。Mac clone 后运行 `bash start-mac-test.sh`；完整说明见 [docs/MAC_TEST.md](docs/MAC_TEST.md)。Windows 本机仍是长期正式运行环境，Mac 测试不会连接正式图库、数据库、Lightroom 或本地 8B 模型。
 
 一个面向个人摄影资料库的本地优先助手。它负责照片审计、JPG/RAW 配对、相册与题材分类、连拍选优、质量分级、拍摄复盘、修图建议、统计分析，以及与 Lightroom Classic 的 XMP 工作流衔接。
 

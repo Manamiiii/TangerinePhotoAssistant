@@ -9,6 +9,20 @@ from tangerine_photo_assistant.queries.library import query_library_captures
 
 
 class LibraryPaginationTests(unittest.TestCase):
+    def test_equal_rating_and_time_have_stable_id_order(self):
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "catalog.sqlite3"
+            generate_synthetic_catalog(database, 100)
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute("UPDATE captures SET captured_at='2026-01-01'")
+                connection.execute("DELETE FROM capture_reviews")
+                expected = [row[0] for row in connection.execute("SELECT id FROM captures ORDER BY id DESC")]
+            actual = []
+            for offset in range(0, len(expected), 7):
+                page = query_library_captures(database, 7, offset, sort="rating")
+                actual.extend(item["id"] for item in page["items"])
+            self.assertEqual(actual, expected)
+
     def test_page_hydration_preserves_order_filters_counts_and_fields(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "catalog.sqlite3"
