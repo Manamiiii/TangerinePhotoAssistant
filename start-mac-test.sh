@@ -40,7 +40,7 @@ if ! command -v node >/dev/null 2>&1 || ! node -e 'const [major, minor] = proces
 fi
 
 mkdir -p runtime/mac-test
-PYTHON_DEPENDENCY_HASH="$(shasum -a 256 pyproject.toml)"
+PYTHON_DEPENDENCY_HASH="$(shasum -a 256 pyproject.toml requirements-tested.txt)"
 FRONTEND_DEPENDENCY_HASH="$(shasum -a 256 web/package.json web/package-lock.json)"
 if [[ ! -x ".venv-mac/bin/python" ]]; then
   echo "Creating isolated Mac test environment..."
@@ -48,7 +48,7 @@ if [[ ! -x ".venv-mac/bin/python" ]]; then
   .venv-mac/bin/python -m pip install --upgrade pip
 fi
 if [[ "$(cat runtime/mac-test/python-dependencies.sha256 2>/dev/null || true)" != "$PYTHON_DEPENDENCY_HASH" ]] || ! .venv-mac/bin/python -c 'import tangerine_photo_assistant' >/dev/null 2>&1; then
-  .venv-mac/bin/python -m pip install -e .
+  .venv-mac/bin/python -m pip install -c requirements-tested.txt -e .
   printf '%s\n' "$PYTHON_DEPENDENCY_HASH" > runtime/mac-test/python-dependencies.sha256
 fi
 

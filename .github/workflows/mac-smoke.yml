@@ -22,7 +22,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-tested.txt
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -46,14 +48,15 @@ jobs:
           done
           curl --silent --fail http://127.0.0.1:8765/api/health
           curl --silent --fail http://127.0.0.1:8765/api/tasks/current
-          python - <<'PY'
+          .venv-mac/bin/python - <<'PY'
           import json
           import os
           from pathlib import Path
+          from tangerine_photo_assistant.database import SCHEMA_VERSION
 
           health = json.loads((Path(os.environ["RUNNER_TEMP"]) / "health.json").read_text())
           assert health["status"] == "ok"
-          assert health["schema_version"] == 32
+          assert health["schema_version"] == SCHEMA_VERSION
           assert health["mode"] == "local-only"
           PY
       - name: Upload service log on failure

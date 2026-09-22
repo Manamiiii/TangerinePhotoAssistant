@@ -1,0 +1,22 @@
+# Tested runtime and test dependency constraints for Python 3.12.
+# Use: python -m pip install -c requirements-tested.txt -e ".[test]"
+# Desktop/package extras and build-isolation tools are outside this constraint set.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+click==8.4.2
+colorama==0.4.6
+fastapi==0.141.1
+h11==0.16.0
+httpcore2==2.12.0
+httpx2==2.12.0
+idna==3.18
+pillow==11.3.0
+pydantic==2.13.4
+pydantic-core==2.46.4
+ruff==0.16.4
+starlette==1.4.1
+truststore==0.10.4
+typing-extensions==4.16.0
+typing-inspection==0.4.2
+uvicorn==0.52.1

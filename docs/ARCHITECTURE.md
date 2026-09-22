@@ -52,7 +52,7 @@ Windows 独立窗口由 `desktop.py` / `desktop_window.py` 提供，不向网页
 ## 写入边界
 
 - `inventory`、`visual`、`quality` 和模型分析只读取照片，结果写入 SQLite 或可重建缓存。
-- `exports` 只在报告目录产生无 EXIF 的派生 JPEG/ZIP。
+- `exports` 只在报告目录产生导出包；缩小 JPG 去除 EXIF，原始 JPG/RAW 导出保持原文件字节。
 - `lightroom` 当前只产生 CSV/JSON 清单。
 - `migration` 承担全库复制；`album_archive` 承担用户明确确认的待整理相册归档。后者是独立、
   受限的原片写入入口，不开启通用移动或删除能力：预览绑定相册、文件状态和目标路径；排除
@@ -262,3 +262,7 @@ capture_key_aliases 保存历史路径键到 Capture ID 的关系。数据库触
 
 启动在任何创建/迁移前检查基础安全配置，以只读方式解析既有 active_root，再检查实际活动
 路径。导入分配以扫描前 Capture 集合过滤新建身份，补充旧 Capture 的 RAW/JPG 不重新分配相册。
+
+Schema 34 的 `import_batch` 保存单个未完成导入的目标相册、扫描边界及原有 Capture ID 集合。
+配对完成后先分配新照片并删除本批意图，再重建结构；意图清除与相册分配在同一事务提交。
+中断后显示原目标相册并等待用户重试，不把给旧照片补 RAW 视作新照片，不自动重启任务。

@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from tangerine_photo_assistant.database import SCHEMA_VERSION
 from tangerine_photo_assistant.desktop import ServiceClient
 from tangerine_photo_assistant.service_runtime import CONTROL_HEADER
 from tangerine_photo_assistant.settings import Settings, write_safe_config
@@ -36,7 +37,7 @@ def main():
     try:
         health = client.ensure_running(lambda _: None, timeout=45)
         started = True
-        assert health["desktop_control"] and health["schema_version"] == 32
+        assert health["desktop_control"] and health["schema_version"] == SCHEMA_VERSION
         assert client.request("/api/tasks/current")["status"] == "idle"
         with client.opener.open(client.url, timeout=3) as response:
             assert b"<html" in response.read()

@@ -10,7 +10,7 @@ from test_inventory import FakeMetadataReader, settings_for
 
 from tangerine_photo_assistant import album_archive
 from tangerine_photo_assistant.albums import assign_captures_to_album, create_album
-from tangerine_photo_assistant.database import connect
+from tangerine_photo_assistant.database import SCHEMA_VERSION, connect
 from tangerine_photo_assistant.inventory import scan_library
 from tangerine_photo_assistant.pairing import rebuild_captures
 from tangerine_photo_assistant.portable_data import (
@@ -145,13 +145,13 @@ class DataLifecycleTests(unittest.TestCase):
             UPDATE schema_info SET version=32;''')
         upgraded = connect(self.settings.database_path)
         try:
-            self.assertEqual(upgraded.execute('SELECT version FROM schema_info').fetchone()[0], 33)
+            self.assertEqual(upgraded.execute('SELECT version FROM schema_info').fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(upgraded.execute('SELECT capture_id FROM capture_key_aliases').fetchone()[0], self.capture)
             self.assertEqual(upgraded.execute('SELECT COUNT(*) FROM capture_tags').fetchone()[0], 1)
             self.assertEqual(upgraded.execute('PRAGMA foreign_key_check').fetchall(), [])
         finally:
             upgraded.close()
-        backups = list(self.settings.workspace.rglob('*pre-schema33-from32*.sqlite3'))
+        backups = list(self.settings.workspace.rglob(f'*pre-schema{SCHEMA_VERSION}-from32*.sqlite3'))
         self.assertEqual(len(backups), 1)
         backup = sqlite3.connect(f'{backups[0].as_uri()}?mode=ro', uri=True)
         try:
@@ -171,7 +171,7 @@ class DataLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_app(config)
         self.assertEqual(self.db.execute('SELECT version FROM schema_info').fetchone()[0], 32)
-        self.assertFalse(list(self.settings.workspace.rglob('*pre-schema33*')))
+        self.assertFalse(list(self.settings.workspace.rglob(f'*pre-schema{SCHEMA_VERSION}*')))
 
     def test_pairing_collision_rolls_back_without_merging_capture_history(self):
         (self.settings.originals / 'B.RAF').write_bytes(b'isolated raw')

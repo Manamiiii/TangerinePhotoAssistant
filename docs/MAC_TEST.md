@@ -8,7 +8,7 @@ catalog, XMP file, or original photo is copied to macOS.
 
 - macOS 13 or newer
 - Python 3.12 or newer
-- Node.js 20 or newer (includes `npm`)
+- Node.js 20.19+ or 22.12+ (includes `npm`)
 - Optional: ExifTool from Homebrew for EXIF enrichment
 
 Optional EXIF support:

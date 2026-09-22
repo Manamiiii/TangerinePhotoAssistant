@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -796,6 +796,14 @@ def connect(path: Path) -> sqlite3.Connection:
             ON migration_items(plan_id, target_relative);
         """
     )
+    connection.execute("""CREATE TABLE IF NOT EXISTS import_batch (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        album_id INTEGER NOT NULL REFERENCES events(id),
+        root_path TEXT NOT NULL,
+        after_scan_run_id INTEGER NOT NULL,
+        existing_capture_ids_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""")
     if existing_version is None or existing_version < 33:
         connection.execute('''INSERT OR IGNORE INTO capture_key_aliases(capture_key,capture_id)
             SELECT capture_key,id FROM captures

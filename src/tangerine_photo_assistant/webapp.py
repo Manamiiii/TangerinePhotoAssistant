@@ -81,6 +81,7 @@ from .archive import (
     write_integrity_difference_report,
 )
 from .database import SCHEMA_VERSION, connect, connect_readonly
+from .import_batch import begin_import, finish_import, pending_import, validate_target
 from .diagnostics import write_diagnostic_bundle
 from .editing import (
     EditRecipeError,
@@ -510,6 +511,14 @@ class ScanTaskManager:
                 message='相册归档未完成，请在对应相册继续归档',
                 result={'album_id': unfinished['album_id']},
             )
+
+        if self._state.status == 'idle' and settings.database_path.is_file():
+            with closing(connect_readonly(settings.database_path)) as connection:
+                batch = pending_import(connection)
+            if batch:
+                self._state = TaskState(status='failed', stage='import-recovery',
+                    message=f"图库更新未完成，请在相册“{batch['album_name']}”中继续扫描",
+                    result={'album_id': batch['album_id']})
 
     def start_album_archive(self, plan_id: str, confirmation: str) -> dict[str, Any]:
         with self._lock:
@@ -945,6 +954,7 @@ class ScanTaskManager:
                     "SELECT 1 FROM events WHERE id=? AND status!='archived'", (album_id,)
                 ).fetchone() is None:
                     raise ValueError("目标相册不存在")
+                validate_target(pending_import(connection), album_id, self.settings.originals)
             finally:
                 connection.close()
             task_id = uuid4().hex
@@ -1372,7 +1382,7 @@ class ScanTaskManager:
         connection: sqlite3.Connection | None = None
         try:
             connection = connect(self.settings.database_path)
-            existing_capture_ids = {row[0] for row in connection.execute('SELECT id FROM captures')}
+            batch = begin_import(connection, album_id, self.settings.originals)
             run_id = scan_library(
                 connection,
                 self.settings,
@@ -1404,21 +1414,10 @@ class ScanTaskManager:
             )
             self._update(stage="pairing", message="正在配对 JPG 与 RAW…")
             rebuild_captures(connection)
+            self._update(stage="album", message="正在把新增照片归入目标相册…")
+            assigned_count = finish_import(connection, batch)
             self._update(stage="structure", message="正在更新相册建议与连拍候选…")
             rebuild_structure(connection, self.settings.burst_time_gap_seconds)
-            self._update(stage="album", message="正在把新增照片归入目标相册…")
-            capture_ids = [
-                row[0] for row in connection.execute(
-                    """SELECT DISTINCT cf.capture_id FROM capture_files cf
-                       JOIN files f ON f.id=cf.file_id
-                       WHERE f.first_seen_run_id=? AND f.present=1""",
-                    (run_id,),
-                )
-                if row[0] not in existing_capture_ids
-            ]
-            assigned_count = assign_captures_to_album(
-                connection, album_id, capture_ids
-            ) if capture_ids else 0
             self._update(stage="reporting", message="正在更新审计报告…")
             write_report(build_report(connection), self.settings.reports_path)
             self._update(
@@ -1437,7 +1436,7 @@ class ScanTaskManager:
             self._update(
                 status="failed",
                 stage="failed",
-                message="扫描失败",
+                message="扫描失败，请排除故障后在原相册重试",
                 error=type(exc).__name__,
             )
         finally:
@@ -1879,6 +1878,13 @@ def create_app(
                 )
                 if not allowed:
                     return JSONResponse(status_code=409, content={'detail': '请先完成相册归档；当前暂停其他写入操作'})
+        if request.method not in SAFE_HTTP_METHODS and request.url.path in {
+            '/api/tasks/current/cancel', '/api/migration/runs/current/pause',
+            '/api/detail-data/backfill/pause', '/api/ai/runs/current/pause',
+        }:
+            # These only signal existing work; waiting behind a ZIP export defeats
+            # their purpose. Authentication and archive recovery guards ran above.
+            return await call_next(request)
         if request.method not in SAFE_HTTP_METHODS:
             # Shutdown and task-start/config/review writes share the same gate.
             # Once draining, no new write can slip between the idle check and exit.

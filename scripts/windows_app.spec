@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 root = Path(SPECPATH).parent
 data = [(str(root / source), target) for source, target in [
     ("web/dist", "web/dist"), ("equipment", "equipment"), ("assets", "assets"),
-    ("THIRD_PARTY_ASSETS.md", "."), ("README.md", "."),
+    ("THIRD_PARTY_ASSETS.md", "."),
 ]]
 data += [(str(path), str(path.parent.relative_to(root)))
          for path in (root / "src/tangerine_photo_assistant").rglob("*.py")]
