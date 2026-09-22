@@ -16,6 +16,13 @@ FastAPI (`webapp.py`)
         └─ SQLite：database.py
 ```
 
+相册列表、创建/编辑、类型管理、成员分配、整理建议、扫描入口及归档接口集中在
+`album_routes.py`。路由通过 getter 读取当前 Settings，活动图库切换后不保留旧目录；
+归档预览的任务互斥由 `ScanTaskManager.preview_album_archive` 负责，路由不访问任务私有锁。
+操作系统打开目录接口仍在 `webapp.py`，与其他系统能力共用平台适配。
+前端对应写操作集中在 `features/library/albumActions.ts`，由主组件传入状态更新和资源刷新方法，
+保持错误传播、分页重置及成功提示时机。接口路径、请求结构和响应状态码未变。
+
 日常仅在本机 Windows 使用正式库。已移除持久演示库及 Mac 演示入口；自动化测试仍使用自动清理的临时目录，不以正式库进行写入、损坏或恢复实验。
 
 公共化基础使用同一套 `Settings` 数据模型。CLI 初始化器只生成安全配置，

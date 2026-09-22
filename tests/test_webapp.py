@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from pydantic import ValidationError
 
+from tangerine_photo_assistant.album_routes import ScanStartRequest
+from tangerine_photo_assistant.album_routes import query_album_listing as _query_albums
 from tangerine_photo_assistant.albums import assign_captures_to_album
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.inventory import scan_library
@@ -26,12 +28,10 @@ from tangerine_photo_assistant.visual import (
 )
 from tangerine_photo_assistant.webapp import (
     AiStartRequest,
-    ScanStartRequest,
     ScanTaskManager,
     SimilarityGroupEditRequest,
     _open_file,
     _pick_directory,
-    _query_albums,
     _query_analysis_overview,
     _query_inbox,
     _query_library_captures,
