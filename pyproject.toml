@@ -50,7 +50,5 @@ ignore = ["BLE001"]
 "src/tangerine_photo_assistant/portable_data.py" = ["TRY004"]
 "src/tangerine_photo_assistant/tags.py" = ["SIM118"]
 "src/tangerine_photo_assistant/webapp.py" = ["I001"]
-# Demo EXIF capture times are naive by design (EXIF stores no timezone).
-"src/tangerine_photo_assistant/sample_data.py" = ["DTZ001"]
 # Controller scripts log local wall-clock timestamps on purpose.
 "scripts/*" = ["DTZ005"]

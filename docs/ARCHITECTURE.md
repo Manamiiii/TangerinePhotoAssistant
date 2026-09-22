@@ -16,7 +16,7 @@ FastAPI (`webapp.py`)
         └─ SQLite：database.py
 ```
 
-正式数据只在 Windows 主机使用。Mac 启动脚本创建独立的演示图库、缓存和数据库，不读取正式路径。
+日常仅在本机 Windows 使用正式库。已移除持久演示库及 Mac 演示入口；自动化测试仍使用自动清理的临时目录，不以正式库进行写入、损坏或恢复实验。
 
 公共化基础使用同一套 `Settings` 数据模型。CLI 初始化器只生成安全配置，
 `/api/system/capabilities` 则向网页和桌面壳报告操作系统、可选工具和当前安全开关；
