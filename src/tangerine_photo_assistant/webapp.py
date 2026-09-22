@@ -1804,6 +1804,7 @@ def create_app(
     app = FastAPI(title="TangerinePhotoAssistant", docs_url=None, redoc_url=None)
     session_token = secrets.token_urlsafe(32)
     write_gate = asyncio.Lock()
+    exporting_photos = False
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]"],
@@ -1811,6 +1812,7 @@ def create_app(
 
     @app.middleware("http")
     async def protect_local_writes(request: Request, call_next: Any) -> Response:
+        nonlocal exporting_photos
         if request.method not in SAFE_HTTP_METHODS:
             host = request.headers.get("host", "")
             expected_origin = f"{request.url.scheme}://{host}"
@@ -1837,8 +1839,8 @@ def create_app(
             # their purpose. Authentication and archive recovery guards ran above.
             return await call_next(request)
         if request.method not in SAFE_HTTP_METHODS:
-            # Shutdown and task-start/config/review writes share the same gate.
-            # Once draining, no new write can slip between the idle check and exit.
+            # Register exports under the same gate as shutdown/task starts, then
+            # release it during encoding. Only explicit metadata writes may overlap.
             async with write_gate:
                 state = manager.snapshot()
                 if manager.archive_recovery_error:
@@ -1851,7 +1853,26 @@ def create_app(
                         return JSONResponse(status_code=409, content={'detail': '请先完成相册归档；当前暂停其他写入操作'})
                 if service_control is not None and service_control.draining:
                     return JSONResponse(status_code=503, content={"detail": "服务正在安全重启"})
+                path = request.url.path
+                metadata_write = (
+                    request.method == 'PUT' and re.fullmatch(
+                        r'/api/(reviews/(?:batch|\d+)|captures/\d+/tags|work-items/(?:batch|[^/]+/\d+))', path,
+                    ) is not None
+                ) or (request.method == 'POST' and path == '/api/captures/tags/batch')
+                if exporting_photos and not metadata_write:
+                    return JSONResponse(status_code=409, content={
+                        'detail': '照片正在导出；评分和标签仍可编辑，其他写入请等待导出完成',
+                    })
+                if path != '/api/exports/photos':
+                    return await call_next(request)
+                if state['status'] in {'running', 'paused'} and str(state.get('stage', '')).startswith('migration'):
+                    return JSONResponse(status_code=409, content={'detail': '请先完成图库迁移，再导出照片'})
+                exporting_photos = True
+            try:
                 return await call_next(request)
+            finally:
+                async with write_gate:
+                    exporting_photos = False
         return await call_next(request)
 
     config_state = {"restart_required": False, "backup_path": None}
