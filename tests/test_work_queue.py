@@ -89,7 +89,7 @@ class WorkQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "catalog.sqlite3"
             connection = connect(database)
-            self.assertEqual(SCHEMA_VERSION, 32)
+            self.assertEqual(connection.execute('SELECT version FROM schema_info').fetchone()[0], SCHEMA_VERSION)
             connection.execute(
                 "INSERT INTO scan_runs(id,started_at,root_path,status) VALUES (1,'now','TEST','complete')"
             )

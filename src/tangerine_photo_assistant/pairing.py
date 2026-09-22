@@ -30,9 +30,13 @@ def rebuild_captures(connection: sqlite3.Connection) -> dict[str, int]:
         for table in ("visual_fingerprints", "quality_metrics", "capture_reviews", "ai_analyses")
         for row in connection.execute(f"SELECT DISTINCT capture_id FROM {table}")
     }
+    previous_keys = {row['id']: row['capture_key'] for row in connection.execute(
+        'SELECT id,capture_key FROM captures'
+    )}
     summary: dict[str, int] = defaultdict(int)
     with transaction(connection):
-        connection.execute("DELETE FROM capture_files")
+        # Keep absent-file associations: they are the identity bridge on reappearance.
+        connection.execute("DELETE FROM capture_files WHERE file_id IN (SELECT id FROM files WHERE present=1)")
         # Free path-derived keys while retaining capture ids and every dependent result.
         marker = uuid4().hex
         connection.execute(
@@ -62,6 +66,8 @@ def rebuild_captures(connection: sqlite3.Connection) -> dict[str, int]:
                 if file["id"] in existing_by_file
                 and existing_by_file[file["id"]] not in used_capture_ids
             }
+            if len(candidates) > 1:
+                raise ValueError('配对涉及多个已有拍摄单元，请先核对；未合并或删除人工数据')
             capture_id = min(
                 candidates,
                 key=lambda value: (value not in protected_ids, value),
@@ -105,11 +111,12 @@ def rebuild_captures(connection: sqlite3.Connection) -> dict[str, int]:
             for row in connection.execute("SELECT id FROM captures")
             if row[0] not in used_capture_ids
         ]
-        removable = [capture_id for capture_id in obsolete if capture_id not in protected_ids]
-        if removable:
-            connection.executemany(
-                "DELETE FROM captures WHERE id=?", ((capture_id,) for capture_id in removable)
-            )
+        # Missing captures are durable records, regardless of which user-data tables
+        # happen to reference them. A key collision rolls back instead of losing history.
+        connection.executemany(
+            'UPDATE captures SET capture_key=? WHERE id=?',
+            ((previous_keys[capture_id], capture_id) for capture_id in obsolete),
+        )
         summary["preserved_results"] = len(used_capture_ids & protected_ids)
         summary["detached_protected"] = len(set(obsolete) & protected_ids)
     return dict(summary)

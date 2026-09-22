@@ -156,6 +156,17 @@ def backup_summary(data: dict[str, Any]) -> dict[str, int]:
     )}
 
 
+def _capture_key_matches(connection: sqlite3.Connection) -> tuple[dict[str, int], set[str]]:
+    candidates: dict[str, set[int]] = {}
+    for row in connection.execute('''SELECT capture_key,id AS capture_id FROM captures
+        UNION SELECT capture_key,capture_id FROM capture_key_aliases'''):
+        candidates.setdefault(row['capture_key'], set()).add(row['capture_id'])
+    return (
+        {key: next(iter(ids)) for key, ids in candidates.items() if len(ids) == 1},
+        {key for key, ids in candidates.items() if len(ids) > 1},
+    )
+
+
 def preflight_restore(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     _validate(data)
     keys = {str(row.get("capture_key", "")) for section in (
@@ -169,12 +180,10 @@ def preflight_restore(connection: sqlite3.Connection, data: dict[str, Any]) -> d
             keys.add(str(group.get("representative_capture_key", "")))
             keys.update(str(key) for key in group.get("capture_keys", []))
     keys.discard("")
-    existing = set()
-    for batch_start in range(0, len(keys), 500):
-        batch = list(keys)[batch_start:batch_start + 500]
-        if batch:
-            existing.update(row[0] for row in connection.execute(
-                f"SELECT capture_key FROM captures WHERE capture_key IN ({','.join('?' for _ in batch)})", batch))
+    matches, ambiguous = _capture_key_matches(connection)
+    if keys & ambiguous:
+        raise ValueError(f'备份中有 {len(keys & ambiguous)} 个路径对应多个拍摄单元，不能安全恢复')
+    existing = set(matches)
     return {"valid": True, "summary": backup_summary(data), "capture_keys": len(keys),
             "matched_captures": len(keys & existing), "missing_captures": len(keys - existing),
             "equipment_included": bool(data.get("equipment")), "confirmation": RESTORE_CONFIRMATION}
@@ -193,7 +202,7 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
             raise RuntimeError("恢复前数据库备份校验失败")
     finally:
         destination.close()
-    capture_ids = {row["capture_key"]: row["id"] for row in connection.execute("SELECT id,capture_key FROM captures")}
+    capture_ids, _ = _capture_key_matches(connection)
     now = utc_now()
     try:
         connection.execute("BEGIN")

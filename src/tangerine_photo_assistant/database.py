@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -184,6 +184,28 @@ def connect(path: Path) -> sqlite3.Connection:
             role TEXT NOT NULL,
             PRIMARY KEY (capture_id, file_id)
         );
+
+        CREATE TABLE IF NOT EXISTS capture_key_aliases (
+            capture_key TEXT NOT NULL,
+            capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+            PRIMARY KEY (capture_key, capture_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_capture_key_aliases_capture
+            ON capture_key_aliases(capture_id);
+        CREATE TRIGGER IF NOT EXISTS capture_key_alias_insert AFTER INSERT ON captures
+        WHEN NEW.capture_key NOT LIKE 'rebuild:%' AND NEW.capture_key NOT LIKE 'switch:%'
+        BEGIN
+            INSERT OR IGNORE INTO capture_key_aliases VALUES(NEW.capture_key, NEW.id);
+        END;
+        CREATE TRIGGER IF NOT EXISTS capture_key_alias_update AFTER UPDATE OF capture_key ON captures
+        BEGIN
+            INSERT OR IGNORE INTO capture_key_aliases
+                SELECT OLD.capture_key,OLD.id
+                WHERE OLD.capture_key NOT LIKE 'rebuild:%' AND OLD.capture_key NOT LIKE 'switch:%';
+            INSERT OR IGNORE INTO capture_key_aliases
+                SELECT NEW.capture_key,NEW.id
+                WHERE NEW.capture_key NOT LIKE 'rebuild:%' AND NEW.capture_key NOT LIKE 'switch:%';
+        END;
 
         CREATE INDEX IF NOT EXISTS idx_capture_files_capture_role_file
             ON capture_files(capture_id, role, file_id);
@@ -772,6 +794,10 @@ def connect(path: Path) -> sqlite3.Connection:
             ON migration_items(plan_id, target_relative);
         """
     )
+    if existing_version is None or existing_version < 33:
+        connection.execute('''INSERT OR IGNORE INTO capture_key_aliases(capture_key,capture_id)
+            SELECT capture_key,id FROM captures
+            WHERE capture_key NOT LIKE 'rebuild:%' AND capture_key NOT LIKE 'switch:%' ''')
     _ensure_column(connection, "archive_baselines", "root_path", "TEXT")
     _ensure_column(
         connection, "archive_baselines", "scope", "TEXT NOT NULL DEFAULT 'archive'"

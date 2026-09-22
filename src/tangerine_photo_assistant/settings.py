@@ -92,14 +92,14 @@ class Settings:
             daily_review_budget=int(workflow.get("daily_review_budget", 30)),
         )
 
-    def validate(self) -> list[str]:
+    def validate(self, *, require_originals: bool = True) -> list[str]:
         errors: list[str] = []
         resolved = {
             "originals": self.originals.resolve(),
             "workspace": self.workspace.resolve(),
             "cache": self.cache_root.resolve(),
         }
-        if not self.originals.is_dir():
+        if require_originals and not self.originals.is_dir():
             errors.append(f"Photo library does not exist: {self.originals}")
         if len(set(resolved.values())) != len(resolved):
             errors.append("Originals, workspace, and cache paths must be different")

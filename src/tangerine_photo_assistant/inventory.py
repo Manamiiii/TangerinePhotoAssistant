@@ -94,15 +94,10 @@ def scan_library(
     root = settings.originals.resolve()
     run_id = start_scan(connection, root)
     files_seen = 0
+    access_errors: list[tuple[str, str, str]] = []
 
     def record_error(path: Path, error: OSError) -> None:
-        connection.execute(
-            """
-            INSERT INTO scan_errors(scan_run_id, path, error_type, message)
-            VALUES (?, ?, ?, ?)
-            """,
-            (run_id, str(path), type(error).__name__, str(error)),
-        )
+        access_errors.append((str(path), type(error).__name__, str(error)))
 
     try:
         with transaction(connection):
@@ -158,6 +153,10 @@ def scan_library(
                 if progress and files_seen % 1000 == 0:
                     progress(files_seen)
 
+            if access_errors:
+                # An unreadable subtree is not evidence that its files disappeared.
+                # Roll back the whole index batch so a retry retains first-seen semantics.
+                raise OSError(f"扫描不完整：{len(access_errors)} 处访问失败，索引未更新")
             connection.execute(
                 "UPDATE files SET present = 0 WHERE last_seen_run_id != ? AND present = 1",
                 (run_id,),
@@ -177,6 +176,10 @@ def scan_library(
         connection.commit()
     except Exception as exc:
         connection.rollback()
+        connection.executemany(
+            "INSERT INTO scan_errors(scan_run_id,path,error_type,message) VALUES (?,?,?,?)",
+            ((run_id, *error) for error in access_errors),
+        )
         connection.execute(
             """
             UPDATE scan_runs

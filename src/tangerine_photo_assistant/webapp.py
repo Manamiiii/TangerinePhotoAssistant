@@ -1365,6 +1365,7 @@ class ScanTaskManager:
         connection: sqlite3.Connection | None = None
         try:
             connection = connect(self.settings.database_path)
+            existing_capture_ids = {row[0] for row in connection.execute('SELECT id FROM captures')}
             run_id = scan_library(
                 connection,
                 self.settings,
@@ -1406,6 +1407,7 @@ class ScanTaskManager:
                        WHERE f.first_seen_run_id=? AND f.present=1""",
                     (run_id,),
                 )
+                if row[0] not in existing_capture_ids
             ]
             assigned_count = assign_captures_to_album(
                 connection, album_id, capture_ids
@@ -1765,6 +1767,18 @@ def create_app(
 ) -> FastAPI:
     config_path = config_path.resolve()
     settings = Settings.load(config_path)
+    errors = settings.validate(require_originals=False)
+    if errors:
+        raise ValueError("; ".join(errors))
+    # Resolve the effective library using a read-only probe before any bootstrap writes.
+    if settings.database_path.is_file():
+        with closing(connect_readonly(settings.database_path)) as probe:
+            if probe.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='library_state'").fetchone():
+                active_root = active_library_root(probe, settings.originals)
+                settings = replace(settings, originals=active_root)
+    errors = settings.validate()
+    if errors:
+        raise ValueError("; ".join(errors))
     bootstrap = connect(settings.database_path)
     try:
         active_root = active_library_root(bootstrap, settings.originals)
