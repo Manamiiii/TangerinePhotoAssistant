@@ -1,6 +1,6 @@
 # Windows 当前验收清单
 
-本文只保留当前 schema 34 和日常功能回归。历史版本验收记录由 Git 保存，不再把 schema 27–31
+本文只保留当前 schema 35 和日常功能回归。历史版本验收记录由 Git 保存，不再把 schema 27–31
 的重复步骤叠加在主清单中。除明确说明外，不运行分析任务，不修改照片、XMP 或 Lightroom。
 
 ## 1. 启动前保护
@@ -11,10 +11,11 @@
 4. 记录正式数据库和备份目录的最新修改时间；不要手工复制、移动或重命名数据库。
 5. 不启动 ComfyUI 竞争的模型任务，不运行新的全量技术检测或模型分析。
 
-## 2. 启动壳与 schema 34
+## 2. 启动壳与 schema 35
 
 2026-08-31 已只读核验正式库为 schema 32，升级前备份为 schema 26；两者完整性和外键检查通过。
 2026-09-22 已通过隐藏后端完成正式库 32→34 升级及主备库核验，详见 `FORMAL_ACCEPTANCE_20260922.md`。
+随后已完成 34→35 的隐藏后端升级，保留 `catalog-pre-schema35-from34-20260922-092930-406114.sqlite3`，主备库完整性与既有业务表摘要再次通过。
 此次没有打开窗口；下列桌面窗口动作仍属于用户准备使用时的可选回归，不代表本轮已操作。
 
 1. 服务未运行时点击桌面 “TangerinePhotoAssistant”，应隐藏启动并在健康检查后打开页面。
@@ -23,8 +24,8 @@
 3. `D:\PhotoLibrary\Backups\AnalysisDatabase` 首次从 schema 32 升级时新增的一份备份应保留；普通重启不重复新增
    `catalog-pre-schema34-from32-*.sqlite3`。
 4. 用只读连接分别执行主库与该备份的 `PRAGMA integrity_check`；两者都必须为 `ok`，备份 schema
-   为 32，主库 schema 为 34。
-5. `/api/health` 应返回 `status=ok`、`mode=local-only`、`schema_version=34`；
+   为 32；本轮新增升级前备份为 34，主库 schema 为 35。
+5. `/api/health` 应返回 `status=ok`、`mode=local-only`、`schema_version=35`；
    `/api/tasks/current` 不应出现自动启动的扫描或模型任务。
 6. 服务已运行时再次点击快捷方式，应直接复用，不新增服务进程或影响当前任务。
 7. 源码模式端口冲突、缺少 `.venv`、`web/dist` 或 `config.toml` 时应明确报错且不结束其他进程。
