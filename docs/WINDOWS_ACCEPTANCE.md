@@ -14,13 +14,13 @@
 ## 2. 启动壳与 schema 34
 
 2026-08-31 已只读核验正式库为 schema 32，升级前备份为 schema 26；两者完整性和外键检查通过。
-2026-09-22 新增 schema 33 路径别名与 schema 34 导入批次；仅隔离升级测试通过，正式库尚未升级。下一次正常启动
-按以下步骤核验，不为升级执行扫描、归档或分析。
+2026-09-22 已通过隐藏后端完成正式库 32→34 升级及主备库核验，详见 `FORMAL_ACCEPTANCE_20260922.md`。
+此次没有打开窗口；下列桌面窗口动作仍属于用户准备使用时的可选回归，不代表本轮已操作。
 
 1. 服务未运行时点击桌面 “TangerinePhotoAssistant”，应隐藏启动并在健康检查后打开页面。
 2. 大库完整性检查可能持续数分钟；启动壳最多等待 15 分钟。等待期间再次点击只能复用同一 PID，
    不得产生第二个升级进程。
-3. `D:\PhotoLibrary\Backups\AnalysisDatabase` 应只新增一份
+3. `D:\PhotoLibrary\Backups\AnalysisDatabase` 首次从 schema 32 升级时新增的一份备份应保留；普通重启不重复新增
    `catalog-pre-schema34-from32-*.sqlite3`。
 4. 用只读连接分别执行主库与该备份的 `PRAGMA integrity_check`；两者都必须为 `ok`，备份 schema
    为 32，主库 schema 为 34。
