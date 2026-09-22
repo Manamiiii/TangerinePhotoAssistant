@@ -11,6 +11,7 @@ from uuid import uuid4
 from .database import SCHEMA_VERSION
 from .equipment import _empty_inventory, _load_inventory, _write_inventory
 from .inventory import utc_now
+from .restore_recovery import prepare_inventory_restore, recover_inventory_restore
 from .work_queue import current_work_item_fingerprint
 
 FORMAT = "tangerine-human-data"
@@ -409,6 +410,7 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
                 if isinstance(supplied.get(container, {}).get(kind), type(inventory[container][kind])):
                     inventory[container][kind] = supplied[container][kind]
         if "equipment" in data:
+            prepare_inventory_restore(connection, inventory_path, previous_inventory, inventory)
             inventory_write_started = True
             _write_inventory(inventory_path, inventory)
         connection.commit()
@@ -417,14 +419,8 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
             connection.rollback()
         finally:
             if inventory_write_started:
-                if previous_inventory is None:
-                    inventory_path.unlink(missing_ok=True)
-                else:
-                    temporary = inventory_path.with_name(f".{inventory_path.name}.{uuid4().hex}.restore")
-                    try:
-                        temporary.write_bytes(previous_inventory)
-                        temporary.replace(inventory_path)
-                    finally:
-                        temporary.unlink(missing_ok=True)
+                recover_inventory_restore(connection, inventory_path)
         raise
+    if inventory_write_started:
+        recover_inventory_restore(connection, inventory_path)
     return {**preflight, "restored": True, "database_backup": str(db_backup)}

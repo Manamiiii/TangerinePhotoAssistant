@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -95,6 +95,11 @@ def connect(path: Path) -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS schema_info (
             version INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS human_restore_commits (
+            restore_id TEXT PRIMARY KEY,
+            committed_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS scan_runs (

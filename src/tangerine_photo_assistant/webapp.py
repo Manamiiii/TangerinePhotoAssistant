@@ -111,6 +111,7 @@ from .migration import (
 )
 from .pairing import rebuild_captures
 from .portable_data import preflight_restore, restore_portable_backup, write_portable_backup
+from .restore_recovery import pending_restore_path, recover_inventory_restore
 from .quality import (
     analyze_quality,
     backfill_histograms,
@@ -1743,10 +1744,18 @@ def create_app(
     if errors:
         raise ValueError("; ".join(errors))
     bootstrap = connect(settings.database_path)
+    inventory_recovery_error = None
     try:
         active_root = active_library_root(bootstrap, settings.originals)
-        discover_pre_ai_database_backups(settings, bootstrap)
-        recovery = recover_interrupted_ai_runs(bootstrap)
+        try:
+            recover_inventory_restore(bootstrap, settings.workspace / "Equipment" / "inventory.json")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            inventory_recovery_error = f"人工数据恢复核对失败，已暂停写入：{exc}"
+        if inventory_recovery_error:
+            recovery = {"still_running": []}
+        else:
+            discover_pre_ai_database_backups(settings, bootstrap)
+            recovery = recover_interrupted_ai_runs(bootstrap)
     finally:
         bootstrap.close()
     if active_root != settings.originals:
@@ -1755,6 +1764,9 @@ def create_app(
     if errors:
         raise ValueError("; ".join(errors))
     manager = ScanTaskManager(settings)
+    if inventory_recovery_error:
+        manager.archive_recovery_error = inventory_recovery_error
+        manager._update(status='failed', stage='human-data-recovery', message=inventory_recovery_error)
     if recovery["still_running"]:
         manager.attach_ai_run(recovery["still_running"][0])
     thumbnail_cache = ThumbnailCache(settings)
@@ -1823,8 +1835,10 @@ def create_app(
             if not secrets.compare_digest(supplied_token, session_token):
                 return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
             state = manager.snapshot()
-            if manager.archive_recovery_error:
+            if manager.archive_recovery_error and not (request.url.path == "/api/system/desktop/shutdown" and state.get("stage") == "human-data-recovery"):
                 return JSONResponse(status_code=409, content={'detail': manager.archive_recovery_error})
+            if request.url.path != "/api/system/desktop/shutdown" and pending_restore_path(settings.workspace / "Equipment" / "inventory.json").exists():
+                return JSONResponse(status_code=409, content={'detail': '人工数据恢复尚待核对，已暂停写入；请保留备份并重启应用'})
             if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
                 allowed = request.url.path.endswith('/archive/preview') or (
                     state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
@@ -1843,8 +1857,10 @@ def create_app(
             # release it during encoding. Only explicit metadata writes may overlap.
             async with write_gate:
                 state = manager.snapshot()
-                if manager.archive_recovery_error:
+                if manager.archive_recovery_error and not (request.url.path == "/api/system/desktop/shutdown" and state.get("stage") == "human-data-recovery"):
                     return JSONResponse(status_code=409, content={'detail': manager.archive_recovery_error})
+                if request.url.path != "/api/system/desktop/shutdown" and pending_restore_path(settings.workspace / "Equipment" / "inventory.json").exists():
+                    return JSONResponse(status_code=409, content={'detail': '人工数据恢复尚待核对，已暂停写入；请保留备份并重启应用'})
                 if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
                     allowed = request.url.path.endswith('/archive/preview') or (
                         state['status'] == 'paused' and request.url.path.endswith('/archive/execute')

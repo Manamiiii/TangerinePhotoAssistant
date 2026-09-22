@@ -150,6 +150,7 @@ def _write_inventory(path: Path, inventory: dict[str, Any]) -> None:
     temporary.write_text(
         json.dumps(inventory, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     if path.is_file():
         shutil.copy2(path, path.with_name("inventory.backup.json"))

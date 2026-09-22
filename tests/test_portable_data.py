@@ -137,6 +137,7 @@ class PortableDataTests(unittest.TestCase):
                 data["reviews"] = [{"capture_key": "album/IMG_1", "user_rating": 5}]
                 data["equipment"] = {"ownership": {"camera": {"replacement": True}}}
                 failing = Mock(wraps=connection)
+                failing.in_transaction = False
                 failing.commit.side_effect = sqlite3.OperationalError("injected commit failure")
                 with self.assertRaisesRegex(sqlite3.OperationalError, "injected"):
                     restore_portable_backup(failing, data, inventory, root / "backups", RESTORE_CONFIRMATION)
