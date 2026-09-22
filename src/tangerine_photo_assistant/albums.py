@@ -204,6 +204,23 @@ def assign_captures_to_album(
     }
     now = utc_now()
     with _album_transaction(connection):
+        conflict = connection.execute(
+            f"""SELECT b.id FROM bursts b
+                WHERE EXISTS(SELECT 1 FROM burst_captures selected
+                             WHERE selected.burst_id=b.id AND selected.capture_id IN ({placeholders}))
+                  AND EXISTS(SELECT 1 FROM burst_captures remaining
+                             WHERE remaining.burst_id=b.id AND remaining.capture_id NOT IN ({placeholders})
+                             AND NOT EXISTS(SELECT 1 FROM event_captures ec
+                                            WHERE ec.capture_id=remaining.capture_id AND ec.event_id=?))
+                  AND EXISTS(SELECT 1 FROM burst_captures moving
+                             WHERE moving.burst_id=b.id AND moving.capture_id IN ({placeholders})
+                             AND NOT EXISTS(SELECT 1 FROM event_captures ec
+                                            WHERE ec.capture_id=moving.capture_id AND ec.event_id=?))
+                LIMIT 1""",
+            (*ordered_ids, *ordered_ids, album_id, *ordered_ids, album_id),
+        ).fetchone()
+        if conflict is not None:
+            raise AlbumConflictError("选择包含连拍候选的一部分，请选择完整候选，或先调整分组后再移动相册")
         connection.execute(
             f"DELETE FROM event_captures WHERE capture_id IN ({placeholders})", ordered_ids
         )
@@ -221,7 +238,7 @@ def assign_captures_to_album(
         affected.add(album_id)
         for affected_id in affected:
             # Transfer complete burst candidates without rebuilding their similarity
-            # groups or losing manual selection. Split-album bursts stay untouched.
+            # groups or losing manual selection. Partial transfers are rejected above.
             connection.execute(
                 """UPDATE bursts SET event_id=? WHERE event_id=?
                    AND EXISTS(SELECT 1 FROM burst_captures bc WHERE bc.burst_id=bursts.id)

@@ -26,7 +26,7 @@ function isLibraryTask(task: Task | null) {
   return task.stage === "album-archive" || ["indexing", "metadata", "pairing", "structure"].includes(stage) || /图库更新|核对文件|扫描|相册/.test(task.message);
 }
 
-const archiveLabels = { pending: "归档未完成", inbox: "待归档", mixed: "部分待归档", filed: "待整理目录外", empty: "暂无照片" };
+const archiveLabels = { unknown: "归档状态待核对", pending: "归档未完成", inbox: "待归档", mixed: "部分待归档", filed: "待整理目录外", empty: "暂无照片" };
 
 function ratingStars(rating: number | null) {
   return rating ? "★".repeat(rating) : "—";

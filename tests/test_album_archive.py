@@ -218,3 +218,33 @@ class AlbumArchiveTests(unittest.TestCase):
             self.assertEqual(status['status'], 'complete', status)
             self.assertEqual(client.get(f'/api/albums/{self.album}/archive/status').json(),
                              {'file_count': 4, 'inbox_count': 0, 'pending': False})
+
+    def test_corrupt_receipt_preserves_browsing_but_blocks_writes(self):
+        plan = self.plan()
+        receipt = self.settings.workspace / 'AlbumArchive' / f"{plan['id']}.json"
+        receipt.write_text('{broken', encoding='utf-8')
+        with TestClient(create_app(self.root / 'config.toml'), base_url='http://127.0.0.1') as client:
+            state = client.get('/api/tasks/current').json()
+            self.assertEqual(state['stage'], 'archive-recovery')
+            self.assertEqual(state['status'], 'paused')
+            self.assertIn(receipt.name, state['message'])
+            self.assertEqual(client.get('/api/health').status_code, 200)
+            albums = client.get('/api/albums').json()
+            self.assertTrue(albums['items'])
+            self.assertTrue(all(item['archive_state'] == 'unknown' for item in albums['items']))
+            self.assertEqual(client.get(f'/api/albums/{self.album}/archive/status').status_code, 409)
+            session = client.get('/api/session').json()
+            headers = {session['header']: session['token']}
+            self.assertEqual(client.post('/api/albums', json={'name': 'new', 'category': '纪念'}, headers=headers).status_code, 409)
+            self.assertEqual(client.post('/api/tasks/cancel', headers=headers).status_code, 409)
+        self.assertEqual(receipt.read_text(encoding='utf-8'), '{broken')
+        self.assertEqual(len(list(self.source.iterdir())), 4)
+
+    def test_unknown_receipt_fields_are_not_silently_skipped(self):
+        plan = self.plan()
+        receipt = self.settings.workspace / 'AlbumArchive' / f"{plan['id']}.json"
+        for value in ([], {'status': 'complete'}, {**plan, 'status': 'unexpected'}):
+            with self.subTest(value=value):
+                receipt.write_text(json.dumps(value), encoding='utf-8')
+                with self.assertRaises(archive.ArchiveRecordError):
+                    archive.pending(self.settings)

@@ -4,7 +4,11 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from tangerine_photo_assistant.albums import assign_captures_to_album, create_album
+from tangerine_photo_assistant.albums import (
+    AlbumConflictError,
+    assign_captures_to_album,
+    create_album,
+)
 from tangerine_photo_assistant.database import connect
 
 
@@ -47,12 +51,12 @@ class AlbumAssignmentCleanupTests(unittest.TestCase):
     def test_partial_assignment_retains_source_and_does_not_move_whole_burst(self):
         with tempfile.TemporaryDirectory() as tmp, closing(connect(Path(tmp) / 'db.sqlite3')) as c:
             source, target = self.setup_catalog(c)
-            assign_captures_to_album(c, target, [1])
+            before = list(c.iterdump())
+            with self.assertRaisesRegex(AlbumConflictError, '连拍候选的一部分'):
+                assign_captures_to_album(c, target, [1])
+            self.assertEqual(list(c.iterdump()), before)
+            assign_captures_to_album(c, source, [1])
             self.assertEqual(c.execute('SELECT event_id FROM bursts').fetchone()[0], source)
-            self.assertEqual(tuple(c.execute('SELECT capture_count,status FROM events WHERE id=?', (source,)).fetchone()), (1, 'proposed'))
-            assign_captures_to_album(c, target, [2])
-            self.assertEqual(c.execute('SELECT event_id FROM bursts').fetchone()[0], target)
-            self.assertEqual(c.execute('SELECT status FROM events WHERE id=?', (source,)).fetchone()[0], 'archived')
 
     def test_user_created_or_confirmed_empty_albums_are_preserved(self):
         for automatic in (True, False):

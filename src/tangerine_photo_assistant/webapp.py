@@ -496,7 +496,14 @@ class ScanTaskManager:
         self._task_outcomes: list[
             tuple[tuple[str, str, str] | None, str | None]
         ] = []
-        unfinished = album_archive.pending(settings)
+        self.archive_recovery_error: str | None = None
+        try:
+            unfinished = album_archive.pending(settings)
+        except album_archive.ArchiveRecordError as exc:
+            self.archive_recovery_error = str(exc)
+            self._state = TaskState(status='paused', stage='archive-recovery',
+                                    message=str(exc), error='ArchiveRecordError')
+            unfinished = None
         if unfinished:
             self._state = TaskState(
                 id=unfinished['id'], status='paused', stage='album-archive',
@@ -1507,7 +1514,13 @@ def _query_library_filters(settings: Settings) -> dict[str, Any]:
 
 
 def _query_albums(settings: Settings, limit: int, offset: int) -> dict[str, Any]:
-    unfinished = album_archive.pending(settings)
+    try:
+        unfinished = album_archive.pending(settings)
+    except album_archive.ArchiveRecordError:
+        result = query_albums(settings.database_path, limit, offset)
+        for item in result['items']:
+            item['archive_state'] = 'unknown'
+        return result
     return query_albums(settings.database_path, limit, offset,
                         unfinished['album_id'] if unfinished else None)
 
@@ -1801,6 +1814,8 @@ def create_app(
     audit_backfill_lock = Lock()
 
     def start_audit_backfill() -> bool:
+        if manager.archive_recovery_error:
+            return False
         with audit_backfill_lock:
             if audit_backfill_state["status"] == "running":
                 return False
@@ -1856,6 +1871,8 @@ def create_app(
             if not secrets.compare_digest(supplied_token, session_token):
                 return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
             state = manager.snapshot()
+            if manager.archive_recovery_error:
+                return JSONResponse(status_code=409, content={'detail': manager.archive_recovery_error})
             if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
                 allowed = request.url.path.endswith('/archive/preview') or (
                     state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
@@ -1867,6 +1884,8 @@ def create_app(
             # Once draining, no new write can slip between the idle check and exit.
             async with write_gate:
                 state = manager.snapshot()
+                if manager.archive_recovery_error:
+                    return JSONResponse(status_code=409, content={'detail': manager.archive_recovery_error})
                 if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
                     allowed = request.url.path.endswith('/archive/preview') or (
                         state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
@@ -3293,7 +3312,10 @@ def create_app(
                 JOIN capture_files cf ON cf.file_id=f.id
                 JOIN event_captures ec ON ec.capture_id=cf.capture_id
                 WHERE ec.event_id=?''', (album_id,))]
-        unfinished = album_archive.pending(settings)
+        try:
+            unfinished = album_archive.pending(settings)
+        except album_archive.ArchiveRecordError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {'file_count': len(paths),
                 'inbox_count': sum(Path(p).is_relative_to(settings.originals / '待整理') for p in paths),
                 'pending': bool(unfinished and unfinished['album_id'] == album_id)}

@@ -7,6 +7,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Timer
 from typing import Any, ClassVar, Protocol
 
 from PIL import Image, UnidentifiedImageError
@@ -201,7 +202,10 @@ def _gps_coordinate(value: Any, reference: Any) -> float | None:
 class ExifToolMetadataReader:
     profile_version = METADATA_PROFILE_VERSION
 
-    def __init__(self, executable: Path, batch_size: int = 32) -> None:
+    def __init__(self, executable: Path, batch_size: int = 32, timeout_seconds: float = 60) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("ExifTool timeout must be positive")
+        self.timeout_seconds = timeout_seconds
         self.executable = executable
         self.batch_size = batch_size
 
@@ -217,6 +221,7 @@ class ExifToolMetadataReader:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as exc:
             for path in iterator:
@@ -237,13 +242,18 @@ class ExifToolMetadataReader:
                 batch_number += 1
                 yield from self._read_batch(process, batch, batch_number)
         finally:
-            if process.stdin is not None and process.poll() is None:
-                try:
+            try:
+                if process.stdin is not None and process.poll() is None:
                     process.stdin.write("-stay_open\nFalse\n")
                     process.stdin.flush()
-                    process.wait(timeout=10)
-                except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
-                    process.kill()
+                process.wait(timeout=10)
+            except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
+                process.kill()
+                process.wait(timeout=10)
+            finally:
+                for stream in (process.stdin, process.stdout):
+                    if stream is not None:
+                        stream.close()
 
     def _read_batch(
         self,
@@ -269,6 +279,18 @@ class ExifToolMetadataReader:
             *[str(path) for path in paths],
             f"-execute{batch_number}",
         ]
+        timed_out = Event()
+
+        def expire() -> None:
+            timed_out.set()
+            try:
+                process.kill()
+            except OSError:
+                pass  # The process may already have exited.
+
+        deadline = Timer(self.timeout_seconds, expire)
+        deadline.daemon = True
+        deadline.start()
         try:
             process.stdin.write("\n".join(arguments) + "\n")
             process.stdin.flush()
@@ -281,11 +303,17 @@ class ExifToolMetadataReader:
                 if line.strip() == ready_marker:
                     break
                 output.append(line)
+            if timed_out.is_set():
+                raise TimeoutError("ExifTool metadata batch timed out")
             records = json.loads("".join(output))
         except (BrokenPipeError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+            message = "ExifTool metadata batch timed out" if timed_out.is_set() else str(exc)
             for path in paths:
-                yield MetadataResult(path=path, values=None, error=str(exc))
+                yield MetadataResult(path=path, values=None, error=message)
             return
+        finally:
+            deadline.cancel()
+            deadline.join()
 
         # The Windows ExifTool executable may render non-ASCII SourceFile characters
         # with the active console code page in non-stay-open mode. ExifTool preserves

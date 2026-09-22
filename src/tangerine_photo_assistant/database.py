@@ -89,6 +89,8 @@ def connect(path: Path) -> sqlite3.Connection:
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    if existing_version == SCHEMA_VERSION:
+        return connection
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS schema_info (

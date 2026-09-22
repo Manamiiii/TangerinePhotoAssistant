@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from tangerine_photo_assistant.ai_safety import (
+    _competing_comfyui_processes,
     ai_preflight,
     create_pre_ai_database_backup,
     discover_pre_ai_database_backups,
@@ -46,6 +47,31 @@ def settings_for(root: Path) -> Settings:
 
 
 class AiSafetyTests(unittest.TestCase):
+    @patch("tangerine_photo_assistant.ai_safety.os")
+    @patch("tangerine_photo_assistant.ai_safety.subprocess.run")
+    def test_competing_process_check_distinguishes_failure_from_empty(self, run, operating_system):
+        operating_system.name = "nt"
+        run.return_value = Mock(returncode=1, stdout="")
+        self.assertIsNone(_competing_comfyui_processes())
+        run.side_effect = OSError("unavailable")
+        self.assertIsNone(_competing_comfyui_processes())
+        run.side_effect = None
+        run.return_value = Mock(returncode=0, stdout="123 python.exe\n")
+        self.assertEqual(_competing_comfyui_processes(), ["123 python.exe"])
+        script = run.call_args.args[0][-1]
+        self.assertIn("*ComfyUI*", script)
+        self.assertNotIn("Documents", script)
+
+    @patch("tangerine_photo_assistant.ai_safety._competing_comfyui_processes", return_value=None)
+    def test_unknown_competing_process_state_blocks_model_start(self, _check):
+        with TemporaryDirectory() as directory:
+            settings = settings_for(Path(directory))
+            connect(settings.database_path).close()
+            result = ai_preflight(settings)
+            self.assertFalse(result["ready"])
+            self.assertFalse(result["competing_process_check_available"])
+            self.assertTrue(any("无法核对 ComfyUI" in item for item in result["blockers"]))
+
     @patch("tangerine_photo_assistant.ai_safety.subprocess.run")
     def test_gpu_status_parses_nvidia_smi(self, run: Mock) -> None:
         run.return_value = Mock(

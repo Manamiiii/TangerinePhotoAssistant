@@ -1,7 +1,9 @@
 import json
+import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 
 from tangerine_photo_assistant.database import connect
 from tangerine_photo_assistant.portable_data import (
@@ -14,6 +16,44 @@ from tangerine_photo_assistant.work_queue import save_work_item_state
 
 
 class PortableDataTests(unittest.TestCase):
+    def test_failed_commit_restores_inventory_and_database(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing), TemporaryDirectory() as directory:
+                root = Path(directory)
+                connection = self._catalog(root / "catalog.sqlite3")
+                self.addCleanup(connection.close)
+                inventory = root / "inventory.json"
+                original = b'{"version":2,"ownership":{"camera":{"previous":true}}}'
+                if existing:
+                    inventory.write_bytes(original)
+                data = build_portable_backup(connection, inventory)
+                data["reviews"] = [{"capture_key": "album/IMG_1", "user_rating": 5}]
+                data["equipment"] = {"ownership": {"camera": {"replacement": True}}}
+                failing = Mock(wraps=connection)
+                failing.commit.side_effect = sqlite3.OperationalError("injected commit failure")
+                with self.assertRaisesRegex(sqlite3.OperationalError, "injected"):
+                    restore_portable_backup(failing, data, inventory, root / "backups", RESTORE_CONFIRMATION)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM capture_reviews").fetchone()[0], 0)
+                self.assertEqual(inventory.read_bytes() if inventory.exists() else None, original if existing else None)
+                connection.close()
+
+    def test_inventory_write_failure_rolls_back_database(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = self._catalog(root / "catalog.sqlite3")
+            self.addCleanup(connection.close)
+            inventory = root / "inventory.json"
+            data = build_portable_backup(connection, inventory)
+            data["reviews"] = [{"capture_key": "album/IMG_1", "user_rating": 5}]
+            with (
+                patch("tangerine_photo_assistant.portable_data._write_inventory", side_effect=OSError("disk full")),
+                self.assertRaisesRegex(OSError, "disk full"),
+            ):
+                restore_portable_backup(connection, data, inventory, root / "backups", RESTORE_CONFIRMATION)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM capture_reviews").fetchone()[0], 0)
+            self.assertFalse(inventory.exists())
+            connection.close()
+
     def _catalog(self, path: Path):
         connection = connect(path)
         connection.execute("INSERT INTO captures(capture_key,parent_relative,stem,captured_at,pairing_status) VALUES ('album/IMG_1','album','IMG_1',NULL,'jpeg_only')")

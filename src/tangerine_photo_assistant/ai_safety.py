@@ -21,14 +21,14 @@ def _nearest_existing_directory(path: Path) -> Path:
     return candidate
 
 
-def _competing_comfyui_processes() -> list[str]:
+def _competing_comfyui_processes() -> list[str] | None:
     if os.name != "nt":
         return []
     script = (
-        "$self=$PID; Get-CimInstance Win32_Process | "
+        "$ErrorActionPreference='Stop'; $self=$PID; Get-CimInstance Win32_Process | "
         "Where-Object { $_.ProcessId -ne $self -and "
-        "($_.CommandLine -like '*Documents\\ComfyUI*' -or "
-        "$_.ExecutablePath -like '*Documents\\ComfyUI*') } | "
+        "($_.CommandLine -like '*ComfyUI*' -or "
+        "$_.ExecutablePath -like '*ComfyUI*') } | "
         "ForEach-Object { \"$($_.ProcessId) $($_.Name)\" }"
     )
     try:
@@ -43,7 +43,9 @@ def _competing_comfyui_processes() -> list[str]:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
-        return []
+        return None
+    if result.returncode != 0:
+        return None
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -120,7 +122,9 @@ def ai_preflight(
         blockers.append("数据库备份空间不足")
 
     competing = _competing_comfyui_processes() if check_competing_processes else []
-    if competing:
+    if competing is None:
+        blockers.append("无法核对 ComfyUI 进程，暂不允许启动模型任务，请稍后重试")
+    elif competing:
         blockers.append("检测到 ComfyUI 环境进程，暂不允许启动模型任务")
     if settings.ai_quantization == "none" and model_bytes > 12 * 1024**3:
         warnings.append("大型 BF16 模型未启用量化，16GB 显存可能不足")
@@ -140,7 +144,8 @@ def ai_preflight(
         "database_bytes": database_bytes,
         "backup_root": str(backup_root),
         "backup_free_bytes": free_bytes,
-        "competing_processes": competing,
+        "competing_processes": competing or [],
+        "competing_process_check_available": competing is not None,
     }
 
 

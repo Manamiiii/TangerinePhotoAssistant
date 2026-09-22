@@ -6,6 +6,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .database import SCHEMA_VERSION
 from .equipment import _empty_inventory, _load_inventory, _write_inventory
@@ -202,6 +203,11 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
             raise RuntimeError("恢复前数据库备份校验失败")
     finally:
         destination.close()
+    previous_inventory = inventory_path.read_bytes() if inventory_path.exists() else None
+    inventory_backup = db_backup.with_suffix(".inventory.json")
+    if previous_inventory is not None:
+        inventory_backup.write_bytes(previous_inventory)
+    inventory_write_started = False
     capture_ids, _ = _capture_key_matches(connection)
     now = utc_now()
     try:
@@ -346,8 +352,22 @@ def restore_portable_backup(connection: sqlite3.Connection, data: dict[str, Any]
             for kind in inventory[container]:
                 if isinstance(supplied.get(container, {}).get(kind), type(inventory[container][kind])):
                     inventory[container][kind] = supplied[container][kind]
+        inventory_write_started = True
         _write_inventory(inventory_path, inventory)
         connection.commit()
     except BaseException:
-        connection.rollback(); raise
+        try:
+            connection.rollback()
+        finally:
+            if inventory_write_started:
+                if previous_inventory is None:
+                    inventory_path.unlink(missing_ok=True)
+                else:
+                    temporary = inventory_path.with_name(f".{inventory_path.name}.{uuid4().hex}.restore")
+                    try:
+                        temporary.write_bytes(previous_inventory)
+                        temporary.replace(inventory_path)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+        raise
     return {**preflight, "restored": True, "database_backup": str(db_backup)}

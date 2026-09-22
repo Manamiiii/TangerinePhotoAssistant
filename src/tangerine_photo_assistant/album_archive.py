@@ -33,18 +33,40 @@ def _save(settings: Settings, plan: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+class ArchiveRecordError(ValueError):
+    """A receipt cannot safely establish whether filing is unfinished."""
+
+
+def _read_record(path: Path) -> dict[str, Any]:
+    try:
+        plan = json.loads(path.read_text(encoding='utf-8'))
+        if (not isinstance(plan, dict) or plan.get('id') != path.stem
+                or plan.get('status') not in {'preview', 'pending', 'complete'}
+                or not isinstance(plan.get('album_id'), int)
+                or not isinstance(plan.get('items'), list)):
+            raise ValueError('invalid receipt fields')
+        return plan
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ArchiveRecordError(
+            f'归档记录无法读取：{path.name}。已暂停写入；请保留该记录、照片与备份，核对后恢复记录并重启服务。'
+        ) from exc
+
+
 def load(settings: Settings, plan_id: str) -> dict[str, Any]:
     if len(plan_id) != 32 or any(c not in '0123456789abcdef' for c in plan_id):
         raise ValueError('归档计划编号无效')
-    return json.loads((_directory(settings) / f'{plan_id}.json').read_text(encoding='utf-8'))
+    return _read_record(_directory(settings) / f'{plan_id}.json')
 
 
 def pending(settings: Settings) -> dict[str, Any] | None:
+    unfinished = None
     for path in sorted(_directory(settings).glob('*.json')):
-        plan = json.loads(path.read_text(encoding='utf-8'))
+        plan = _read_record(path)
         if plan['status'] == 'pending':
-            return plan
-    return None
+            if unfinished is not None:
+                raise ArchiveRecordError('发现多个未完成归档记录；已暂停写入，请保留记录并核对后恢复。')
+            unfinished = plan
+    return unfinished
 
 
 def _plain(path: Path, root: Path) -> None:

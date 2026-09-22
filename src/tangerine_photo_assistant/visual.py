@@ -193,6 +193,8 @@ def build_visual_fingerprints(
                 [str(exiftool), "-j", "-b", "-ThumbnailImage", *[row["path"] for row in batch]],
                 capture_output=True,
                 check=False,
+                timeout=60,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             try:
                 records = json.loads(completed.stdout) if completed.returncode == 0 else []
