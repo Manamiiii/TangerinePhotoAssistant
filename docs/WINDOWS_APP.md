@@ -12,6 +12,10 @@
 .\.venv\Scripts\python.exe -m pip install -e ".[desktop]"
 ```
 
+源码独立窗口启动时设置专用 Windows AppUserModelID，并使用项目 ICO 图标，避免任务栏按
+`pythonw.exe` 分组显示 Python 图标。更新此启动配置后需关闭旧窗口再重新打开；只需关闭窗口，
+无需停止后台服务。任务栏实际显示仍需人工验收，自动测试不创建可见窗口。
+
 原有浏览器入口保留：
 
 ```powershell

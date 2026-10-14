@@ -211,7 +211,20 @@ def validate_desktop(config: Path) -> dict[str, object]:
             "packaged": bool(getattr(sys, "frozen", False)), "build": build_info()}
 
 
+def set_taskbar_identity() -> None:
+    """Separate the source launcher from other windows hosted by pythonw.exe."""
+    import ctypes
+    from ctypes import wintypes
+
+    setter = ctypes.WinDLL("shell32").SetCurrentProcessExplicitAppUserModelID
+    setter.argtypes = [wintypes.LPCWSTR]
+    setter.restype = ctypes.c_long
+    if setter("TangerinePhotoAssistant.Desktop") != 0:
+        raise DesktopError("无法设置 Windows 任务栏应用标识")
+
+
 def run_window(config: Path, port: int) -> int:
+    set_taskbar_identity()
     import webview
     from webview.menu import Menu, MenuAction, MenuSeparator
 

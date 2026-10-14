@@ -10,7 +10,13 @@ from fastapi.testclient import TestClient
 
 from tangerine_photo_assistant.app_paths import config_identity
 from tangerine_photo_assistant.database import connect
-from tangerine_photo_assistant.desktop import DesktopError, ServiceClient, validate_desktop
+from tangerine_photo_assistant.desktop import (
+    DesktopError,
+    ServiceClient,
+    run_window,
+    set_taskbar_identity,
+    validate_desktop,
+)
 from tangerine_photo_assistant.desktop_lock import FileLease, LeaseBusy
 from tangerine_photo_assistant.desktop_window import DesktopWindow
 from tangerine_photo_assistant.service_runtime import APP_ID, CONTROL_HEADER, ServiceControl
@@ -27,6 +33,26 @@ def configuration(root):
 
 
 class DesktopTests(unittest.TestCase):
+    def test_taskbar_identity_is_explicit_and_errors_are_reported(self):
+        library = Mock()
+        setter = library.SetCurrentProcessExplicitAppUserModelID
+        with patch("ctypes.WinDLL", return_value=library, create=True):
+            setter.return_value = 0
+            set_taskbar_identity()
+            setter.assert_called_once_with("TangerinePhotoAssistant.Desktop")
+            setter.return_value = -2147467259
+            with self.assertRaises(DesktopError):
+                set_taskbar_identity()
+
+    def test_taskbar_identity_is_set_before_window_or_service_creation(self):
+        with patch("tangerine_photo_assistant.desktop.set_taskbar_identity",
+                   side_effect=DesktopError("identity failed")) as identity, \
+                patch("tangerine_photo_assistant.desktop.ServiceClient") as client:
+            with self.assertRaisesRegex(DesktopError, "identity failed"):
+                run_window(Path("unused.toml"), 8765)
+            identity.assert_called_once_with()
+            client.assert_not_called()
+
     def test_validation_only_does_not_create_database(self):
         with TemporaryDirectory() as temporary:
             config = configuration(Path(temporary))
