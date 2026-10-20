@@ -234,8 +234,10 @@ def propose_events(connection: sqlite3.Connection) -> dict[str, int]:
                 """INSERT INTO event_sources(event_id, parent_relative)
                    SELECT ?, c.parent_relative FROM event_captures ec
                    JOIN captures c ON c.id=ec.capture_id
-                   WHERE ec.event_id=? GROUP BY c.parent_relative""",
-                (event_id, event_id),
+                   WHERE ec.event_id=? GROUP BY c.parent_relative
+                   UNION SELECT ?, f.parent_relative FROM album_files af
+                   JOIN files f ON f.id=af.file_id WHERE af.event_id=?""",
+                (event_id, event_id, event_id, event_id),
             )
             connection.execute(
                 """UPDATE events SET

@@ -7,7 +7,8 @@ import type { SimilarityGroupsResponse } from "../similarity/types";
 import type { LibraryCapturesResponse, LibraryFilters } from "../library/types";
 import type { Overview } from "../overview/types";
 
-export function HomeView({ readErrors = {}, overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openAnalysis, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+export function HomeView({ openImport, readErrors = {}, overview, statistics, archive, activeBaseline, library, filters, similarity, task, capabilities, firstRun, openPhotos, openSetup, openAlbums, openAlbum, openBursts, openAnalysis, openStatistics, continueLabel, continueWork, openUnassigned, openMaintenance, openCapture }: {
+  openImport?: () => void;
   readErrors?: Record<string, string>;
   overview: Overview | null;
   statistics: Statistics | null;
@@ -50,6 +51,7 @@ export function HomeView({ readErrors = {}, overview, statistics, archive, activ
   const topCamera = statistics?.cameras[0];
   const topLens = statistics?.lenses[0];
   return <>
+    <section className="panel import-intro"><div><h2>导入新照片</h2><p>从存储卡复制、校验、建立相册，再完成正式归档。</p></div><button className="toolbar-button primary" onClick={openImport}>开始导入新照片</button></section>
     <section className="home-metrics">
       <article><span>全部照片</span><strong>{overview ? numberFormat.format(overview.capture_total) : "—"}</strong><small>{overview ? formatBytes(overview.files.size_bytes) : ""}</small></article>
       <article><span>拍摄相册</span><strong>{overview?.structure.event_count ?? "—"}</strong><small>{overview ? `${pendingEvents} 个名称待确认` : waiting("/api/overview")}</small></article>

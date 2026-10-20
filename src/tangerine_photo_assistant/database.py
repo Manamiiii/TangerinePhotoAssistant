@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 SUPPORTED_SCHEMA_VERSIONS = frozenset(range(1, SCHEMA_VERSION + 1))
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
@@ -101,6 +101,21 @@ def connect(path: Path) -> sqlite3.Connection:
             restore_id TEXT PRIMARY KEY,
             committed_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS import_jobs (
+            id TEXT PRIMARY KEY,
+            state TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            data_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS album_files (
+            file_id INTEGER PRIMARY KEY REFERENCES files(id),
+            event_id INTEGER NOT NULL REFERENCES events(id),
+            archive_relative TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_album_files_event ON album_files(event_id);
 
         CREATE TABLE IF NOT EXISTS scan_runs (
             id INTEGER PRIMARY KEY,

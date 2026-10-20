@@ -95,10 +95,13 @@ def _snapshot(connection: sqlite3.Connection, settings: Settings, album_id: int)
     album = connection.execute('SELECT * FROM events WHERE id=?', (album_id,)).fetchone()
     if album is None:
         raise ValueError('相册不存在')
-    rows = connection.execute('''SELECT f.*, cf.capture_id FROM files f
-        JOIN capture_files cf ON cf.file_id=f.id
-        JOIN event_captures ec ON ec.capture_id=cf.capture_id
-        WHERE ec.event_id=? ORDER BY f.id''', (album_id,)).fetchall()
+    rows = connection.execute('''SELECT f.*, cf.capture_id, af.archive_relative FROM files f
+        LEFT JOIN capture_files cf ON cf.file_id=f.id
+        LEFT JOIN album_files af ON af.file_id=f.id
+        WHERE f.id IN (SELECT cf2.file_id FROM capture_files cf2
+            JOIN event_captures ec ON ec.capture_id=cf2.capture_id WHERE ec.event_id=?
+            UNION SELECT file_id FROM album_files WHERE event_id=?) ORDER BY f.id''',
+        (album_id, album_id)).fetchall()
     if not rows:
         raise ValueError('相册没有可归档照片')
     destination = root / _safe_component(album['category']) / _year(album['start_at']) / _safe_component(album['proposed_name'])
@@ -109,27 +112,32 @@ def _snapshot(connection: sqlite3.Connection, settings: Settings, album_id: int)
     names: set[str] = set()
     for row in rows:
         source = Path(row['path']).absolute()
-        if not source.is_relative_to(root / '待整理'):
-            raise ValueError('本相册含已在正式目录的照片；仅支持全部照片仍在待整理的相册')
-        _plain(source, root / '待整理')
         if not row['present'] or not source.is_file():
-            raise ValueError('照片缺失，或相册含已归档照片；请先核对来源')
+            raise ValueError('相册文件缺失；请先核对来源')
+        if not source.is_relative_to(root / '待整理'):
+            _plain(source, root)
+            continue
+        _plain(source, root / '待整理')
         stat = source.stat()
         if (stat.st_size, stat.st_mtime_ns) != (row['size_bytes'], row['modified_ns']):
             raise ValueError('照片自上次扫描后发生变化，请先更新图库')
-        target = destination / source.name
+        target = destination / (row['archive_relative'] or source.name)
         _plain(target, root)
-        if target.exists() or source.name.casefold() in names:
+        if target.exists() or str(target).casefold() in names:
             raise ValueError('目标有同名文件或组内文件名重复；不会覆盖或合并')
-        names.add(source.name.casefold())
+        names.add(str(target).casefold())
         if connection.execute('SELECT 1 FROM files WHERE path=? COLLATE NOCASE', (str(target),)).fetchone():
             raise ValueError('目标路径已有图库记录')
         items.append({'file_id': row['id'], 'capture_id': row['capture_id'],
                       'source': str(source), 'target': str(target),
                       'bytes': stat.st_size, 'mtime': stat.st_mtime_ns})
+    if not items:
+        raise ValueError('本相册没有待归档文件')
     return {'album_id': album_id, 'album_name': album['proposed_name'],
             'root': str(root), 'target': str(destination), 'items': items,
-            'capture_count': len({r['capture_id'] for r in items}),
+            'capture_count': len({r['capture_id'] for r in items if r['capture_id'] is not None}),
+            'file_count': len(items),
+            'attachment_count': sum(r['capture_id'] is None for r in items),
             'total_bytes': sum(r['bytes'] for r in items)}
 
 
@@ -259,7 +267,7 @@ def execute(connection: sqlite3.Connection, settings: Settings, plan: dict,
             relative = target.relative_to(root)
             connection.execute('UPDATE files SET path=?, relative_path=?, parent_relative=?, modified_ns=? WHERE id=?',
                                (str(target), str(relative), str(relative.parent), target.stat().st_mtime_ns, item['file_id']))
-        for capture_id in {i['capture_id'] for i in items}:
+        for capture_id in {i['capture_id'] for i in items if i['capture_id'] is not None}:
             row = connection.execute('''SELECT f.parent_relative, f.stem FROM files f
                 JOIN capture_files cf ON cf.file_id=f.id WHERE cf.capture_id=? LIMIT 1''', (capture_id,)).fetchone()
             connection.execute('UPDATE captures SET parent_relative=?, capture_key=? WHERE id=?',
@@ -268,6 +276,9 @@ def execute(connection: sqlite3.Connection, settings: Settings, plan: dict,
         connection.execute('''INSERT INTO event_sources(event_id,parent_relative)
             SELECT ?,c.parent_relative FROM captures c JOIN event_captures ec ON ec.capture_id=c.id
             WHERE ec.event_id=? GROUP BY c.parent_relative''', (plan['album_id'], plan['album_id']))
+        connection.execute('''INSERT OR IGNORE INTO event_sources(event_id,parent_relative)
+            SELECT af.event_id,f.parent_relative FROM album_files af JOIN files f ON f.id=af.file_id
+            WHERE af.event_id=?''', (plan['album_id'],))
     progress(1, 1, '更新图库路径')
     progress(0, len(items), '清理待整理源文件')
     for index, item in enumerate(items):

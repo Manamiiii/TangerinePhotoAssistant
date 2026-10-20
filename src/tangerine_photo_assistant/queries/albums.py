@@ -20,6 +20,11 @@ def query_albums(
             SELECT
                 e.id, e.proposed_name, e.category, e.date_label, e.start_at, e.end_at,
                 e.capture_count, e.status, e.confidence, e.reason_json,
+                (SELECT COUNT(*) FROM album_files af WHERE af.event_id=e.id
+                 AND NOT EXISTS(SELECT 1 FROM capture_files cf WHERE cf.file_id=af.file_id)) AS attachment_count,
+                (SELECT COUNT(*) FROM album_files af JOIN files f ON f.id=af.file_id
+                 WHERE af.event_id=e.id AND REPLACE(f.relative_path,char(92),'/') LIKE '待整理/%'
+                 AND NOT EXISTS(SELECT 1 FROM capture_files cf WHERE cf.file_id=af.file_id)) AS inbox_attachment_count,
                 COUNT(DISTINCT es.parent_relative) AS source_count,
                 COUNT(DISTINCT b.id) AS burst_count,
                 COALESCE(MAX(b.capture_count), 0) AS largest_burst,
@@ -44,9 +49,9 @@ def query_albums(
             item = dict(row)
             item['archive_state'] = (
                 'pending' if row['id'] == pending_album_id else
-                'empty' if not row['capture_count'] else
-                'filed' if not row['inbox_capture_count'] else
-                'inbox' if row['inbox_capture_count'] == row['capture_count'] else 'mixed'
+                'empty' if not row['capture_count'] and not row['attachment_count'] else
+                'filed' if not row['inbox_capture_count'] and not row['inbox_attachment_count'] else
+                'inbox' if row['inbox_capture_count'] + row['inbox_attachment_count'] == row['capture_count'] + row['attachment_count'] else 'mixed'
             )
             item["reason"] = json.loads(item.pop("reason_json"))
             item["sources"] = [

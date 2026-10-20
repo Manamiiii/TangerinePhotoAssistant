@@ -87,6 +87,8 @@ export type PhotoExportOptions = {
 export type EventItem = {
   archive_state: "unknown" | "pending" | "empty" | "filed" | "inbox" | "mixed";
   inbox_capture_count: number;
+  attachment_count?: number;
+  inbox_attachment_count?: number;
   id: number;
   proposed_name: string;
   category: string;

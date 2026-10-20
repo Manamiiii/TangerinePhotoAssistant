@@ -59,6 +59,8 @@ from .ai_safety import (
     gpu_status,
 )
 from .album_routes import create_album_router
+from .ingest_routes import create_import_router
+from .ingest_tasks import ImportTaskMixin
 from .archive import (
     create_archive_baseline,
     integrity_check_history,
@@ -440,7 +442,7 @@ def _safe_task_error_code(error: Any) -> str:
     return value if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,79}", value) else "TaskFailure"
 
 
-class ScanTaskManager:
+class ScanTaskManager(ImportTaskMixin):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._lock = Lock()
@@ -469,6 +471,8 @@ class ScanTaskManager:
                 result={'album_id': unfinished['album_id']},
             )
 
+        if self._state.status == 'idle' and settings.database_path.is_file():
+            self.recover_import_job()
         if self._state.status == 'idle' and settings.database_path.is_file():
             with closing(connect_readonly(settings.database_path)) as connection:
                 batch = pending_import(connection)
@@ -1839,6 +1843,9 @@ def create_app(
                 return JSONResponse(status_code=409, content={'detail': manager.archive_recovery_error})
             if request.url.path != "/api/system/desktop/shutdown" and pending_restore_path(settings.workspace / "Equipment" / "inventory.json").exists():
                 return JSONResponse(status_code=409, content={'detail': '人工数据恢复尚待核对，已暂停写入；请保留备份并重启应用'})
+            if (state.get('stage') == 'import-workflow' and state['status'] in {'running', 'paused'}
+                    and not (state['status'] == 'paused' and request.url.path == f"/api/imports/{state['id']}/start")):
+                return JSONResponse(status_code=409, content={'detail': '请先完成当前导入；其他写入暂时暂停'})
             if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
                 allowed = request.url.path.endswith('/archive/preview') or (
                     state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
@@ -1861,6 +1868,9 @@ def create_app(
                     return JSONResponse(status_code=409, content={'detail': manager.archive_recovery_error})
                 if request.url.path != "/api/system/desktop/shutdown" and pending_restore_path(settings.workspace / "Equipment" / "inventory.json").exists():
                     return JSONResponse(status_code=409, content={'detail': '人工数据恢复尚待核对，已暂停写入；请保留备份并重启应用'})
+                if (state.get('stage') == 'import-workflow' and state['status'] in {'running', 'paused'}
+                        and not (state['status'] == 'paused' and request.url.path == f"/api/imports/{state['id']}/start")):
+                    return JSONResponse(status_code=409, content={'detail': '请先完成当前导入；其他写入暂时暂停'})
                 if state.get('stage') == 'album-archive' and state['status'] in {'running', 'paused'}:
                     allowed = request.url.path.endswith('/archive/preview') or (
                         state['status'] == 'paused' and request.url.path.endswith('/archive/execute')
@@ -3385,6 +3395,7 @@ def create_app(
             connection.close()
 
     app.include_router(create_album_router(lambda: settings, manager))
+    app.include_router(create_import_router(lambda: settings, manager))
 
     if static_directory is not None and static_directory.is_dir():
         static_root = static_directory.resolve()

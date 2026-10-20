@@ -235,6 +235,16 @@ def assign_captures_to_album(
                 for index, capture_id in enumerate(ordered_ids)
             ),
         )
+        # Imported companion files follow the selected photo family into its new album.
+        connection.execute(
+            f'''UPDATE album_files SET event_id=? WHERE file_id IN (
+                SELECT companion.id FROM files companion JOIN files photo
+                  ON companion.parent_relative=photo.parent_relative AND (
+                    companion.stem=photo.stem COLLATE NOCASE OR
+                    (companion.media_kind='other' AND companion.stem=photo.file_name COLLATE NOCASE))
+                JOIN capture_files cf ON cf.file_id=photo.id WHERE cf.capture_id IN ({placeholders}))''',
+            (album_id, *ordered_ids),
+        )
         affected.add(album_id)
         for affected_id in affected:
             # Transfer complete burst candidates without rebuilding their similarity
@@ -253,8 +263,10 @@ def assign_captures_to_album(
                 """INSERT INTO event_sources(event_id, parent_relative)
                    SELECT ?, c.parent_relative FROM event_captures ec
                    JOIN captures c ON c.id=ec.capture_id
-                   WHERE ec.event_id=? GROUP BY c.parent_relative""",
-                (affected_id, affected_id),
+                   WHERE ec.event_id=? GROUP BY c.parent_relative
+                   UNION SELECT ?, f.parent_relative FROM album_files af
+                   JOIN files f ON f.id=af.file_id WHERE af.event_id=?""",
+                (affected_id, affected_id, affected_id, affected_id),
             )
             connection.execute(
                 """UPDATE events SET

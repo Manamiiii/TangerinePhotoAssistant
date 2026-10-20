@@ -87,6 +87,9 @@ def scan_library(
 
     if pending(settings):
         raise ValueError('相册归档未完成，请先从原计划继续归档后再扫描')
+    from .ingest import active
+    if active(connection):
+        raise ValueError('导入尚未完成，请先从导入页继续；暂不扫描其他文件')
     errors = settings.validate()
     if errors:
         raise ValueError("; ".join(errors))
@@ -198,6 +201,7 @@ def enrich_metadata(
     settings: Settings,
     reader: MetadataReader,
     progress: Callable[[int, int], None] | None = None,
+    file_ids: set[int] | None = None,
 ) -> int:
     rows = connection.execute(
         """
@@ -207,6 +211,8 @@ def enrich_metadata(
         ORDER BY id
         """
     ).fetchall()
+    if file_ids is not None:
+        rows = [row for row in rows if row['id'] in file_ids]
     path_to_id = {str(Path(row["path"]).resolve()).casefold(): row["id"] for row in rows}
     updated = 0
     total = len(rows)

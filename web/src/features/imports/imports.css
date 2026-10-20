@@ -1,0 +1,26 @@
+.import-workspace { display: grid; gap: 20px; }
+.import-workspace .panel { padding: 24px; min-width: 0; }
+.import-workspace h2, .import-workspace h3 { margin-top: 0; }
+.import-workspace p, .import-workspace small { color: var(--muted); line-height: 1.65; }
+.import-steps { display: flex; flex-wrap: wrap; gap: 12px 28px; padding: 16px 0 0; list-style: none; font-weight: 600; }
+.import-source form, .import-album-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: end; }
+.import-workspace label { display: grid; gap: 8px; }
+.import-workspace input:not([type=radio]):not([type=checkbox]), .import-workspace select { width: 100%; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; }
+.import-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+.import-actions label, .import-consent { display: flex !important; flex-direction: row; align-items: center; gap: 8px; }
+.import-consent { margin: 20px 0; }
+.import-batches { display: grid; gap: 8px; margin-top: 16px; }
+.import-batches button { display: flex; justify-content: space-between; gap: 16px; text-align: left; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; overflow-wrap: anywhere; }
+.import-batches button[aria-pressed=true] { border-color: var(--orange); background: var(--surface-raised); }
+.import-counts { display: flex; gap: 18px; flex-wrap: wrap; padding: 16px 0; }
+.import-workspace fieldset { border: 0; padding: 0; min-width: 0; }
+.import-files { list-style: none; padding: 0; }
+.import-files li { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.import-files li span:last-child { color: var(--muted); font-size: 13px; }
+.import-path { overflow-wrap: anywhere; }
+.import-workspace summary, .album-files summary { cursor: pointer; padding: 12px 0; }
+.album-files { margin: 16px 0; }
+@media (max-width: 760px) { .import-source form, .import-album-fields { grid-template-columns: 1fr; } .import-batches button { flex-direction: column; } .import-workspace .panel { padding: 16px; } }
+
+.import-steps li { color: var(--muted); }
+.import-steps li[aria-current=step] { color: var(--orange); }

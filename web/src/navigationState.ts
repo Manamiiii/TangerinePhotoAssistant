@@ -1,8 +1,8 @@
 import type { LibraryQuery, LibrarySection } from "./features/library/types";
 
-export type AppView = "home" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
+export type AppView = "home" | "imports" | "library" | "bursts" | "analysis" | "statistics" | "equipment" | "lightroom" | "archive" | "settings";
 
-export const appViews: AppView[] = ["home", "library", "bursts", "analysis", "statistics", "equipment", "lightroom", "archive", "settings"];
+export const appViews: AppView[] = ["home", "imports", "library", "bursts", "analysis", "statistics", "equipment", "lightroom", "archive", "settings"];
 
 export const defaultLibraryQuery: LibraryQuery = {
   pageSize: 40, albumId: "", category: "", camera: "", lens: "",

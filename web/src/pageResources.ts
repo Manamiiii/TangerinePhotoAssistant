@@ -16,6 +16,7 @@ export function visibleResources(view: AppView, albumContext: boolean, section: 
   const resources = new Set<PageResource>(["overview"]); // Shared last-scan header.
   const pages: Record<AppView, PageResource[]> = {
     home: ["statistics", "filters", "archive", "activeBaseline", "capabilities", "homePhotos", "similaritySummary"],
+    imports: ["filters"],
     library: ["filters"],
     bursts: ["filters", "similarity"],
     analysis: ["filters", "analysis", "preflight", "quality"],

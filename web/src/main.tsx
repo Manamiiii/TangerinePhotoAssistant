@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+const ImportView = lazy(() => import("./features/imports/ImportView").then((module) => ({ default: module.ImportView })));
 import { confirmLeave } from "./unsavedChanges";
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -1085,6 +1087,7 @@ function App() {
   };
 
   const pageMeta = {
+    imports: ["IMPORT", "导入新照片", "选择来源、复制校验、入库与正式归档"],
     home: ["OVERVIEW", "首页概览", ""],
     library: ["LIBRARY", "照片图库", "浏览、整理并管理全部拍摄单元"],
     bursts: ["REVIEW", "相似选片", "比较连拍与相似画面，留下真正需要的版本"],
@@ -1102,6 +1105,7 @@ function App() {
         <div className="brand"><span className="brand-mark">T</span><div><strong>Tangerine</strong><span>Photo Assistant</span></div></div>
         <nav aria-label="主要功能">
           <span className="nav-group-label">照片管理</span>
+          <button aria-current={view === "imports" ? "page" : undefined} title="导入新照片" className={`nav-item ${view === "imports" ? "active" : ""}`} onClick={() => requestView("imports")}><span>入</span>导入新照片</button>
           <button aria-current={view === "home" ? "page" : undefined} title="首页概览" className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => requestView("home")}><span>首</span>首页概览</button>
           <button aria-current={view === "library" ? "page" : undefined} title="照片图库" className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => { if (requestView("library")) setLibraryLandingSection("photos"); }}><span>图</span>照片图库</button>
           <button aria-current={view === "bursts" ? "page" : undefined} title="相似选片" className={`nav-item ${view === "bursts" ? "active" : ""}`} onClick={() => requestView("bursts")}><span>选</span>相似选片</button>
@@ -1134,8 +1138,9 @@ function App() {
           <span>{Object.values(readErrors).join("；")}</span>
           <button onClick={() => { setReadRetry((current) => current + 1); syncTask(); }}>重试读取</button>
         </div>}
-        {view === "home" && <HomeView readErrors={readErrors} overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={homePhotos} filters={libraryFilters} similarity={similaritySummary} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openAnalysis={() => { setQualityWorkflowFilter("open"); setQualityFilter("problems"); setView("analysis"); }} openStatistics={() => setView("statistics")} continueLabel={({ library: "照片图库", bursts: "相似选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
-        {view === "library" && <LibraryView
+        {view === "home" && <HomeView openImport={() => setView("imports")} readErrors={readErrors} overview={overview} statistics={statistics} archive={archive} activeBaseline={activeLibraryBaseline} library={homePhotos} filters={libraryFilters} similarity={similaritySummary} task={task} capabilities={capabilities} firstRun={overview?.capture_total === 0 && !overview.latest_scan} openPhotos={() => { setLibraryLandingSection("photos"); setView("library"); }} openSetup={() => setView("settings")} openAlbums={() => { setLibraryLandingSection("albums"); setView("library"); }} openAlbum={(albumId) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: String(albumId), collapseGroups: true })); setView("library"); }} openBursts={() => setView("bursts")} openAnalysis={() => { setQualityWorkflowFilter("open"); setQualityFilter("problems"); setView("analysis"); }} openStatistics={() => setView("statistics")} continueLabel={({ imports: "导入新照片", library: "照片图库", bursts: "相似选片", analysis: "质量分析", statistics: "摄影统计", equipment: "设备管理", lightroom: "后期输出", archive: "系统维护", settings: "应用设置", home: "首页概览" } as Record<View, string>)[lastWorkspaceView]} continueWork={() => setView(lastWorkspaceView)} openUnassigned={() => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({ ...current, albumId: "__unassigned__", collapseGroups: false })); setView("library"); }} openMaintenance={() => setView("archive")} openCapture={openCapture} />}
+        {view === "imports" && <Suspense fallback={<p role="status">正在载入导入页面…</p>}><ImportView filters={libraryFilters} task={task} acceptTask={acceptTask} openAlbum={(id) => { setLibraryLandingSection("photos"); setLibraryOffset(0); setLibraryQuery((current) => ({...current, albumId: String(id), collapseGroups: true})); setView("library"); }} /></Suspense>}
+        {view === "library" && <LibraryView openImport={() => setView("imports")}
           overview={overview} library={libraryCaptures} albums={events} filters={libraryFilters} equipment={equipment} query={libraryQuery}
           requestedSection={libraryLandingSection} changeSection={setLibraryLandingSection}
           pageState={{ offset: libraryOffset, loading: libraryLoading, error: libraryLoadError,

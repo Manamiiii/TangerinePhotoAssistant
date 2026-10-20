@@ -169,11 +169,10 @@ def create_album_router(
             paths = [
                 row[0]
                 for row in connection.execute(
-                    """SELECT DISTINCT f.path FROM files f
-                JOIN capture_files cf ON cf.file_id=f.id
-                JOIN event_captures ec ON ec.capture_id=cf.capture_id
-                WHERE ec.event_id=?""",
-                    (album_id,),
+                    """SELECT f.path FROM files f WHERE f.id IN (
+                    SELECT cf.file_id FROM capture_files cf JOIN event_captures ec ON ec.capture_id=cf.capture_id
+                    WHERE ec.event_id=? UNION SELECT file_id FROM album_files WHERE event_id=?)""",
+                    (album_id, album_id),
                 )
             ]
         try:

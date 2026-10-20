@@ -1,3 +1,4 @@
+import { AlbumFiles } from "../imports/AlbumFiles";
 import { AlbumArchive } from "./AlbumArchive";
 import { GroupComparison } from "../similarity/GroupComparison";
 import { SelectionReview } from "./SelectionReview";
@@ -98,7 +99,7 @@ export function AlbumsView({ albums, filters, equipment, updateAlbum, createAlbu
             <article className="event-row album-row" key={album.id}>
               <div className={`category-chip category-${album.category}`}>{album.category}</div>
               <div className="event-main"><strong>{album.proposed_name}</strong><span className={`album-filing-state state-${album.archive_state}`}>{archiveLabels[album.archive_state]}{album.inbox_capture_count > 0 ? ` · ${album.inbox_capture_count} 张待整理` : ""}</span><span>{album.source_count ? `${album.source_count} 个拍摄来源` : "手动创建"}{album.equipment_count ? ` · ${album.equipment_count} 件本次使用附件` : ""}</span></div>
-              <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片</span></div>
+              <div className="event-measure"><strong>{numberFormat.format(album.capture_count)}</strong><span>照片{album.attachment_count ? ` · ${album.attachment_count} 个视频/附属文件` : ""}</span></div>
               <div className="album-date"><strong>{album.start_at?.slice(0, 10) ?? "—"}</strong><span>拍摄日期</span></div>
               <div className="album-row-actions"><button onClick={() => openAlbumEditor(album)}>编辑</button>{album.source_count > 0 ? <button title="打开该相册的第一个现存来源目录" onClick={() => void getJson(`/api/albums/${album.id}/open-folder`, { method: "POST" })}>打开目录</button> : <span aria-hidden="true" />}{album.status !== "confirmed" ? <button onClick={() => updateAlbum(album, { status: "confirmed" })}>确认</button> : <span aria-hidden="true" />}<button className="album-open-action" onClick={() => openAlbum(album.id)}>{album.archive_state === "inbox" ? "去归档" : album.archive_state === "pending" ? "查看归档" : "打开照片"}</button></div>
             </article>
@@ -460,7 +461,7 @@ function PhotoLibraryView({ library, pageState, filters, query, updateQuery, ope
   </>;
 }
 
-export function LibraryView({ overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, changeSection, task, acceptTask, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
+export function LibraryView({ openImport, overview, library, pageState, albums, filters, equipment, query, updateQuery, requestedSection, changeSection, task, acceptTask, startScan, cancelTask, updateAlbum, createAlbum, createAlbumType, renameAlbumType, deleteAlbumType, assignToAlbum, batchTag, batchReview, openCapture, selectedGroup, openGroup, closeGroup, saveReview, editGrouping, saveGrouping, restoreGroupingRevision, exportPhotos, changePage, changePageSize, changeAlbumPage, changeAlbumPageSize, albumWorkspaceCounts, openAlbumBursts, openAlbumQuality, refreshLibrary }: {
   overview: Overview | null;
   pageState: LibraryPageState;
   library: LibraryCapturesResponse | null;
@@ -473,6 +474,7 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   changeSection: (section: LibrarySection) => void;
   task: Task | null;
   acceptTask: (task: Task) => void;
+  openImport?: () => void;
   startScan: (albumId: number) => void;
   cancelTask: () => void;
   updateAlbum: (album: EventItem, changes: Partial<Pick<EventItem, "proposed_name" | "category" | "status" | "equipment_keys" | "equipment_count">>) => Promise<boolean>;
@@ -549,11 +551,11 @@ export function LibraryView({ overview, library, pageState, albums, filters, equ
   }, [task?.status, task?.result?.album_id]);
   return (
     <>
-      {!activeAlbumId && <div className="library-navigation workspace-view-nav"><CollectionScopeTabs scope={section === "photos" ? "all" : "albums"} setScope={(scope) => setSection(scope === "all" ? "photos" : "albums")} /><div className="library-maintenance"><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button primary" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新图库"}</button></div></div>}
+      {!activeAlbumId && <div className="library-navigation workspace-view-nav"><CollectionScopeTabs scope={section === "photos" ? "all" : "albums"} setScope={(scope) => setSection(scope === "all" ? "photos" : "albums")} /><div className="library-maintenance"><button className="toolbar-button primary" onClick={openImport}>导入新照片</button><span>上次更新 {formatDate(overview?.latest_scan?.finished_at)}</span><button className="toolbar-button" onClick={openUpdate} disabled={task?.status === "running"}>{task?.status === "running" ? "正在更新" : "更新已有文件索引"}</button></div></div>}
       <TaskCard task={isLibraryTask(task) ? task : null} cancel={task?.stage === "album-archive" ? undefined : cancelTask} />
       {activeAlbumId ? <>
         <AlbumWorkspaceHeader name={activeAlbum?.name ?? "相册照片"} category={activeAlbum?.category ?? "相册"} summary={`${numberFormat.format(activeAlbum?.capture_count ?? library?.count ?? 0)} 张照片`} counts={albumWorkspaceCounts} current="library" back={leaveAlbum} openPhotos={() => undefined} openBursts={() => openAlbumBursts(activeAlbumId)} openQuality={() => openAlbumQuality(activeAlbumId)} />
-        <AlbumArchive key={activeAlbumId} albumId={activeAlbumId} task={task} onStarted={acceptTask} />
+        <AlbumArchive key={activeAlbumId} albumId={activeAlbumId} task={task} onStarted={acceptTask} /><AlbumFiles key={`files-${activeAlbumId}`} albumId={activeAlbumId} task={task} />
         <PhotoLibraryView library={library} pageState={pageState} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} albumContext refreshLibrary={refreshLibrary} />
       </> : <>
         {section === "photos" && <PhotoLibraryView library={library} pageState={pageState} filters={filters} query={query} updateQuery={updateQuery} openCapture={openCapture} openGroup={openGroup} editGrouping={editGrouping} exportPhotos={exportPhotos} assignToAlbum={assignToAlbum} batchTag={batchTag} batchReview={batchReview} changePage={changePage} changePageSize={changePageSize} refreshLibrary={refreshLibrary} />}
