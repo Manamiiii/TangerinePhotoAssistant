@@ -23,13 +23,13 @@ describe("independent page reads", () => {
   it("displays a fast response without waiting for a slow or failed sibling", async () => {
     const slow = pending();
     vi.stubGlobal("fetch", vi.fn().mockReturnValueOnce(slow.promise)
-      .mockResolvedValueOnce(Response.json({ capture_total: 13809 })));
+      .mockResolvedValueOnce(Response.json({ capture_total: 10000 })));
     const statistics = vi.fn();
     const overview = vi.fn();
     const failed = vi.fn();
     const stopStats = resourceRequest("/api/statistics", true, createLatestRequestGuard(), statistics, failed);
     const stopOverview = resourceRequest("/api/overview", true, createLatestRequestGuard(), overview, vi.fn());
-    await vi.waitFor(() => expect(overview).toHaveBeenCalledWith({ capture_total: 13809 }));
+    await vi.waitFor(() => expect(overview).toHaveBeenCalledWith({ capture_total: 10000 }));
     expect(statistics).not.toHaveBeenCalled();
     slow.resolve(Response.json({ detail: "temporarily unavailable" }, { status: 503 }));
     await vi.waitFor(() => expect(failed).toHaveBeenCalledWith("temporarily unavailable"));

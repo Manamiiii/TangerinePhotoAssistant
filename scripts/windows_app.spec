@@ -12,6 +12,7 @@ data += [(str(path), str(path.parent.relative_to(root)))
          for path in (root / "src/tangerine_photo_assistant").rglob("*.py")]
 data += collect_data_files("webview")
 data += [(os.environ["TANGERINE_BUILD_INFO"], ".")]
+data += [(os.environ["TANGERINE_NOTICES"], "ThirdPartyNotices")]
 a = Analysis(
     [str(root / "scripts/desktop_entry.py")], pathex=[str(root / "src")],
     binaries=[], datas=data,

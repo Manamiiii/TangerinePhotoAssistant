@@ -10,6 +10,11 @@ Windows 优先的本地照片整理与人工选片工具，适合 JPG 或 JPG+RA
 [README](../README.md) 介绍用途；[Windows 安装](INSTALL_WINDOWS.md) 和 [首次使用](GETTING_STARTED.md) 提供完整路径。
 当前适合早期源码试用，尚不宣称签名、跨平台或干净机器验收完成的稳定发行版。
 
+Windows x64 已接入当前用户 Setup、Portable、固定构建约束、第三方声明和 SHA-256；
+干净提交同时生成对应源码包。运行中拒绝维护，升级/卸载保留用户数据，不发布 Release 或上传二进制。
+独立 fixture 的实际打包后台与安装生命周期由本机脚本和 Windows CI 验证；正式身份向导、原生窗口、
+干净 Windows 普通账号仍需人工验收，详见 [Windows 安装包](WINDOWS_APP.md)。
+
 ## 已实现的核心能力
 
 - 独立导入页：来源检查、新建/已有相册、复制与 SHA-256 校验、限定本批入库、持久进度和恢复、归档预览。

@@ -1,7 +1,7 @@
 # Windows 独立窗口与本地安装包
 
 独立窗口复用原有本地 HTTP 服务、TOML 配置和网页，不另建图库，也不包含模型、照片、个人配置
-或数据库。运行时需要 Windows 的 WebView2 Runtime；不自动下载安装系统组件，不降级到旧 IE
+或数据库。运行时需要 Windows 的 WebView2 Runtime 和 .NET Framework 4.6.2+；不自动下载安装系统组件，不降级到旧 IE
 内核。核心功能仍离线，外部资料链接由用户主动在浏览器打开。
 
 ## 源码工作区
@@ -33,7 +33,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows_launcher
 ## 构建 Windows x64 包
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[desktop,package]"
+.\.venv\Scripts\python.exe -m pip install -c requirements-tested.txt -c requirements-windows-build.txt -e ".[desktop,package]"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_app.ps1
 ```
 
@@ -45,14 +45,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_ap
 
 解压后直接运行 `TangerinePhotoAssistant.exe` 可使用便携程序；双击 `Install.cmd` 会复制程序到
 当前用户 `%LOCALAPPDATA%/Programs/TangerinePhotoAssistant/release-时间戳` 并创建快捷方式。
-不需要管理员权限，不注册开机启动，不停止现有服务。升级创建新版本目录，不覆盖正在运行
-的可执行文件；旧程序目录保留供人工回退，暂不自动清理。
+也可使用 Setup 安装并获得 Windows 卸载入口。无需管理员权限，不注册开机启动。维护前须安全停止空闲后台并关闭窗口；运行中的程序会阻止维护。升级创建新版本目录；旧程序目录保留供人工回退，暂不自动清理。
 
 新包携带版本号、Git 提交、构建时间、未提交修改标记和逐文件 SHA-256 清单；安装前及复制后
 都校验。只复制清单内的程序资源，不复制解压目录中额外放入的文件。校验和用于发现损坏，
 不是数字签名，也不能证明发布者身份；只安装可信来源的包。
 
-升级继续运行新包的 `Install.cmd`，保留原配置和旧程序目录。运行中的旧进程不会被替换或重启，
+升级运行新版本 Setup（便携安装也可运行 `Install.cmd`），保留原配置和旧程序目录。运行中的旧进程不会被替换或重启，
 需保存编辑、空闲时安全停止服务并关闭窗口，再从快捷方式打开新版本。“版本与更新”显示
 窗口程序和后台服务的构建身份；“检查本地安装包”只比较用户选中的解压目录，不自动联网、
 下载、执行或声称某个不同提交一定更新。源码窗口的构建身份在进程启动时记录。
@@ -126,3 +125,32 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File manage_windows_app.ps1 -
 - 自有代码已采用 GPL-3.0-only；安装包分发前仍需第三方依赖许可汇总与干净 Windows 环境验收。
 - 公开安装包需提供该构建对应的完整源码和必要构建脚本，在下载处链接到确切源码版本或源码包，
   不能只提供浮动 main 链接。新构建包含 LICENSE；旧包没有被本次文档/许可变更自动更新。
+
+
+## Setup 构建与自动验证
+
+Setup 使用固定 NSIS 3.13 便携编译器，构建脚本下载并核验 SHA-256，工具只存于项目忽略目录。
+不安装全局工具，不使用管理员权限。稳定安装标识为 `{551A03F7-2773-4A5E-962C-6BBDB8B28E08}`。
+程序生命周期持有共享使用锁，维护需要独占锁；Setup 同一产品身份另有互斥保护。
+卸载只删除清单中未被修改的程序文件，保留凭据目录、未知文件、修改文件和全部用户数据。
+
+构建目录包含 Setup EXE、Portable ZIP、SHA256SUMS.txt、build-info.json；干净提交构建另含对应提交 Source.zip。
+未提交改动构建仅用于开发测试，不作为可分发发行版。第三方许可位于 `_internal/ThirdPartyNotices`。
+`proxy-tools 0.1.0` 元数据写 MIT、源码头写 BSD 且包内缺失 LICENSE；包中保留原始元数据、源码声明及其 Werkzeug 上游 BSD 文本，正式公开分发前仍须澄清这一授权差异。
+
+自动检查命令：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_windows_package.py --bundle runtime/packages/构建目录/dist/TangerinePhotoAssistant --report runtime/packages/构建目录/verification.json
+```
+
+自动检查以唯一 fixture 名称/GUID、临时配置及虚构照片验证实际打包后台、导入归档、JSON 恢复、
+重开数据、运行中拒绝维护、低版本号 fixture 升级、卸载保留和重装恢复。不打开窗口或操作鼠标。
+低版本 fixture 使用同一业务负载，只验证安装器升级机制，不能证明历史业务数据迁移。
+CI 执行同一流程，不创建 Release 或上传安装包。正式应用身份的交互向导、原生窗口、DPI、
+SmartScreen 和干净 Windows 普通账号仍需单独验收，自动回归不代替这些检查。
+
+桌面窗口只允许本应用回环地址导航，用户主动的 HTTPS 外链交由系统浏览器；阻止 file/javascript/系统协议。
+下载只允许同源或同源 blob，之后由用户选择保存路径；摄像头、麦克风、位置等权限默认拒绝。
+没有 renderer Node、任意 shell/文件代理、自动更新服务或打包页面 Service Worker。
+Python 桌面壳不使用 Electron；自定义资源协议、Dexie、OCR/WASM、地图等要求在本项目不适用。

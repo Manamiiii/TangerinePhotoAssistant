@@ -44,5 +44,5 @@ def version_summary(local: dict, remote: dict | None) -> str:
             lines.append("程序与服务构建不同；保存编辑并确认任务空闲后正常重启。")
     else:
         lines.append("后台服务：旧版或暂不可用，无法比较构建版本。")
-    lines.append("不自动联网或下载。检查本地安装包后，运行其中的 Install.cmd 安装。")
+    lines.append("不自动联网或下载。安全停止后台并关闭窗口后，手动运行新版本 Setup；便携包也可使用 Install.cmd。")
     return "\n\n".join(lines)

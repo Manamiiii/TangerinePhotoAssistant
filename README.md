@@ -13,7 +13,7 @@
 
 [安装与启动](docs/INSTALL_WINDOWS.md) · [第一次导入](docs/GETTING_STARTED.md) · [功能边界](#支持范围) · [问题反馈](https://github.com/Manamiiii/TangerinePhotoAssistant/issues/new?template=bug_report.md)
 
-> 当前是个人维护的早期版本，Windows 优先；推荐源码安装，尚未完成干净机器上的完整安装验收。核心流程有自动化回归，日常使用仍请保留独立备份。
+> 当前是个人维护的早期版本，Windows x64 优先；提供未签名 Setup/Portable 构建，尚未公开发布安装包或完成干净机器验收。核心流程有自动化回归，日常使用仍请保留独立备份。
 
 ## 用在什么场景
 
@@ -41,7 +41,9 @@
 
 ## 安装与启动
 
-当前推荐 **Windows 源码方式**：需要 Git、Python 3.12、Node.js 22.12+（22.x）。首次安装需要联网，基础照片管理可离线运行。
+**普通用户**：内测 Setup 按当前用户安装，运行无需 Python 或 Node；当前没有公开下载链接，详见 [安装说明](docs/INSTALL_WINDOWS.md)。
+
+**开发者源码方式**：需要 Git、Python 3.12、Node.js 22.12+（22.x）。首次安装需要联网，基础照片管理可离线运行。
 
 ```powershell
 git clone https://github.com/Manamiiii/TangerinePhotoAssistant.git

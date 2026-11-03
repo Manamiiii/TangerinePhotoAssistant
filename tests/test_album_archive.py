@@ -2,6 +2,7 @@ import json
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -54,6 +55,27 @@ class AlbumArchiveTests(unittest.TestCase):
 
     def run_plan(self, plan, progress=lambda *_: None):
         return archive.execute(self.db, self.settings, plan, progress)
+
+    def test_archive_protects_database_archive_root_on_any_drive(self):
+        frozen = self.root / 'frozen-originals'
+        frozen.mkdir()
+        active = self.settings.originals
+        self.db.execute(
+            "INSERT INTO library_state(id, archive_root, active_root, status) VALUES (1, ?, ?, 'active')",
+            (str(frozen), str(active)),
+        )
+        self.db.commit()
+        self.assertEqual(archive._root(self.db, self.settings), active)
+        for root in (frozen, self.root / 'unregistered-library'):
+            with self.subTest(root=root), self.assertRaisesRegex(ValueError, '历史原始档案'):
+                archive.preview(self.db, replace(self.settings, originals=root), self.album)
+        # Even inconsistent state must not allow an archive root to become writable.
+        self.db.execute('UPDATE library_state SET archive_root=active_root WHERE id=1')
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, '历史原始档案'):
+            self.plan()
+        self.assertFalse((self.settings.workspace / 'AlbumArchive').exists())
+        self.assertEqual(len(list(self.source.iterdir())), 4)
 
     def test_archive_preserves_identity_reviews_pairs_after_rescan(self):
         extra = self.source / 'notes.txt'

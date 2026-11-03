@@ -224,17 +224,24 @@ def set_taskbar_identity() -> None:
 
 
 def run_window(config: Path, port: int) -> int:
+    from .desktop_prerequisites import missing_prerequisites
+
+    missing = missing_prerequisites()
+    if missing:
+        raise DesktopError('独立窗口缺少：' + '、'.join(missing) + '。请从微软官方渠道安装后重试；程序不会自动安装或降级到 IE。现有网页入口仍可使用。')
     set_taskbar_identity()
     import webview
     from webview.menu import Menu, MenuAction, MenuSeparator
 
+    from .desktop_navigation import NavigationPolicy
     from .desktop_window import DesktopWindow
 
     client = ServiceClient(config, port)
     controller = DesktopWindow(client)
     webview.settings["ALLOW_FILE_URLS"] = False
     webview.settings["ALLOW_DOWNLOADS"] = True
-    webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
+    webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False
+    webview.settings["IGNORE_SSL_ERRORS"] = False
     webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
     menu = [Menu("应用", [MenuAction("重新连接", controller.connect),
                          MenuAction("安全重启服务", controller.restart),
@@ -249,6 +256,8 @@ def run_window(config: Path, port: int) -> int:
                                    width=1440, height=960, min_size=(1024, 700),
                                    background_color="#faf7f1", text_select=True, menu=menu)
     controller.window = window
+    policy = NavigationPolicy(client.url)
+    window.events.before_show += lambda: policy.attach(window)
     window.events.closed += controller.cancelled.set
     lease = FileLease(client.runtime / "window.lock")
     try:
@@ -268,6 +277,17 @@ def run_window(config: Path, port: int) -> int:
 
 
 def main() -> int:
+    from .package_use import installed_program_use
+
+    try:
+        with installed_program_use():
+            return _main()
+    except OSError:
+        # No forced shutdown or implicit retry during installation maintenance.
+        return 1
+
+
+def _main() -> int:
     parser = argparse.ArgumentParser(description="TangerinePhotoAssistant desktop")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--port", type=int, default=8765)

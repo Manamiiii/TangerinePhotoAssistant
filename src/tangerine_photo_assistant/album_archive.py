@@ -84,8 +84,6 @@ def _root(connection: sqlite3.Connection, settings: Settings) -> Path:
     if state and (root != Path(state['active_root']).absolute()
                   or root == Path(state['archive_root']).absolute()):
         raise ValueError('只能归档当前活动图库，不能操作历史原始档案')
-    if str(root).replace('\\', '/').casefold().rstrip('/') == 'd:/photo':
-        raise ValueError('不能操作历史原始档案')
     _plain(root / '待整理', root)
     return root
 

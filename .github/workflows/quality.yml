@@ -57,3 +57,30 @@ jobs:
       - name: Production build
         run: npm run build
         working-directory: web
+
+  windows-package:
+    name: Windows x64 Setup and isolated lifecycle
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Isolated build environment
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python.exe -m pip install -c requirements-tested.txt -c requirements-windows-build.txt -e ".[desktop,package]"
+          npm ci --prefix web
+      - name: Build unsigned Setup and Portable without publishing
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_app.ps1 -OutputDirectory runtime/packages/ci
+      - name: Packaged backend and isolated installer lifecycle
+        run: .venv/Scripts/python.exe scripts/check_windows_package.py --bundle runtime/packages/ci/dist/TangerinePhotoAssistant --report runtime/packages/ci/verification.json
+      # No Release creation or binary upload. Native UI and clean-machine acceptance remain manual.

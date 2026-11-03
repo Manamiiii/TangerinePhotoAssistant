@@ -21,8 +21,10 @@ if ($Action -eq 'Status') { $State | ConvertTo-Json -Depth 5; return }
 if ($Release -notin $State.releases) { throw 'Release is not managed by this installation.' }
 $Directory = Get-ChildPath $InstallRoot $Release
 Assert-PlainPath (Join-Path $InstallRoot '.maintenance.lock')
-$Lease = [IO.File]::Open((Join-Path $InstallRoot '.maintenance.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+$UseLease = if ($Apply -or $Interactive) { Lock-ProgramUse $InstallRoot } else { $null }
+$Lease = $null
 try {
+    $Lease = [IO.File]::Open((Join-Path $InstallRoot '.maintenance.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
     $State = Read-Installation $InstallRoot
     if ($Release -notin $State.releases) { throw 'Installation changed; try again.' }
     $Package = Read-Package $Directory
@@ -60,4 +62,4 @@ try {
     }
     Save-Installation $InstallRoot $State
     Write-Host "$Action completed. User data was preserved. No process was stopped."
-} finally { $Lease.Dispose() }
+} finally { if ($Lease) { $Lease.Dispose() }; if ($UseLease) { $UseLease.Dispose() } }

@@ -2,7 +2,27 @@
 
 [返回项目首页](../README.md) · [首次导入与常见问题](GETTING_STARTED.md)
 
-当前推荐 Windows 源码安装。以下步骤只安装程序和建立配置，不会自动扫描、复制或修改你的照片。
+## Windows x64 安装包（内测）
+
+构建流程提供 Setup 和 Portable，当前尚未发布公开下载链接。收到可信来源的内测包后，核对
+`SHA256SUMS.txt`，运行 `TangerinePhotoAssistant-版本-Windows-x64-Setup.exe`，随后从开始菜单打开。
+安装只针对当前用户，无需管理员权限；运行无需源码、Python、Node、npm 或 Rust。
+需要 Microsoft WebView2 Runtime 和 .NET Framework 4.6.2+（通常已随 Windows 安装），缺少时按微软官方说明安装；程序不自动安装系统组件。
+
+首次启动只建立空配置，在“导入新照片”检查来源并确认复制，不会自动扫描硬盘。
+程序位于当前用户 `LocalAppData/Programs/TangerinePhotoAssistant`，默认数据位于独立的
+`LocalAppData/TangerinePhotoAssistant`。Windows“已安装的应用”可卸载；卸载保留配置、数据库、照片、缓存与备份。
+更新采用手动下载新 Setup 并确认安装，没有自动更新后台服务。维护前在应用菜单安全停止空闲后台并关闭窗口；
+运行中的窗口或后台会阻止安装、升级和卸载，不会被强制终止。
+
+Portable ZIP 解压后直接运行 EXE，默认数据仍放在当前用户目录。已有源码库不会自动与默认空库合并，
+请按 [复用配置说明](WINDOWS_APP.md#安装与配置) 保留原配置入口，不要用示例覆盖已有配置。
+当前安装包未签名，校验值不能代替发布者签名；正式身份向导和干净 Windows 普通账号体验仍需验收。
+不宣称已支持 macOS 安装包。
+
+## 源码安装
+
+没有安装包时可按以下步骤从源码运行。步骤只安装程序和建立配置，不会自动扫描、复制或修改你的照片。
 
 需要 **Git、Python 3.12、Node.js 22.12+（22.x）**。首次安装依赖需要网络；安装完成后，核心照片管理在本机离线运行。以下命令在 PowerShell 执行，不需要激活虚拟环境或管理员权限。
 

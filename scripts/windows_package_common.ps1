@@ -73,6 +73,12 @@ function Assert-NoProgramProcess([string]$Root) {
         if ($Process.Name -eq 'TangerinePhotoAssistant.exe' -and -not $Process.ExecutablePath) { throw 'Cannot establish process ownership; no files changed.' }
     }
 }
+function Lock-ProgramUse([string]$Root) {
+    $Path = Join-Path $Root '.app-use.lock'
+    Assert-PlainPath $Path
+    try { return [IO.File]::Open($Path, 'OpenOrCreate', 'ReadWrite', 'None') }
+    catch { throw 'The installed application or another maintenance operation is active. Nothing was stopped; close it safely and retry.' }
+}
 function Set-ProgramShortcuts([string]$Root, $State, [string]$Release) {
     if (-not $State.shortcuts) { return }
     $Shell = New-Object -ComObject WScript.Shell

@@ -1,0 +1,14 @@
+# Use together with requirements-tested.txt on Windows x64 / Python 3.12.
+pywebview==6.2.1
+pythonnet==3.1.0
+clr-loader==0.3.1
+cffi==2.1.1
+pycparser==3.0
+bottle==0.13.4
+proxy-tools==0.1.0
+pyinstaller==6.22.2
+pyinstaller-hooks-contrib==2026.7
+altgraph==0.17.5
+pefile==2024.8.26
+pywin32-ctypes==0.2.3
+packaging==26.3

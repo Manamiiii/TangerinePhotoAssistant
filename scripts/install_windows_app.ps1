@@ -12,9 +12,13 @@ if ($ConfigFile) {
 }
 if ((Test-Path -LiteralPath $InstallRoot) -and -not (Test-Path -LiteralPath (Join-Path $InstallRoot '.tangerine-install.json')) -and @(Get-ChildItem -LiteralPath $InstallRoot -Force).Count) { throw 'Directory contains unmanaged/legacy files. Choose a new empty program directory.' }
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+Assert-NoProgramProcess $InstallRoot
+$UseLease = Lock-ProgramUse $InstallRoot
 Assert-PlainPath (Join-Path $InstallRoot '.maintenance.lock')
-$Lease = [IO.File]::Open((Join-Path $InstallRoot '.maintenance.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+$Lease = $null
 try {
+    $Lease = [IO.File]::Open((Join-Path $InstallRoot '.maintenance.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+    Assert-NoProgramProcess $InstallRoot
     if (Test-Path -LiteralPath (Join-Path $InstallRoot '.tangerine-install.json')) {
         $State = Read-Installation $InstallRoot
         if ($ConfigFile -and $ConfigFile -ne $State.config) { throw 'Upgrade must preserve the configuration; edit directories in application settings.' }
@@ -44,4 +48,4 @@ try {
     Write-Host "Installed: $Release"
     Write-Host 'Existing processes were not changed. Close/restart normally to use this version.'
     Write-Host 'Configuration, database, cache, photos and old program versions were preserved.'
-} finally { $Lease.Dispose() }
+} finally { if ($Lease) { $Lease.Dispose() }; $UseLease.Dispose() }
