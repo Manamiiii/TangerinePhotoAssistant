@@ -25,7 +25,7 @@ class AlbumAssignmentCleanupTests(unittest.TestCase):
                       (index, str(index), str(index)))
             c.execute('INSERT INTO event_captures VALUES(?,?,?)', (source, index, index))
         c.execute('UPDATE events SET capture_count=2 WHERE id=?', (source,))
-        c.execute("INSERT INTO bursts(id,event_id,burst_key,start_at,end_at,capture_count,grouping_method) VALUES(1,?,'stable','2026-08-22','2026-08-22',2,'metadata')", (source,))
+        c.execute("INSERT INTO bursts(id,event_id,burst_key,start_at,end_at,capture_count,grouping_method) VALUES(1,?,'stable','2000-01-01','2000-01-01',2,'metadata')", (source,))
         c.executemany('INSERT INTO burst_captures VALUES(1,?,?,0)', [(1, 0), (2, 1)])
         c.execute("INSERT INTO similarity_groups(id,burst_id,group_key,capture_count,max_adjacent_hamming) VALUES(1,1,'stable',2,0)")
         c.executemany('INSERT INTO similarity_group_captures VALUES(1,?,?,0)', [(1, 0), (2, 1)])

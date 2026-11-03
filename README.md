@@ -1,25 +1,47 @@
-# TangerinePhotoAssistant · 本地照片整理与选片
+<p align="center">
+  <img src="assets/tangerine-photo-assistant.png" width="88" height="88" alt="TangerinePhotoAssistant：橘子与相机光圈图标">
+</p>
 
-把存储卡里的照片整理成相册，将 JPG/RAW 成对管理，对比相似照片，并保留你的评分、标签和选片决定。
+# TangerinePhotoAssistant
 
-**适合谁：** 使用 Windows、经常一次拍摄几十到几百张照片，希望在修图前完成整理和选片的摄影爱好者。基础流程不需要显卡模型、ComfyUI、Lightroom 或账号；照片留在本机。
+**把一次拍摄，从存储卡整理到相册，再选出想留下的照片。**
 
-**当前状态：** 个人维护的早期工具，Windows 优先。核心流程有自动化回归，但尚未完成陌生用户在干净机器上的安装验收。项目自有代码以 **GNU GPL v3（GPL-3.0-only）** 分享。详见 [License](#license)。
+一款在本机运行的照片整理与选片工具，支持 JPG/RAW 成组管理、相似照片对比、评分标签和复制校验归档。
+适合使用 Windows、习惯拍摄 JPG 或 JPG+RAW，希望在修图前整理一批照片的摄影爱好者。
 
-## 它能帮你做什么
+**本地运行 · 无需账号 · 基础流程无需大模型 · GPL v3**
 
-- **从存储卡到相册**：检查文件与完整重复组，创建或选择相册，复制、SHA-256 校验、入库，最后显式确认归档。视频和 XMP/LRF 等附属文件可一起保存。
-- **从一组连拍中选照片**：JPG/RAW 作为同一个拍摄单元；相似照片支持左右、上下和单图切换对比，可人工拆分分组、撤销和恢复历史。
-- **把决定留住**：评分、标签、备注、选片结论写入本地数据库；按相册、器材、时间和评价筛选，再导出 JPG/RAW 副本。
-- **按需复盘**：查看 EXIF、直方图、摄影统计和技术质量提示。本地模型建议是可选实验能力，不能代替你的判断。
+[安装与启动](docs/INSTALL_WINDOWS.md) · [第一次导入](docs/GETTING_STARTED.md) · [功能边界](#支持范围) · [问题反馈](https://github.com/Manamiiii/TangerinePhotoAssistant/issues/new?template=bug_report.md)
 
-它不替代 RAW 冲洗软件、视频编辑器或独立照片备份。Lightroom 衔接目前只做只读预检与准备清单，不自动导入目录或写 XMP。
+> 当前是个人维护的早期版本，Windows 优先；推荐源码安装，尚未完成干净机器上的完整安装验收。核心流程有自动化回归，日常使用仍请保留独立备份。
 
-## 快速开始：Windows 源码方式
+## 用在什么场景
 
-当前推荐可核对的源码安装流程。仓库中的 Windows 打包脚本用于构建未签名内测包，本文不提供未经核验的“稳定版下载”。
+| 拍完之后遇到的事 | 可以怎样处理 |
+|---|---|
+| 存储卡里有 JPG、RAW、视频和附属文件，想一起保存 | 检查一批文件，新建或选择相册，复制并逐文件校验，保留卡内来源 |
+| JPG/RAW 总要分别筛选，一组连拍又很难选 | 同次拍摄作为一个单元管理；左右、上下或单图切换对比，人工拆组、选片和撤销 |
+| 选完之后，过一阵又找不到当时的决定 | 保存评分、标签、备注和选片历史，按相册、时间、器材或评价筛选 |
+| 只想把选好的照片交给后续修图流程 | 导出 JPG/RAW 副本；按需查看 EXIF、直方图、技术质量提示和摄影统计 |
 
-需要 **Git、Python 3.12、Node.js 22.12+（22.x）**。首次安装依赖需要网络；安装完成后，核心照片管理在本机离线运行。以下命令在 PowerShell 执行，不需要激活虚拟环境或管理员权限。
+整理、选片和导出不需要配置模型。可选的本地模型用于提供辅助建议，决定仍由你作出。
+
+## 从一批新照片开始
+
+**检查来源 → 复制校验并入库 → 整理选片 → 确认归档 → 按需导出**
+
+1. 打开 **导入新照片**，选择存储卡中的拍摄目录，点击“检查这批文件”。先核对文件、重复组和跳过清单。
+2. 新建“日期 · 主题”相册，或加入已有相册，确认后点击“复制并导入”。系统自动建立待整理批次，无需预建文件夹。
+3. 入库完成后点击 **查看相册**，浏览照片、评分和对比；相似识别及其他分析需由你另行启动。
+4. 回到导入页或相册，点击 **完成归档**，核对正式目录和文件清单，再输入确认文字。
+5. 用筛选和选片结果导出需要的 JPG/RAW 副本，交给你习惯的修图软件。
+
+也可以先归档、后选片。**入库完成不等于归档完成**：归档会清理已校验的本批待整理副本，不会清理存储卡。
+已有电脑图库的接入方式和失败恢复见 [首次使用指南](docs/GETTING_STARTED.md)。
+
+## 安装与启动
+
+当前推荐 **Windows 源码方式**：需要 Git、Python 3.12、Node.js 22.12+（22.x）。首次安装需要联网，基础照片管理可离线运行。
 
 ```powershell
 git clone https://github.com/Manamiiii/TangerinePhotoAssistant.git
@@ -30,58 +52,43 @@ npm.cmd ci --prefix web
 npm.cmd run build --prefix web
 ```
 
-为应用创建自己的照片目录，避免直接把整个硬盘或唯一一份照片存储卡作为活动图库。下面的路径位于当前用户目录；可改到有足够空间的其他磁盘。
+安装依赖后，还需要生成自己的配置并启动本地服务。**完整命令在 [Windows 安装与启动](docs/INSTALL_WINDOWS.md)**，包括目录选择、首次启动、停止和更新。
+不需要管理员权限或激活虚拟环境；普通 wheel 未包含完整网页/器材资源，因此使用仓库内的 `-e .` 安装和前端构建。
 
-```powershell
-$libraryBase = Join-Path $env:LOCALAPPDATA "TangerinePhotoAssistant"
-$photoRoot = Join-Path $libraryBase "Photos"
-$workRoot = Join-Path $libraryBase "Workspace"
-$cacheRoot = Join-Path $libraryBase "Cache"
-New-Item -ItemType Directory -Force -Path $photoRoot | Out-Null
+可选的 [Windows 独立窗口](docs/WINDOWS_APP.md) 需要 pywebview 和 WebView2。现有打包流程用于未签名内测，尚不提供经完整验收的稳定安装包。
 
-.\.venv\Scripts\tangerine-photo.exe init --config config.toml --photos "$photoRoot" --workspace "$workRoot" --cache "$cacheRoot"
-.\.venv\Scripts\tangerine-photo.exe doctor --config config.toml
-.\.venv\Scripts\tangerine-photo.exe serve --config config.toml --no-open
-```
+## 照片和数据会怎样保存
 
-保留启动终端，在浏览器打开 **http://127.0.0.1:8765**。`init` 不覆盖已有配置；工作目录与缓存由应用按需创建。普通 `pip install` 生成的 wheel 不包含完整网页/器材资源，这里必须从仓库执行 `-e .`，并完成前端构建。
+- **浏览、评分和分析**不修改原片；人工决定保存在工作目录的数据库，缩略图写入独立缓存。
+- **确认导入**会复制文件并校验，保留来源；同组出现新增 JPG/RAW/附属文件时整组保留，避免拆散配对。
+- **确认归档**会先备份数据库、复制校验、更新索引，最后清理本批对应的待整理副本。
+- **导出**生成新文件，不自动写 XMP 或操作 Lightroom 目录。原尺寸 JPG/RAW 可能保留 EXIF/GPS，分享前请核对隐私。
 
-首次任务：
+工作目录需要持久保存，不能当缓存删除。人工数据 JSON 只保存部分人工结果，不包含照片或相册定义/成员关系；
+请独立备份照片和完整工作目录，不能把归档校验或人工数据 JSON 当作完整备份。
 
-1. 进入 **导入新照片**，选择存储卡中的一个拍摄目录，点击“检查这批文件”。此步只读。
-2. 核对照片、RAW、视频、附属文件和跳过清单，新建“日期 · 主题”相册，或加入已有相册。
-3. 确认后点击“复制并导入”，等待校验和入库。入库后停留本页，由你选择查看相册或继续归档。
-4. 点击“完成归档”，核对目标和逐文件清单，输入确认文字。归档只清理校验成功的本批待整理副本，**不清理存储卡**。
-5. 进入相册浏览、评分和对比；相似分析、技术检测与模型分析均需另行启动。
+## 支持范围
 
-更详细的路径选择、已有图库接入和故障恢复见 [首次使用与常见问题](docs/GETTING_STARTED.md)。独立窗口需要可选的 pywebview 与 WebView2，见 [Windows 窗口和打包说明](docs/WINDOWS_APP.md)。macOS/Linux 的部分底层逻辑有测试，不代表已经验证了桌面使用体验。
-
-## 数据会发生什么变化
-
-| 操作 | 对文件和数据的影响 |
+| 内容 | 当前支持 |
 |---|---|
-| 浏览、评分、标签、分析 | 不改原片；结果写入工作目录，缩略图写缓存 |
-| 检查导入来源 | 只读来源和已有索引，尚不复制照片 |
-| 确认复制并导入 | 复制到活动图库的待整理批次，保留来源原片 |
-| 确认归档 | 备份数据库、复制并校验、更新索引，然后清理对应待整理副本 |
-| 导出照片 | 在报告目录生成新的 ZIP；原尺寸 JPG/RAW 可能保留 EXIF/GPS |
-| 导出人工数据 JSON | 保存部分人工决定，不包含照片、相册定义或成员关系，不能替代完整备份 |
+| JPG/JPEG | 图库预览、对比、EXIF、评分标签、参数化修图预览和导出 |
+| RAW | 配对、保留和导出；不提供 RAW 解码，需要 JPG 才能获得对应图库预览 |
+| 视频及 XMP/LRF 等附属文件 | 随批次复制、校验、相册清单和归档；不提供视频播放、剪辑或分析 |
+| ExifTool | 可选；未配置时使用 Pillow 读取基础图片 EXIF，RAW/厂商扩展信息可能缺失 |
+| Lightroom | 只读预检和准备清单，不自动导入目录或写 XMP |
+| 运行方式 | Windows 优先、可信本机单用户；没有公网/局域网共享和多用户权限系统 |
 
-不要把照片或工作目录放进缓存目录。不要在任务运行时手工移动应用正在使用的文件。归档完成也不等于已经有独立磁盘备份。
+单批导入最多 10,000 个支持文件。中断任务会保留资料并阻止其他写任务，需恢复来源或存储条件后继续；当前没有自动放弃并清理批次的入口。
+报告和备份没有自动按日期清理。macOS/Linux 的部分底层逻辑有测试，不代表桌面体验已经验收。
 
-## 已知边界
+## 反馈与参与
 
-- **图库预览以 JPG/JPEG 为主。** RAW 可配对和保存，不提供 RAW 解码；其他图片可以保存，但不承诺可在图库中预览。视频和附属文件有分页清单，不提供播放、剪辑或视频分析。
-- ExifTool 可选；未配置时用 Pillow 读取支持图片的基础 EXIF，RAW 和厂商扩展信息可能无法解析。配置官方 ExifTool 后可补充元数据。
-- 相似识别主要针对同次拍摄的连拍，不能承诺找到所有相似画面。模型和技术评分都是辅助建议，不会自动删片。
-- 单批导入最多 10,000 个支持文件。完整重复组跳过；JPG/RAW/sidecar 同组有新增成员时整组保留，避免拆散配对。
-- 中断的导入/归档会保留资料并占用任务槽。恢复原来源路径和存储条件后继续；当前没有“放弃并自动清理未完成批次”的入口。
-- 报告、导入记录和数据库备份不会自动按日期清理。磁盘容量仍需关注。
-- 只支持可信本机单用户使用。不要把服务反向代理到公网或局域网；没有多用户登录与权限系统。
+欢迎分享“想完成什么、在哪一步遇到困难”，不需要先了解技术实现。
+提交 [使用问题](https://github.com/Manamiiii/TangerinePhotoAssistant/issues/new?template=bug_report.md) 时，请附系统、项目版本、步骤和错误信息；可提供经检查的脱敏诊断包。
+**不要上传私人照片、GPS、数据库、完整配置或服务控制凭据。**
 
-## 开发与反馈
-
-技术栈：Python/FastAPI/SQLite + React/TypeScript/Vite。不要在正式照片库上做写入或恢复实验。
+开发者可查看 [架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)、[命令行参考](docs/CLI.md) 和 [公开发布准备](docs/PUBLIC_RELEASE.md)。
+技术栈为 Python/FastAPI/SQLite + React/TypeScript/Vite。回归只使用自动清理的临时目录，不启动真实模型：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -c requirements-tested.txt -e ".[test]"
@@ -90,12 +97,6 @@ New-Item -ItemType Directory -Force -Path $photoRoot | Out-Null
 npm.cmd test --prefix web
 npm.cmd run build --prefix web
 ```
-
-回归使用自动清理的临时目录，不启动真实模型。CI 覆盖 Windows/Linux；这不是所有相机格式或干净机器安装的兼容性保证。完整测试通过后再考虑更新实际使用环境；运行或暂停的任务不应被重启打断。
-
-报告问题时，说明系统、启动方式、失败步骤和错误信息；可附系统维护生成的脱敏诊断包。请勿公开照片、GPS、完整配置、数据库或运行目录内的控制凭据。见 [问题反馈模板](.github/ISSUE_TEMPLATE/bug_report.md)。
-
-更多文档：[命令行参考](docs/CLI.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [公开发布准备](docs/PUBLIC_RELEASE.md) · [导入验收](docs/IMPORT_ACCEPTANCE.md)
 
 ## License
 

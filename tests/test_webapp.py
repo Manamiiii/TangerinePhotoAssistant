@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
-from time import sleep
+from threading import Thread
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -525,12 +525,23 @@ class WebAppQueryTests(unittest.TestCase):
 
             Image.new("RGB", (32, 24), "green").save(source / "new.JPG")
             manager = ScanTaskManager(settings)
-            manager.start(album_id)
-            for _ in range(200):
-                state = manager.snapshot()
-                if state["status"] != "running":
-                    break
-                sleep(0.02)
+            workers = []
+
+            def worker_thread(*args, **kwargs):
+                thread = Thread(*args, **kwargs)
+                workers.append(thread)
+                return thread
+
+            # Completion is published before incident bookkeeping closes its DB.
+            # Join the real worker before disposing this test's temporary library.
+            with patch("tangerine_photo_assistant.webapp.Thread", side_effect=worker_thread):
+                try:
+                    manager.start(album_id)
+                finally:
+                    for worker in workers:
+                        worker.join(timeout=10)
+                        self.assertFalse(worker.is_alive(), "scan worker did not finish")
+            state = manager.snapshot()
             self.assertEqual(state["status"], "complete", state)
             self.assertEqual(state["result"]["assigned_count"], 1)
 

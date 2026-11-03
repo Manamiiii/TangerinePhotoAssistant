@@ -92,7 +92,7 @@ export function ImportView({ filters, task, acceptTask, openAlbum }: {
     {task?.stage === "import-workflow" && task.status === "running" && !!task.bytes_total && <p role="status">已处理 {formatBytes(task.bytes_current)} / {formatBytes(task.bytes_total)}</p>}
     <section className="panel import-source"><h3>开始一次新导入</h3><p>选择一批照片所在的文件夹，包含子目录。无需先创建待整理文件夹；已经复制好的照片可直接选择待整理中的单个批次目录。</p>
       <form onSubmit={(event) => {event.preventDefault(); void check();}}>
-        <label>来源目录<input value={source} onChange={(event) => setSource(event.target.value)} placeholder="例如 J:\DCIM\101_FUJI" disabled={busy || active} /></label>
+        <label>来源目录<input value={source} onChange={(event) => setSource(event.target.value)} placeholder="例如 E:\DCIM\100_CAMERA" disabled={busy || active} /></label>
         <div className="import-actions"><button type="button" className="toolbar-button" disabled={busy || active} onClick={() => void choose()}>选择来源目录</button><button className="toolbar-button primary" disabled={busy || active || !source.trim()}>检查这批文件</button></div>
       </form><small>此步只读来源并检查重复，不复制文件。XMP、LRF 等只原样保存，不修改其内容。</small>
     </section>
@@ -109,7 +109,7 @@ export function ImportView({ filters, task, acceptTask, openAlbum }: {
       {!!job.metadata_errors && <p role="status">{job.metadata_errors} 个文件未能解析拍摄参数，原文件已保留；可核对后归档。</p>}
       {job.state === "preview" && <form className="editor-form" onSubmit={(event) => {event.preventDefault(); void start();}}>
         <fieldset disabled={busy || active}><legend>新增内容放到哪个相册？</legend><div className="import-actions"><label><input type="radio" checked={target === "new"} onChange={() => setTarget("new")} />新建相册</label><label><input type="radio" checked={target !== "new"} disabled={!filters?.albums.length} onChange={() => setTarget(String(filters?.albums[0]?.id ?? ""))} />加入已有相册</label></div>
-        {target === "new" ? <div className="import-album-fields"><label>相册名称<input required maxLength={180} value={name} placeholder="例如 2026-10-01 至 2026-10-03 · 国庆回老家" onChange={(e) => setName(e.target.value)} /></label><label>类型<select value={category} onChange={(e) => setCategory(e.target.value)}>{filters?.album_types.map((type) => <option key={type.name}>{type.name}</option>)}</select></label></div> : <label>已有相册<select value={target} onChange={(e) => setTarget(e.target.value)}>{filters?.albums.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
+        {target === "new" ? <div className="import-album-fields"><label>相册名称<input required maxLength={180} value={name} placeholder="例如 YYYY-MM-DD · 周末旅行" onChange={(e) => setName(e.target.value)} /></label><label>类型<select value={category} onChange={(e) => setCategory(e.target.value)}>{filters?.album_types.map((type) => <option key={type.name}>{type.name}</option>)}</select></label></div> : <label>已有相册<select value={target} onChange={(e) => setTarget(e.target.value)}>{filters?.albums.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
         <label className="import-consent"><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />{job.in_place ? "确认本批范围和相册；校验现有待整理文件并入库，正式归档时再清理这些副本" : "确认本批范围和相册；保留来源原片，复制校验后入库"}</label>
         <button className="toolbar-button primary" disabled={!confirmed || !job.copy_count || (target === "new" && !name.trim())}>{job.in_place ? "校验并入库" : "复制并导入"}</button></fieldset>
       </form>}

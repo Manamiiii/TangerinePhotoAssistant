@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from PIL import Image
 
@@ -36,23 +38,43 @@ class WindowsLauncherTests(unittest.TestCase):
         self.assertIn('--no-open"', controller_text)
 
     @unittest.skipUnless(os.name == "nt", "PowerShell launcher validation is Windows-only")
-    def test_current_checkout_passes_launcher_validation(self) -> None:
-        result = subprocess.run(
-            [
-                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                "-File", str(ROOT / "scripts" / "windows_launcher.ps1"),
-                "-Mode", "Validate", "-Console",
-            ],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=20,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("prerequisites are ready", result.stdout)
+    def test_launcher_validation_checks_isolated_prerequisites(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            script = root / "scripts" / "windows_launcher.ps1"
+            script.parent.mkdir()
+            shutil.copyfile(ROOT / "scripts" / "windows_launcher.ps1", script)
+            prerequisites = [
+                ".venv/Scripts/tangerine-photo.exe", "web/dist/index.html",
+                "config.toml", "assets/tangerine-photo-assistant.ico",
+            ]
+            for name in prerequisites:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"fixture: validated for existence, never executed")
+
+            def validate():
+                return subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                     "-File", str(script), "-Mode", "Validate", "-Console"],
+                    cwd=root, check=False, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=20,
+                )
+
+            result = validate()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("prerequisites are ready", result.stdout)
+            for name in prerequisites:
+                with self.subTest(missing=name):
+                    path = root / name
+                    content = path.read_bytes()
+                    path.unlink()
+                    try:
+                        result = validate()
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("application is not ready", result.stderr)
+                    finally:
+                        path.write_bytes(content)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import { ImportView } from "./ImportView";
 vi.mock("../../api", () => ({ getJson: vi.fn() }));
 let root: Root;
 let host: HTMLDivElement;
-const job = {id:"batch",state:"preview",source:"J:\\DCIM",album_id:null,file_count:43,copy_count:43,
+const job = {id:"batch",state:"preview",source:"E:\\DCIM",album_id:null,file_count:43,copy_count:43,
   ignored_count:1,counts:{image:20,raw:20,video:2,other:1},total_bytes:1234};
 const filters = { albums:[{id:7,name:"Existing",category:"日常",capture_count:1,status:"confirmed"}],
   album_types:[{name:"日常",built_in:1}],cameras:[],lenses:[],tags:[],model_problems:[] } satisfies LibraryFilters;
@@ -63,10 +63,10 @@ it("pages file manifests and shows unsupported files without silently importing 
 });
 
 it("restores the source and album name draft after leaving and returning",async()=>{
-  sessionStorage.setItem("import-source","J:\\DCIM\\101_FUJI");sessionStorage.setItem("import-name","Birthday");
+  sessionStorage.setItem("import-source","E:\\DCIM\\100_CAMERA");sessionStorage.setItem("import-name","Weekend trip");
   await render();
-  expect((host.querySelector('input[maxlength="180"]') as HTMLInputElement).value).toBe("Birthday");
-  expect((host.querySelector('input[placeholder^="例如 J:"]') as HTMLInputElement).value).toBe("J:\\DCIM\\101_FUJI");
+  expect((host.querySelector('input[maxlength="180"]') as HTMLInputElement).value).toBe("Weekend trip");
+  expect((host.querySelector('input[placeholder^="例如 E:"]') as HTMLInputElement).value).toBe("E:\\DCIM\\100_CAMERA");
   expect(button("复制并导入").disabled).toBe(true);
 });
 

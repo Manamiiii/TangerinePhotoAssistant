@@ -13,6 +13,7 @@ build/
 
 # Local configuration and runtime data
 config.toml
+AGENTS.local.md
 *.toml.backup-*
 .*.toml.pending
 *.log

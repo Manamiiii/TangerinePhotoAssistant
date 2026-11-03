@@ -76,7 +76,7 @@ class AiSafetyTests(unittest.TestCase):
     def test_gpu_status_parses_nvidia_smi(self, run: Mock) -> None:
         run.return_value = Mock(
             returncode=0,
-            stdout="NVIDIA GeForce RTX 5080, 72, 15000, 16303, 46\n",
+            stdout="Synthetic test GPU, 72, 15000, 16303, 46\n",
         )
         status = gpu_status()
         self.assertTrue(status["available"])

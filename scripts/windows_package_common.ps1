@@ -65,7 +65,9 @@ function Save-Installation([string]$Root, $State) {
 }
 function Assert-NoProgramProcess([string]$Root) {
     foreach ($Process in (Get-CimInstance Win32_Process -ErrorAction Stop)) {
-        if ($Process.ExecutablePath -and $Process.ExecutablePath.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        # Normalize Windows short names before comparing process ownership.
+        $ExecutablePath = if ($Process.ExecutablePath) { [IO.Path]::GetFullPath($Process.ExecutablePath) } else { '' }
+        if ($ExecutablePath -and $ExecutablePath.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
             throw 'A managed program is running. Save edits, safely stop its idle service, and close its windows first.'
         }
         if ($Process.Name -eq 'TangerinePhotoAssistant.exe' -and -not $Process.ExecutablePath) { throw 'Cannot establish process ownership; no files changed.' }

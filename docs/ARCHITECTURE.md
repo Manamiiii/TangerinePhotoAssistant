@@ -88,7 +88,7 @@ Windows 独立窗口由 `desktop.py` / `desktop_window.py` 提供，不向网页
 `database.connect` 在任何建表或补列之前只读检查版本。旧版本升级前使用 SQLite backup API 生成一致备份并执行 `PRAGMA integrity_check`；备份失败会阻止升级。正式库备份位于：
 
 ```text
-D:\PhotoLibrary\Backups\AnalysisDatabase
+<工作目录>/Backups/AnalysisDatabase
 ```
 
 高于当前程序版本的数据库会在任何结构写入前被拒绝，避免旧程序修改新数据库。

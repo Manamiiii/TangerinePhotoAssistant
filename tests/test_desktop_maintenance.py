@@ -183,11 +183,21 @@ class WindowsPackageTests(unittest.TestCase):
 
     def test_running_program_blocks_removal(self):
         release = self.install_package()
-        # Substitute process discovery only; use the real removal entry and guards.
-        command = "function Get-CimInstance { [pscustomobject]@{Name='TangerinePhotoAssistant.exe';ExecutablePath='" + str(self.install / release / "TangerinePhotoAssistant.exe").replace("'", "''") + "'} }; & '" + str(self.bundle / "manage_windows_app.ps1").replace("'", "''") + "' -InstallRoot '" + str(self.install).replace("'", "''") + "' -Action Uninstall -Release '" + release + "' -Apply"
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", command], capture_output=True, timeout=30, check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertTrue((self.install / release / "TangerinePhotoAssistant.exe").exists())
+        # Exercise both long and 8.3 executable paths against the real guard.
+        import ctypes
+
+        executable = self.install / release / "TangerinePhotoAssistant.exe"
+        buffer = ctypes.create_unicode_buffer(32768)
+        paths = [str(executable.resolve())]
+        if ctypes.windll.kernel32.GetShortPathNameW(str(executable), buffer, len(buffer)):
+            paths.append(buffer.value)
+        for process_path in dict.fromkeys(paths):
+            with self.subTest(process_path=process_path):
+                command = "function Get-CimInstance { [pscustomobject]@{Name='TangerinePhotoAssistant.exe';ExecutablePath='" + process_path.replace("'", "''") + "'} }; & '" + str(self.bundle / "manage_windows_app.ps1").replace("'", "''") + "' -InstallRoot '" + str(self.install).replace("'", "''") + "' -Action Uninstall -Release '" + release + "' -Apply"
+                result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", command], capture_output=True, timeout=30, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(executable.exists())
+
 
 
 if __name__ == "__main__":

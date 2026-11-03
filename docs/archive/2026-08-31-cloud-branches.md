@@ -102,7 +102,7 @@ copilot/business-function-analysis    3a3e2b720e38b3dfee0c21411558ab2f86abb50d
 - 静态检查：`python -m ruff check src tests` 通过。
 - 生产构建：`npm run build`（TypeScript + Vite）通过。
 - 正式健康/任务接口均不可达，未启动或结束服务，未运行正式库迁移或完整性检查；旧文档中
-  的 schema 26 / 13,809 张为此前记录，不能当作本次数据库核验结论。
+  的 schema 26 及图库规模为此前记录，不能当作本次数据库核验结论。
 - 测试使用测试代码管理的隔离临时数据；未操作真实照片、XMP、Lightroom、ComfyUI 或模型任务。
 
 ## 后续修复与验证（2026-08-31）
