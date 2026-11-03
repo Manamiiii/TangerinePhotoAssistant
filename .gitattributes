@@ -1,0 +1,2 @@
+# Preserve the exact upstream license bytes used by the provenance checksum.
+assets/licenses/proxy-tools-0.1.0-LICENSE.txt -text

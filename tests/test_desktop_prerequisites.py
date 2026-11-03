@@ -10,3 +10,12 @@ class PrerequisitesTests(unittest.TestCase):
         self.assertEqual(missing, ['Microsoft Edge WebView2 Runtime'])
         self.assertEqual(missing_prerequisites(
             lambda _h, _p, name: 528040 if name == 'Release' else '140.0.0.0'), [])
+
+    def test_framework_is_distinct_and_invalid_runtime_versions_are_rejected(self):
+        self.assertEqual(missing_prerequisites(
+            lambda _h, _p, name: 394801 if name == 'Release' else '140.0.0.0'),
+            ['.NET Framework 4.6.2 或更新版本'])
+        for version in [None, '', 'invalid', '0.0.0.0']:
+            self.assertEqual(missing_prerequisites(
+                lambda _h, _p, name, version=version: 528040 if name == 'Release' else version),
+                ['Microsoft Edge WebView2 Runtime'])

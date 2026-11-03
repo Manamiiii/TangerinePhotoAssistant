@@ -23,7 +23,7 @@
 | 已处理（源码环境） | 更新运行依赖 | 正式 Python 环境已更新 Pillow 13.0.0，pip check 和本机门禁通过，回退材料本机保留；服务保持关闭，Windows 安装包由固定依赖重新构建 |
 | P1 | 干净 Windows 安装 | 在无既有 Python 项目环境、无 ExifTool/模型的普通用户机器按 README 从头完成安装及核心流程；记录版本、失败信息和结果 |
 | P1 | 中断后的可恢复性 | 真实断卡、权限拒绝、磁盘不足验收；永久无法恢复的导入需要设计保留文件与凭据的退出方案，当前不要手工删记录解锁 |
-| P1 | 发行包可追溯性 | 已生成第三方声明、校验值与对应源码；仍需澄清 proxy-tools 元数据 MIT / 源码 BSD 的授权差异，并完成正式身份及干净机器验收 |
+| P1 | 发行包可追溯性 | 已生成第三方声明、校验值与对应源码；已按发布前同源提交补入 proxy-tools 原始 BSD 许可与校验门禁；仍需正式身份向导及干净机器验收 |
 | P2 | 用户可看见的演示 | 使用作者明确允许公开的照片制作真实截图，标注实际版本；不能把设计稿当功能截图 |
 
 公开可见的仓库与开源授权是两回事，参见 [GitHub 的许可证说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)。

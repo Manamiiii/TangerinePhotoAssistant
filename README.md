@@ -57,7 +57,7 @@ npm.cmd run build --prefix web
 安装依赖后，还需要生成自己的配置并启动本地服务。**完整命令在 [Windows 安装与启动](docs/INSTALL_WINDOWS.md)**，包括目录选择、首次启动、停止和更新。
 不需要管理员权限或激活虚拟环境；普通 wheel 未包含完整网页/器材资源，因此使用仓库内的 `-e .` 安装和前端构建。
 
-可选的 [Windows 独立窗口](docs/WINDOWS_APP.md) 需要 pywebview 和 WebView2。现有打包流程用于未签名内测，尚不提供经完整验收的稳定安装包。
+安装包已自带 Python、pywebview 和网页资源，无需用户安装开发环境；独立窗口还需要 WebView2 Runtime 和 .NET Framework 4.6.2+，缺失时会明确提示。[运行要求与官方获取方式](docs/WINDOWS_APP.md#安装版运行环境与缺失提示)。现有包用于未签名内测，尚不提供经完整验收的稳定安装包。
 
 ## 照片和数据会怎样保存
 

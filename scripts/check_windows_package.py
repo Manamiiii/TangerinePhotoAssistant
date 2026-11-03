@@ -19,6 +19,42 @@ from tangerine_photo_assistant.desktop import ServiceClient
 from tangerine_photo_assistant.settings import write_safe_config
 
 OPENER = build_opener(ProxyHandler({}))
+FORMAL_NAME = 'TangerinePhotoAssistant'
+FORMAL_KEY = '{551A03F7-2773-4A5E-962C-6BBDB8B28E08}'
+
+
+def formal_locations():
+    registry = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + FORMAL_KEY
+    link = Path(os.environ['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs' / FORMAL_NAME / (FORMAL_NAME + '.lnk')
+    return registry, link
+
+
+def registration_exists(registry):
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY):
+            return True
+    except FileNotFoundError:
+        return False
+
+
+def check_formal_conflict(setup, report):
+    """Exercise the shipped formal installer only when an existing shortcut protects it."""
+    registry, link = formal_locations()
+    if registration_exists(registry) or not link.is_file():
+        raise RuntimeError('Conflict check requires an existing shortcut and no formal registration')
+    before = link.read_bytes()
+    with tempfile.TemporaryDirectory(prefix='tangerine-formal-conflict-') as directory:
+        install = Path(directory) / 'NeverInstalled'
+        result = run([setup, '/S', f'/D={install}'])
+        assert result.returncode == 20, result.returncode
+        assert not install.exists(), 'Refused Setup must not create the install root'
+        assert not registration_exists(registry)
+        assert link.read_bytes() == before, 'Existing shortcut changed'
+    report.write_text(json.dumps({'formal_identity': 'existing shortcut conflict refused',
+                                  'formal_lifecycle': 'not run on this account',
+                                  'existing_shortcut_unchanged': True}, indent=2))
 
 
 def run(command, **kwargs):
@@ -99,19 +135,27 @@ def exercise(backend, root):
     return capture['id']
 
 
-def check(bundle, report):
+def check(bundle, report, formal_setup=None):
     import winreg
 
     from tangerine_photo_assistant.database import connect_readonly
     from tangerine_photo_assistant.settings import Settings
 
     results = []
+    if formal_setup:
+        registry, link = formal_locations()
+        if os.environ.get('GITHUB_ACTIONS') != 'true':
+            raise RuntimeError('Full formal-identity lifecycle is restricted to an ephemeral CI runner')
+        if registration_exists(registry) or link.exists():
+            raise RuntimeError('Formal identity already exists; no existing registration/shortcut is touched')
     with tempfile.TemporaryDirectory(prefix='tangerine-installer-') as temporary:
         root = Path(temporary)
         previous = os.environ.get('LOCALAPPDATA')
         os.environ['LOCALAPPDATA'] = str(root / 'Profile')
         name = 'TangerinePhotoAssistantFixture-' + uuid.uuid4().hex[:12]
         key = '{' + str(uuid.uuid4()).upper() + '}'
+        if formal_setup:
+            name, key = FORMAL_NAME, FORMAL_KEY
         registry = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + key
         programs = Path(os.environ['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs' / name
         link = programs / (name + '.lnk')
@@ -119,6 +163,7 @@ def check(bundle, report):
         config.parent.mkdir()
         (root / 'Inbox').mkdir()
         write_safe_config(config, root / 'Inbox', root / 'Workspace', root / 'Cache')
+        owned_link = None
         try:
             executable = bundle / 'TangerinePhotoAssistant.exe'
             checked = run([executable, '--check', '--config', config, '--report', root / 'check.json'])
@@ -133,15 +178,21 @@ def check(bundle, report):
             install = root / 'Program'
             older, current = root / 'old.exe', root / 'current.exe'
             compile_setup(bundle, older, '0.0.9', name, key)
-            compile_setup(bundle, current, '0.1.0', name, key)
+            if formal_setup:
+                current = formal_setup
+            else:
+                compile_setup(bundle, current, '0.1.0', name, key)
 
             def active():
                 state = json.loads((install / '.tangerine-install.json').read_text())
                 return install / state['active'] / 'TangerinePhotoAssistant.exe'
 
             def setup(path, success=True):
+                nonlocal owned_link
                 result = run([path, '/S', f'/D={install}'])
                 assert (result.returncode == 0) == success, (result.returncode, result.stdout, result.stderr)
+                if success:
+                    owned_link = link.read_bytes()
 
             def uninstall(success=True, normal=False):
                 if normal:
@@ -206,14 +257,19 @@ def check(bundle, report):
             with closing(connect_readonly(data)) as connection:
                 assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
                 assert not connection.execute('PRAGMA foreign_key_check').fetchall()
-            results.append('fixture install, upgrade, downgrade rejection, data-preserving uninstall/reinstall')
+            results.append(('formal identity' if formal_setup else 'fixture') +
+                           ' install, upgrade, downgrade rejection, data-preserving uninstall/reinstall')
         finally:
-            # Only the unique fixture identity is cleaned; no formal application registration is touched.
-            link.unlink(missing_ok=True)
-            if programs.exists():
+            # Identity was absent at entry (formal mode is CI-only). Preserve any unexpected replacement.
+            if owned_link is not None and link.exists() and link.read_bytes() == owned_link:
+                link.unlink()
+            if programs.exists() and not any(programs.iterdir()):
                 programs.rmdir()
             try:
-                winreg.DeleteKeyEx(winreg.HKEY_CURRENT_USER, registry, winreg.KEY_WOW64_64KEY)
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as reg:
+                    owned = Path(winreg.QueryValueEx(reg, 'InstallLocation')[0]).resolve() == (root / 'Program').resolve()
+                if owned:
+                    winreg.DeleteKeyEx(winreg.HKEY_CURRENT_USER, registry, winreg.KEY_WOW64_64KEY)
             except FileNotFoundError:
                 pass
             if previous is None:
@@ -221,7 +277,8 @@ def check(bundle, report):
             else:
                 os.environ['LOCALAPPDATA'] = previous
     report.write_text(json.dumps({'passed': results, 'native_window': 'not tested',
-                                  'formal_identity_install': 'not tested', 'clean_machine': 'not tested'}, indent=2))
+                                  'formal_identity_install': 'passed silently on CI' if formal_setup else 'not tested',
+                                  'clean_machine': 'not tested'}, indent=2))
     print(json.dumps(results))
 
 
@@ -229,5 +286,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--bundle', required=True, type=Path)
     parser.add_argument('--report', required=True, type=Path)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--formal-setup', type=Path, help='CI only: test the shipped formal Setup in an unused identity')
+    mode.add_argument('--formal-conflict-setup', type=Path, help='Test refusal without replacing an existing shortcut')
     arguments = parser.parse_args()
-    check(arguments.bundle.resolve(), arguments.report.resolve())
+    if arguments.formal_conflict_setup:
+        check_formal_conflict(arguments.formal_conflict_setup.resolve(), arguments.report.resolve())
+    else:
+        check(arguments.bundle.resolve(), arguments.report.resolve(),
+              arguments.formal_setup.resolve() if arguments.formal_setup else None)

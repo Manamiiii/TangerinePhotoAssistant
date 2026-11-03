@@ -228,7 +228,7 @@ def run_window(config: Path, port: int) -> int:
 
     missing = missing_prerequisites()
     if missing:
-        raise DesktopError('独立窗口缺少：' + '、'.join(missing) + '。请从微软官方渠道安装后重试；程序不会自动安装或降级到 IE。现有网页入口仍可使用。')
+        raise DesktopError('独立窗口缺少：' + '、'.join(missing) + '。请按随包 WINDOWS_APP.md 中的微软官方链接安装后重试；安装版无需另装 Python 或 Node。程序不会自动安装或降级到 IE。现有网页入口仍可使用。')
     set_taskbar_identity()
     import webview
     from webview.menu import Menu, MenuAction, MenuSeparator

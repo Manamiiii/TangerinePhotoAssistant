@@ -8,6 +8,8 @@
 `SHA256SUMS.txt`，运行 `TangerinePhotoAssistant-版本-Windows-x64-Setup.exe`，随后从开始菜单打开。
 安装只针对当前用户，无需管理员权限；运行无需源码、Python、Node、npm 或 Rust。
 需要 Microsoft WebView2 Runtime 和 .NET Framework 4.6.2+（通常已随 Windows 安装），缺少时按微软官方说明安装；程序不自动安装系统组件。
+WebView2 Runtime 不等同于 Edge 浏览器；.NET Framework 不等同于现代 .NET SDK/Runtime。
+缺失时窗口启动会点名提示所缺组件，官方获取方式见 [运行环境说明](WINDOWS_APP.md#安装版运行环境与缺失提示)。
 
 首次启动只建立空配置，在“导入新照片”检查来源并确认复制，不会自动扫描硬盘。
 程序位于当前用户 `LocalAppData/Programs/TangerinePhotoAssistant`，默认数据位于独立的

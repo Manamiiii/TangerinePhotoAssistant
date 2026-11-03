@@ -122,7 +122,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File manage_windows_app.ps1 -
 - 关闭窗口后后台服务仍可被浏览器使用；没有默认“退出并终止任务”。
 - 已补安装清单、配置保留、同 schema 回退、预览式保留数据卸载，以及有界日志的隔离自动测试。
 - 不提供静默自动更新、联网检查、代码签名、数据库降级、自动清理旧版本或卸载用户数据。
-- 自有代码已采用 GPL-3.0-only；安装包分发前仍需第三方依赖许可汇总与干净 Windows 环境验收。
+- 自有代码已采用 GPL-3.0-only；新包包含第三方许可汇总与 proxy-tools 上游原文；分发前仍需干净 Windows 环境验收。
 - 公开安装包需提供该构建对应的完整源码和必要构建脚本，在下载处链接到确切源码版本或源码包，
   不能只提供浮动 main 链接。新构建包含 LICENSE；旧包没有被本次文档/许可变更自动更新。
 
@@ -136,7 +136,7 @@ Setup 使用固定 NSIS 3.13 便携编译器，构建脚本下载并核验 SHA-2
 
 构建目录包含 Setup EXE、Portable ZIP、SHA256SUMS.txt、build-info.json；干净提交构建另含对应提交 Source.zip。
 未提交改动构建仅用于开发测试，不作为可分发发行版。第三方许可位于 `_internal/ThirdPartyNotices`。
-`proxy-tools 0.1.0` 元数据写 MIT、源码头写 BSD 且包内缺失 LICENSE；包中保留原始元数据、源码声明及其 Werkzeug 上游 BSD 文本，正式公开分发前仍须澄清这一授权差异。
+`proxy-tools 0.1.0` 的上游 BSD 许可已追溯到发布前且源码完全一致的提交。新包包含原始 LICENSE、来源记录和源码/许可校验；MIT 元数据差异按事实保留，不自行重新授权。详见 [许可证据](PROXY_TOOLS_LICENSE.md)。
 
 自动检查命令：
 
@@ -154,3 +154,29 @@ SmartScreen 和干净 Windows 普通账号仍需单独验收，自动回归不�
 下载只允许同源或同源 blob，之后由用户选择保存路径；摄像头、麦克风、位置等权限默认拒绝。
 没有 renderer Node、任意 shell/文件代理、自动更新服务或打包页面 Service Worker。
 Python 桌面壳不使用 Electron；自定义资源协议、Dexie、OCR/WASM、地图等要求在本项目不适用。
+
+
+## 安装版运行环境与缺失提示
+
+安装包自带 Python 运行时和构建好的网页，用户无需 Python、Node、npm、Rust 或开发者 SDK。
+需要 Windows x64、Microsoft Edge WebView2 Evergreen Runtime，以及 .NET Framework 4.6.2 或更新版本。
+建议在受支持的 Windows 11 和最新 Evergreen Runtime 上验收；Framework 4.8/4.8.1 可满足该下限。
+.NET Framework 与 .NET 8/9 等现代 .NET 不是同一组件，安装后者不能替代前者。
+有 Edge 浏览器也不等于已安装 WebView2 Runtime。
+
+- [微软 WebView2 Runtime 分发与检测说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
+- [微软 WebView2 Runtime 下载页](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+- [微软 .NET Framework 安装说明](https://learn.microsoft.com/en-us/dotnet/framework/install/on-windows-and-server)
+
+启动独立窗口前先读取系统注册表；缺失时列出组件名称，提示查看本文件官方链接，并明确无需另装 Python/Node。
+此检查在创建窗口与后台服务之前执行，不安装系统组件，不回退到 IE。`--check` 只核对资源和配置，
+不能拿它的成功证明 WebView2 原生界面已通过。注册表中的 WebView2 版本门槛只是存在性检查，
+不代表已验证古老 Runtime 86；请使用当前 Evergreen Runtime。窗口显示、原生选择器和缺失提示的视觉呈现仍需人工检查。
+
+## 正式身份自动验收边界
+
+同名源码开始菜单入口属于已有用户环境，安装器应拒绝覆盖。本机仅可安全执行真实 Setup 的静默冲突拒绝检查，
+验证旧快捷方式字节不变、没有创建新安装目录或正式卸载登记，不据此声称完整正式安装成功。
+CI 在一次性 runner 上、确认正式 GUID 和快捷方式均不存在后，使用实际生成的正式 Setup 进行静默安装、升级、
+运行中保护、卸载和重装检查。该项与独立 fixture 分开报告，也不等于干净普通账号或原生交互向导验收。
+CI 中的 0.0.9 包仍是同业务代码的低版本 fixture，不代表真实旧库迁移。

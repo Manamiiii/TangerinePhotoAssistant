@@ -8,15 +8,34 @@ from importlib.metadata import distribution
 from pathlib import Path
 from urllib.request import urlopen
 
-from ensure_nsis import compiler
-from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
-
 SDK_URL = "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3856.49/microsoft.web.webview2.1.0.3856.49.nupkg"
 SDK_HASH = "bc0f76eb911b569838dc4aa8f8d325269b966bedb592863d26211aef3a099f1a"
 
 
+def proxy_notices(dist, target, root):
+    evidence = root / "assets/licenses/proxy-tools-0.1.0-provenance.json"
+    provenance = json.loads(evidence.read_text(encoding="utf-8"))
+    source = dist.locate_file(provenance["source_path"]).read_bytes()
+    license_text = (root / "assets/licenses" / provenance["license_file"]).read_bytes()
+    # Pin the reviewed code and upstream text, not just an ambiguous metadata label.
+    if (dist.version != provenance["version"]
+            or hashlib.sha256(source).hexdigest() != provenance["source_sha256"]
+            or hashlib.sha256(license_text).hexdigest() != provenance["license_sha256"]):
+        raise ValueError("proxy-tools differs from the reviewed license provenance")
+    (target / "METADATA.txt").write_text(str(dist.metadata), encoding="utf-8")
+    (target / "source-with-notice.py").write_bytes(source)
+    (target / "LICENSE.txt").write_bytes(license_text)
+    (target / "provenance.json").write_bytes(evidence.read_bytes())
+    (target / "PROVENANCE.md").write_bytes((root / "docs/PROXY_TOOLS_LICENSE.md").read_bytes())
+    # Keep the earlier Werkzeug notice as supplementary ancestry information.
+    (target / "Werkzeug-LICENSE.txt").write_bytes((root / "assets/licenses/Werkzeug-0.9.6-LICENSE.txt").read_bytes())
+
+
 def collect(target: Path):
+    from ensure_nsis import compiler
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
     root = Path(__file__).resolve().parents[1]
     target.mkdir(parents=True)
     queue = ["fastapi", "pillow", "uvicorn", "pywebview"]
@@ -34,9 +53,7 @@ def collect(target: Path):
         folder = target / name
         folder.mkdir()
         if name == "proxy-tools":
-            (folder / "METADATA.txt").write_text(str(dist.metadata), encoding="utf-8")
-            (folder / "source-with-notice.py").write_bytes(dist.locate_file("proxy_tools/__init__.py").read_bytes())
-            (folder / "Werkzeug-LICENSE.txt").write_bytes((root / "assets/licenses/Werkzeug-0.9.6-LICENSE.txt").read_bytes())
+            proxy_notices(dist, folder, root)
         for index, file in enumerate(licenses):
             (folder / f"{index}-{Path(str(file)).name}").write_bytes(dist.locate_file(file).read_bytes())
         inventory.append({"name": name, "version": dist.version})
