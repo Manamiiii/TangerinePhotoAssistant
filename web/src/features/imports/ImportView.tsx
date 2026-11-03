@@ -87,6 +87,7 @@ export function ImportView({ filters, task, acceptTask, openAlbum }: {
       <ol className="import-steps" aria-label="导入流程">{["选择来源", "核对与选相册", "复制校验并入库", "完成归档"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}>{index + 1} {label}</li>)}</ol>
     </section>
     {error && <div className="error-banner" role="alert">{error}<button onClick={() => {setError(null); setRevision((n) => n + 1);}}>重新读取</button></div>}
+    <p>图库预览和双图对比目前使用 JPG/JPEG。RAW、其他图片、视频及附属文件可保存和归档；不提供 RAW 解码或视频播放。</p>
     <TaskCard task={task} />
     {task?.stage === "import-workflow" && task.status === "running" && !!task.bytes_total && <p role="status">已处理 {formatBytes(task.bytes_current)} / {formatBytes(task.bytes_total)}</p>}
     <section className="panel import-source"><h3>开始一次新导入</h3><p>选择一批照片所在的文件夹，包含子目录。无需先创建待整理文件夹；已经复制好的照片可直接选择待整理中的单个批次目录。</p>
@@ -113,7 +114,7 @@ export function ImportView({ filters, task, acceptTask, openAlbum }: {
         <button className="toolbar-button primary" disabled={!confirmed || !job.copy_count || (target === "new" && !name.trim())}>{job.in_place ? "校验并入库" : "复制并导入"}</button></fieldset>
       </form>}
       {["checking", "copying", "indexing"].includes(job.state) && task?.status !== "running" && <button className="toolbar-button primary" disabled={busy || (active && task?.id !== job.id)} onClick={() => void start()}>继续此批导入</button>}
-      {job.state === "ready" && job.album_id !== null && <><div className="import-actions"><button className="toolbar-button" onClick={() => openAlbum(job.album_id!)}>查看相册照片（{job.capture_count ?? 0} 张）</button><span>视频和附属文件不计入照片张数，归档时会一并处理。</span></div><AlbumArchive albumId={job.album_id} task={task} onStarted={acceptTask} /><AlbumFiles albumId={job.album_id} task={task} /></>}
+      {job.state === "ready" && job.album_id !== null && <><div className="import-actions"><button className="toolbar-button" onClick={() => openAlbum(job.album_id!)}>查看相册</button><span>视频和附属文件不计入照片张数，归档时会一并处理。</span></div><AlbumArchive albumId={job.album_id} task={task} onStarted={acceptTask} /><AlbumFiles albumId={job.album_id} task={task} /></>}
       <details><summary>逐文件清单与跳过原因</summary>{!detail ? <p>正在读取清单…</p> : <><Pagination compact count={detail.file_count} limit={40} offset={offset} onChange={setOffset}/><ul className="import-files">{detail.items?.map((item) => <li key={item.relative}><span>{item.relative}</span><span>{kindLabels[item.kind]} · {formatBytes(item.bytes)} · {item.skip ? "已入库完整重复组，跳过" : "本次处理"}</span></li>)}</ul><Pagination compact count={detail.file_count} limit={40} offset={offset} onChange={setOffset}/>{!!detail.ignored?.length && <p>未复制（最多展示 100 条）：{detail.ignored.join("、")}</p>}</>}</details>
     </section>}
   </div>;

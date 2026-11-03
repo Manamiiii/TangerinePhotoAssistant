@@ -5,14 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "tangerine-photo-assistant"
 version = "0.1.0"
-description = "Local-first photo curation and Lightroom workflow assistant"
+description = "Local photo organization, JPG/RAW pairing and culling with verified imports"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [{ name = "Manamiiii" }]
 dependencies = [
     "fastapi>=0.116,<1",
-    "pillow>=11.3,<12",
+    "pillow>=13.0,<14",
     "uvicorn>=0.35,<1",
 ]
 

@@ -11,7 +11,7 @@ h11==0.16.0
 httpcore2==2.12.0
 httpx2==2.12.0
 idna==3.18
-pillow==11.3.0
+pillow==13.0.0
 pydantic==2.13.4
 pydantic-core==2.46.4
 ruff==0.16.4

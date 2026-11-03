@@ -42,6 +42,7 @@ class ThumbnailCache:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.root = _resolved_path(settings.cache_root / "thumbnails")
+        self._check_root()
         self.max_bytes = settings.thumbnail_max_size_gb * 1024**3
         # Decode a small number of different photos concurrently, without spawning
         # a worker for every image in a large page. Striped locks bound bookkeeping
@@ -53,6 +54,16 @@ class ThumbnailCache:
         self._created_since_prune = 100
         self._next_prune_at = 0.0
         self._maintenance_failed = False
+
+    def _check_root(self) -> None:
+        cache = _resolved_path(self.settings.cache_root)
+        originals = _resolved_path(self.settings.originals)
+        workspace = _resolved_path(self.settings.workspace)
+        if (originals.is_relative_to(cache) or cache.is_relative_to(originals)
+                or workspace.is_relative_to(cache)
+                or not self.root.is_relative_to(cache) or self.root == cache
+                or _resolved_path(self.root) != self.root):
+            raise ThumbnailCacheUnavailable("缓存目录与照片/工作数据重叠或路径已变化；请使用独立缓存目录")
 
     def _source(self, capture_id: int) -> sqlite3.Row:
         connection = connect_readonly(self.settings.database_path)
@@ -83,6 +94,7 @@ class ThumbnailCache:
         return target
 
     def get(self, capture_id: int, max_edge: int) -> Path:
+        self._check_root()
         if max_edge not in ALLOWED_EDGES:
             raise ValueError(f"Thumbnail edge must be one of {ALLOWED_EDGES}")
         row = self._source(capture_id)
@@ -226,6 +238,7 @@ class ThumbnailCache:
         }
 
     def _cache_entries(self) -> Iterator[tuple[Path, int, int]]:
+        self._check_root()
         # The cache has a fixed size/hash-prefix/file layout. Resolve directories
         # once, reuse scandir metadata, and never follow directory/file links.
         for edge in ALLOWED_EDGES:

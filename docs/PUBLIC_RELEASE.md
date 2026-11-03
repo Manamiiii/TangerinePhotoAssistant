@@ -1,86 +1,45 @@
-# Public release foundation
+# 公开发布准备
 
-TangerinePhotoAssistant is being generalized as a local-first photo curation tool.
-The public edition should keep photos on the user's computer and treat optional
-integrations as capabilities, not assumptions.
+更新：2026-11-03。本项目定位为 Windows 优先、本地运行的照片整理与选片工具。
+当前可核对的是源码安装和自动化测试，不等同于已完成签名、干净机器和陌生用户验收的正式发行版。
+完整评估、已修复问题和推广文案见 [公开产品审查](PUBLIC_PRODUCT_REVIEW.md)。
 
-## Stable product boundaries
+## 已有产品边界
 
-- The photo library is read-only by default. Ratings, picks, analysis results,
-  thumbnails, and user notes live in the application workspace.
-- Offline operation is mandatory for the core product. ExifTool, RAW support,
-  a local AI model, and Lightroom manifests are optional layers.
-- Missing optional tools must reduce functionality with a clear explanation;
-  they must not prevent browsing and manual selection.
-- Paths, camera vendors, Lightroom, GPU hardware, and operating systems must not
-  be hard-coded into shared UI copy or core domain behavior.
-- User-authored reviews and grouping decisions are durable data. Thumbnails,
-  histograms, fingerprints, and automated analysis are rebuildable derivatives.
+- 核心整理、浏览、JPG/RAW 配对、人工选片不要求模型、GPU、Lightroom 或账号；安装依赖需要网络，日常核心功能可离线使用。
+- 浏览、评分和分析不改原片。用户显式确认的导入会复制文件，归档会在备份、复制校验和索引提交之后清理本批待整理副本；来源卡不会自动清理。
+- JPG/JPEG 提供图库预览；RAW 主要是配对、保留和可选 ExifTool 元数据，不是 RAW 解码器。视频和附属文件支持复制、清单与归档，不支持播放或编辑。
+- 服务仅用于可信本机单用户。回环监听、Host/Origin 检查和写会话令牌不是多用户认证；不支持公网或局域网部署。
+- 配置初始化不覆盖已有文件；设置保存先校验并备份。路径变更不搬运数据，迁移库以数据库活动根为准。
+- 当前 schema 36。迁移、人工数据恢复和归档有自动备份及回归；便携人工数据 JSON 不是完整数据库或照片备份，也不包含相册定义与成员关系。
+- 脱敏诊断只输出白名单字段。普通照片导出、数据库和完整报告不等于脱敏资料。
+- 运行数据位于用户配置目录，器材个人档案默认空白；内置器材照片的独立授权见根目录 THIRD_PARTY_ASSETS.md。
 
-## Implemented foundation
+## 发布前必须决定或完成
 
-- `tangerine-photo init` creates a conservative portable configuration from
-  explicit photo, workspace, and cache paths. It refuses to overwrite an
-  existing file and does not create, scan, copy, or modify photos.
-- `/api/system/capabilities` reports platform, metadata level, optional local AI,
-  export features, paths, and active safety switches for future setup screens.
-- The web settings center edits the same portable configuration used by the CLI.
-  It validates a temporary file, backs up the previous config, then replaces it
-  atomically. Directory changes take effect after restart and never imply moving data.
-- Opening the inbox uses Explorer, Finder, or `xdg-open` when available.
-- Shared safety copy uses configured paths rather than one developer's drives.
-- Personal equipment lives only in the configured workspace. The bundled profile
-  is empty and the Fujifilm catalogue contains public reference data only.
-- The home page contains no prescribed selection funnel. Empty libraries receive
-  a small first-use explanation; established libraries prioritize recent photos
-  and exceptional items that actually require attention.
-- A three-step first-launch wizard separates the read-only photo root, durable
-  workspace, and rebuildable cache. Optional metadata and local-model paths can
-  be skipped, all settings remain editable later, and saving still uses the same
-  validated/atomic configuration path as the full settings center.
-- The local service exposes a native directory picker on Windows and macOS, with
-  Zenity/KDialog support on Linux when installed. Picking a folder never creates,
-  scans, copies, or moves files; manual absolute-path entry remains available.
-- Synthetic metadata snapshots cover Canon, Nikon, Sony, Panasonic, OM System,
-  Apple, Google, and Samsung standard EXIF shapes, plus no-EXIF and corrupt JPEG
-  behavior. They exercise normalized vendor names, timezone/subsecond capture
-  times, standard lens specifications, GPS conversion, and explicit error fallback
-  without redistributing third-party photos.
-- A portable human-data JSON export excludes photos, absolute paths, GPS,
-  thumbnails, and model result bodies. Restore preflights stable capture keys,
-  requires explicit confirmation, blocks around background tasks, and creates an
-  integrity-checked SQLite backup before changing ratings, picks, notes, tags,
-  current grouping overrides, edit histories, AI review verdicts, or equipment.
-- Generated migration fixtures exercise every supported schema version before the
-  current schema 32, verifying both preserved fixture data and the pre-upgrade backup.
-- A redacted diagnostic ZIP is constructed from an explicit whitelist. It reports
-  versions, capability and safety switches, database integrity and aggregate counts,
-  while excluding images, names and paths, GPS, serials, user-authored text, model
-  payloads, and raw error messages. Its archive contains one inspectable JSON file.
-- Persistent worker and launcher logs record exception categories and aggregate
-  states, not raw exception text, task error bodies, or runtime path messages.
+| 优先级 | 项目 | 可执行的完成标准 |
+|---|---|---|
+| P0 | 公开资料隐私审阅 | 作者确认 CURRENT_STATE、正式验收、保留策略等记录中的个人活动、日期、设备与绝对路径哪些允许公开；需要修改历史时另行确定方案，不擅自删凭据或强推 |
+| P0 | 安全修复进入待发布运行环境 | 安装更新后的锁定依赖并通过门禁；本轮只在临时环境验证 Pillow 13，未升级或重启作者正式服务 |
+| P1 | 干净 Windows 安装 | 在无既有 Python 项目环境、无 ExifTool/模型的普通用户机器按 README 从头完成安装及核心流程；记录版本、失败信息和结果 |
+| P1 | 中断后的可恢复性 | 真实断卡、权限拒绝、磁盘不足验收；永久无法恢复的导入需要设计保留文件与凭据的退出方案，当前不要手工删记录解锁 |
+| P1 | 发行包可追溯性 | 完成可选桌面/打包依赖的许可证与安全审查，生成对应版本第三方声明、校验和、干净机器结果，明确未签名状态 |
+| P2 | 用户可看见的演示 | 使用作者明确允许公开的照片制作真实截图，标注实际版本；不能把设计稿当功能截图 |
 
-## Release work still required
+公开可见的仓库与开源授权是两回事，参见 [GitHub 的许可证说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)。
+作者于 2026-11-03 确定本项目以分享为定位，采用 GPL 第 3 版（`GPL-3.0-only`）。根目录 LICENSE、
+Python/前端元数据、README 和应用内离线许可说明已同步，后续 Windows 构建会包含 LICENSE。
+未清理已有正式验收记录或改写 Git 历史。第三方组件和图片继续适用各自许可。
 
-Windows now has an optional native WebView2 window and an unsigned internal bundle,
-with versioned per-user installation and authenticated idle-only restart. It uses
-the existing TOML settings and keeps all user data outside program releases.
-Offline build comparison, checksummed package inventories, configuration-preserving
-upgrades, schema-floor rollback guards and preview-first per-release removal are
-implemented. Service logs rotate within a fixed per-configuration budget; previous
-logs are not silently removed. There is no automatic network update check or download.
-See `WINDOWS_APP.md`; this is not yet a signed public distribution.
+分发安装包时必须同时提供对应版本的完整可构建源码及必要脚本，并在下载位置清楚说明获取方式；
+不能只链接到可能已经变化的 main 分支。此次未创建、更新或发布安装包。
 
-1. Choose the public license and contribution policy. The project metadata stays
-   proprietary until the owner makes that explicit legal decision.
-2. Add signed Windows and macOS packages around the existing local web service.
-3. Add licensed real-world RAW/HEIC metadata samples for the synthetic vendor
-   baseline where closed-beta users expose compatibility gaps.
-4. Extend portable restore to confirmed album names/membership after collision
-   semantics are defined; current export covers capture-level human decisions.
-5. Run a small closed beta before enabling update telemetry or any networked
-   feature. Telemetry must remain opt-in and inspectable.
+## 发布方式与范围
 
-Packaging must call the existing configuration and capability boundaries rather
-than introduce a second settings format. This keeps the Python CLI, local web UI,
-and future desktop shell compatible.
+先支持 Windows 源码方式。普通 wheel 没有完整网页和器材资源，README 指定仓库 editable 安装加前端构建。
+现有独立窗口、版本目录安装、校验清单、离线升级与回退可用于内测；详见 WINDOWS_APP.md，不能据此直接宣称签名稳定版。
+现有 GitHub Releases 的在线资产未完成核验，本文不承诺下载链接或自动更新。
+macOS 打包、视频播放器、账号、收费、遥测均不是本次公开准备的前置开发任务。
+
+建议发布顺序：完成隐私审阅与第三方许可核对 → 干净机器验收 → 少量真实 Windows 用户试用 → 根据失败记录修复 → 再考虑更易安装的发行包。
+不以新增功能数量作为成熟度标准，不承诺自动删除、全格式兼容或模型准确率。

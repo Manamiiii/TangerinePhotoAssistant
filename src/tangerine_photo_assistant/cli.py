@@ -48,7 +48,7 @@ def doctor(config_path: Path) -> int:
     )
     print(f"Offline only: {settings.offline_only}")
     exiftool = settings.find_exiftool()
-    print(f"ExifTool: {exiftool if exiftool else 'not found (metadata will be deferred)'}")
+    print(f"ExifTool: {exiftool if exiftool else 'not found (basic image EXIF via Pillow; RAW metadata needs ExifTool)'}")
     print(
         "Mutations: "
         f"move={settings.allow_move}, delete={settings.allow_delete}, "

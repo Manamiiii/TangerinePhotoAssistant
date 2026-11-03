@@ -38,7 +38,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_ap
 ```
 
 输出到新的 `runtime/packages/windows-时间戳`，拒绝覆盖已有目录。ZIP 内包含独立 Python 运行时、
-网页、公开器材目录及项目图标，无需目标机器安装 Python、Node 或克隆工程。构建目录中的
+网页、公开器材目录、项目图标和 GPL v3 LICENSE，无需目标机器安装 Python、Node 或克隆工程。构建目录中的
 `build` 是可重建产物，不需分发。当前为未签名内测包，不属于已签名公开发布版。
 
 ## 安装与配置
@@ -123,4 +123,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File manage_windows_app.ps1 -
 - 关闭窗口后后台服务仍可被浏览器使用；没有默认“退出并终止任务”。
 - 已补安装清单、配置保留、同 schema 回退、预览式保留数据卸载，以及有界日志的隔离自动测试。
 - 不提供静默自动更新、联网检查、代码签名、数据库降级、自动清理旧版本或卸载用户数据。
-- 安装包分发前还需公开许可证决策、第三方依赖许可汇总与干净 Windows 环境验收。
+- 自有代码已采用 GPL-3.0-only；安装包分发前仍需第三方依赖许可汇总与干净 Windows 环境验收。
+- 公开安装包需提供该构建对应的完整源码和必要构建脚本，在下载处链接到确切源码版本或源码包，
+  不能只提供浮动 main 链接。新构建包含 LICENSE；旧包没有被本次文档/许可变更自动更新。

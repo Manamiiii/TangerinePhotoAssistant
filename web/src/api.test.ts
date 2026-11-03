@@ -6,6 +6,18 @@ afterEach(() => {
 });
 
 describe("local write session", () => {
+  it("explains validation fields instead of displaying object Object", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({detail:[
+      {loc:["body","cache","max_size_gb"],msg:"Input should be greater than or equal to 1",input:"private-value"},
+    ]}), {status:422})));
+    const { getJson } = await import("./api");
+    await expect(getJson("/api/settings")).rejects.toThrow("cache.max_size_gb：Input should be greater than or equal to 1");
+  });
+  it("handles a nonstandard error payload without leaking it into the message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({detail:{input:"private-value"}}), {status:500})));
+    const { getJson } = await import("./api");
+    await expect(getJson("/api/settings")).rejects.toThrow("请求失败：500");
+  });
   it("refreshes a stale token once after the backend restarts", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ token: "old-token" }), { status: 200 }))

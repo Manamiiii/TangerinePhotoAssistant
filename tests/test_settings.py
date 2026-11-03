@@ -42,6 +42,30 @@ class SettingsTests(unittest.TestCase):
             settings = self.make_settings(Path(directory), offline_only=False)
             self.assertIn("Offline-only analysis must remain enabled", settings.validate())
 
+    def test_cache_cannot_contain_photos_or_durable_workspace(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = self.make_settings(root)
+            self.assertIn("Photo library must not be inside the disposable cache",
+                          replace(settings, cache_root=root).validate())
+            self.assertIn("Workspace must not be inside the disposable cache",
+                          replace(settings, workspace=settings.cache_root / 'data').validate())
+            # Existing managed layouts may keep photos under their durable workspace.
+            self.assertEqual(replace(settings, workspace=root).validate(), [])
+
+    def test_unsafe_cache_change_is_rejected_without_replacing_configuration(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = self.make_settings(root)
+            config = root / 'config.toml'
+            write_safe_config(config, settings.originals, settings.workspace, settings.cache_root)
+            before = config.read_bytes()
+            changes = editable_config(config)
+            changes['cache']['root'] = str(root)
+            with self.assertRaisesRegex(ValueError, 'disposable cache'):
+                save_editable_config(config, changes)
+            self.assertEqual(config.read_bytes(), before)
+
     def test_safe_config_is_portable_and_never_overwritten(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

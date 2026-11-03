@@ -58,6 +58,9 @@ Windows 独立窗口由 `desktop.py` / `desktop_window.py` 提供，不向网页
 
 ## 写入边界
 
+- 配置拒绝缓存与照片目录互相包含，也拒绝工作目录位于缓存内。缩略图在初始化、读取和维护入口再次
+  核对解析后的边界及根路径变化，防止错误配置把原片识别为可删除缓存；不改变已支持的“工作目录包含照片”布局。
+
 - `inventory`、`visual`、`quality` 和模型分析只读取照片，结果写入 SQLite 或可重建缓存。
 - `exports` 只在报告目录产生导出包；缩小 JPG 去除 EXIF，原始 JPG/RAW 导出保持原文件字节。
 - `lightroom` 当前只产生 CSV/JSON 清单。

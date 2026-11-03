@@ -42,6 +42,21 @@ class Settings:
         with path.open("rb") as file:
             data = tomllib.load(file)
 
+        required = {
+            "library": ("originals", "workspace", "read_only"),
+            "cache": ("root", "max_size_gb"),
+            "analysis": ("offline_only", "raw_extensions"),
+            "safety": ("allow_move", "allow_delete", "allow_original_metadata_write"),
+        }
+        for section, fields in required.items():
+            values = data.get(section)
+            missing = [field for field in fields if not isinstance(values, dict) or field not in values]
+            if missing:
+                raise ValueError(
+                    f"Configuration is missing required fields: {section}.{', '.join(missing)}. "
+                    "Generate a config with 'tangerine-photo init' or consult config.example.toml."
+                )
+
         tools = data.get("tools", {})
         models = data.get("models", {})
         lightroom = data.get("lightroom", {})
@@ -107,6 +122,10 @@ class Settings:
             errors.append("Workspace must not be inside the photo library")
         if resolved["cache"].is_relative_to(resolved["originals"]):
             errors.append("Cache must not be inside the photo library")
+        if resolved["originals"].is_relative_to(resolved["cache"]):
+            errors.append("Photo library must not be inside the disposable cache")
+        if resolved["workspace"].is_relative_to(resolved["cache"]):
+            errors.append("Workspace must not be inside the disposable cache")
         if self.cache_max_size_gb <= 0:
             errors.append("Cache size ceiling must be positive")
         if self.thumbnail_max_size_gb <= 0:

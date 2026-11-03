@@ -39,7 +39,13 @@ export async function getJson<T>(url: string, options?: RequestInit): Promise<T>
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `请求失败：${response.status}`);
+    const detail = body?.detail;
+    const message = typeof detail === "string" ? detail : Array.isArray(detail)
+      ? detail.map((item) => {
+        const field = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== "body").join(".") : "";
+        return typeof item?.msg === "string" ? `${field ? `${field}：` : ""}${item.msg}` : "参数不符合要求";
+      }).join("；") : null;
+    throw new Error(message || `请求失败：${response.status}`);
   }
   return response.json() as Promise<T>;
 }

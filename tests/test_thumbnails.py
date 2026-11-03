@@ -2,6 +2,7 @@ import hashlib
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event, Lock
@@ -37,6 +38,29 @@ def make_cache(root):
 
 
 class ThumbnailConcurrencyTests(unittest.TestCase):
+    def test_original_with_cache_shaped_name_is_never_accepted_as_disposable(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache, source, _ = make_cache(root)
+            nested = root / 'cache' / 'thumbnails' / '320' / 'aa'
+            nested.mkdir(parents=True)
+            original = nested / ('a' * 40 + '.jpg')
+            original.write_bytes(source.read_bytes())
+            before = original.read_bytes()
+            with self.assertRaises(ThumbnailCacheUnavailable):
+                ThumbnailCache(replace(cache.settings, originals=nested))
+            self.assertEqual(original.read_bytes(), before)
+
+    def test_root_replaced_after_start_cannot_be_used_for_pruning(self):
+        with TemporaryDirectory() as directory:
+            cache, source, _ = make_cache(Path(directory))
+            from tangerine_photo_assistant.thumbnails import _resolved_path
+            def redirected(path):
+                return _resolved_path(source.parent) if path == cache.root else _resolved_path(path)
+            with patch('tangerine_photo_assistant.thumbnails._resolved_path', side_effect=redirected), self.assertRaises(ThumbnailCacheUnavailable):
+                cache.prune()
+            self.assertTrue(source.exists())
+
     def test_large_cache_is_reused_with_orientation_and_source_unchanged(self):
         with TemporaryDirectory() as directory:
             cache, source, source_row = make_cache(Path(directory))
