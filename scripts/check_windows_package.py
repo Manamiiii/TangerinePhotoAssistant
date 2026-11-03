@@ -163,7 +163,7 @@ def check(bundle, report):
             assert link.is_file(), 'Start Menu shortcut missing'
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as reg:
                 assert winreg.QueryValueEx(reg, 'DisplayVersion')[0] == '0.0.9'
-                assert winreg.QueryValueEx(reg, 'InstallLocation')[0] == str(install)
+                assert Path(winreg.QueryValueEx(reg, 'InstallLocation')[0]).samefile(install)
             sentinel = install / 'user-added.txt'
             sentinel.write_text('preserve me')
             backend = Backend(active(), config)

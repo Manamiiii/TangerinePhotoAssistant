@@ -45,12 +45,23 @@ class DesktopTests(unittest.TestCase):
                 set_taskbar_identity()
 
     def test_taskbar_identity_is_set_before_window_or_service_creation(self):
-        with patch("tangerine_photo_assistant.desktop.set_taskbar_identity",
+        with patch("tangerine_photo_assistant.desktop_prerequisites.missing_prerequisites", return_value=[]), \
+                patch("tangerine_photo_assistant.desktop.set_taskbar_identity",
                    side_effect=DesktopError("identity failed")) as identity, \
                 patch("tangerine_photo_assistant.desktop.ServiceClient") as client:
             with self.assertRaisesRegex(DesktopError, "identity failed"):
                 run_window(Path("unused.toml"), 8765)
             identity.assert_called_once_with()
+            client.assert_not_called()
+
+    def test_missing_runtime_never_creates_window_or_service(self):
+        with patch("tangerine_photo_assistant.desktop_prerequisites.missing_prerequisites",
+                   return_value=['Microsoft Edge WebView2 Runtime']), \
+                patch("tangerine_photo_assistant.desktop.set_taskbar_identity") as identity, \
+                patch("tangerine_photo_assistant.desktop.ServiceClient") as client:
+            with self.assertRaisesRegex(DesktopError, 'WebView2 Runtime'):
+                run_window(Path('unused.toml'), 8765)
+            identity.assert_not_called()
             client.assert_not_called()
 
     def test_validation_only_does_not_create_database(self):
