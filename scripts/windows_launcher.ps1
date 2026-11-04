@@ -54,7 +54,11 @@ function Get-TangerineHealth {
         $health = Invoke-RestMethod -UseBasicParsing -TimeoutSec 2 -Uri "$AppUrl/api/health"
         if ($health.status -eq "ok" -and $health.mode -eq "local-only" -and
             $null -ne $health.schema_version) {
-            return $health
+            # Apply the same configuration/legacy-root checks as the window before
+            # handing this URL to a browser. Inspecting a task never interrupts it.
+            $python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+            & $python -I -c "import sys; from pathlib import Path; from tangerine_photo_assistant.desktop import ServiceClient; c=ServiceClient(Path(sys.argv[1]), int(sys.argv[2])); sys.exit(0 if c.health() and c.request('/api/tasks/current') else 1)" $ConfigFile $Port 2>$null
+            if ($LASTEXITCODE -eq 0) { return $health }
         }
     } catch {}
     return $null
@@ -102,46 +106,25 @@ function Open-Tangerine {
     if (-not $NoBrowser) { Start-Process $AppUrl }
 }
 
-function Install-TangerineShortcuts {
+function Show-SourceEntry {
     Assert-LauncherFiles
-    if (-not (Test-Path -LiteralPath $SilentEntry -PathType Leaf)) {
-        throw "The Windows launcher entry is missing."
-    }
-    $shell = New-Object -ComObject WScript.Shell
-    $desktop = [Environment]::GetFolderPath("Desktop")
-    $programs = [Environment]::GetFolderPath("Programs")
-    $startMenuFolder = Join-Path $programs "TangerinePhotoAssistant"
-    New-Item -ItemType Directory -Force -Path $startMenuFolder | Out-Null
-    foreach ($shortcutPath in @(
-        (Join-Path $desktop "TangerinePhotoAssistant.lnk"),
-        (Join-Path $startMenuFolder "TangerinePhotoAssistant.lnk")
-    )) {
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = "$env:WINDIR\System32\wscript.exe"
-        $shortcut.Arguments = "`"$SilentEntry`""
-        $shortcut.WorkingDirectory = $ProjectRoot
-        $shortcut.IconLocation = "$IconFile,0"
-        $shortcut.Description = "Open the local TangerinePhotoAssistant application"
-        $shortcut.Save()
-    }
-    Show-LauncherMessage "Desktop and Start menu shortcuts are ready."
+    if (-not (Test-Path -LiteralPath $SilentEntry -PathType Leaf)) { throw "Source launcher missing." }
+    Show-LauncherMessage "Source entry ready: $SilentEntry. Existing shortcuts can continue to use it."
 }
 
 function Remove-TangerineShortcuts {
-    $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "TangerinePhotoAssistant.lnk"
-    $startMenuFolder = Join-Path ([Environment]::GetFolderPath("Programs")) "TangerinePhotoAssistant"
-    $startMenuShortcut = Join-Path $startMenuFolder "TangerinePhotoAssistant.lnk"
-    if (Test-Path -LiteralPath $desktopShortcut) {
-        Remove-Item -LiteralPath $desktopShortcut -Force
+    $shell = New-Object -ComObject WScript.Shell
+    $desktop = Join-Path ([Environment]::GetFolderPath("Desktop")) "TangerinePhotoAssistant.lnk"
+    $menu = Join-Path ([Environment]::GetFolderPath("Programs")) "TangerinePhotoAssistant\TangerinePhotoAssistant.lnk"
+    foreach ($path in @($desktop, $menu)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $shortcut = $shell.CreateShortcut($path)
+        if ($shortcut.TargetPath -eq "$env:WINDIR\System32\wscript.exe" -and
+            $shortcut.Arguments -eq ('"' + $SilentEntry + '"') -and $shortcut.WorkingDirectory -eq $ProjectRoot) {
+            Remove-Item -LiteralPath $path
+        }
     }
-    if (Test-Path -LiteralPath $startMenuShortcut) {
-        Remove-Item -LiteralPath $startMenuShortcut -Force
-    }
-    if ((Test-Path -LiteralPath $startMenuFolder -PathType Container) -and
-        -not (Get-ChildItem -LiteralPath $startMenuFolder -Force | Select-Object -First 1)) {
-        Remove-Item -LiteralPath $startMenuFolder -Force
-    }
-    Show-LauncherMessage "Shortcuts were removed. Application data was not changed."
+    Show-LauncherMessage "Finished checking legacy source shortcuts."
 }
 
 try {
@@ -152,7 +135,7 @@ try {
             exit 0
         }
         "Install" {
-            Install-TangerineShortcuts
+            Show-SourceEntry
             exit 0
         }
         "Remove" {

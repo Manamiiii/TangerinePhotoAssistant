@@ -41,6 +41,8 @@ $Archive = Join-Path $OutputDirectory "TangerinePhotoAssistant-$Version-Windows-
 if ($LASTEXITCODE -ne 0) { throw 'Portable archive failed.' }
 & $Python (Join-Path $PSScriptRoot 'compile_windows_setup.py') --bundle $Bundle --output (Join-Path $OutputDirectory "TangerinePhotoAssistant-$Version-Windows-x64-Setup.exe") --version $Version
 if ($LASTEXITCODE -ne 0) { throw 'Setup build failed.' }
+& $Python (Join-Path $PSScriptRoot 'check_windows_icons.py') $Bundle (Join-Path $OutputDirectory "TangerinePhotoAssistant-$Version-Windows-x64-Setup.exe")
+if ($LASTEXITCODE -ne 0) { throw 'Embedded Windows icon or execution-level verification failed.' }
 $Identity = Get-Content $env:TANGERINE_BUILD_INFO -Raw | ConvertFrom-Json
 if (-not $Identity.dirty -and $Identity.revision -ne 'unknown') {
     & git -C $ProjectRoot archive --format=zip "--output=$(Join-Path $OutputDirectory "TangerinePhotoAssistant-$Version-Source.zip")" $Identity.revision

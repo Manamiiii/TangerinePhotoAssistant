@@ -9,7 +9,7 @@ param(
 if ($ProductName -notmatch '^TangerinePhotoAssistant(?:Fixture-[a-zA-Z0-9-]+)?$' -or $ProductKey -notmatch '^\{[A-Fa-f0-9-]{36}\}$') { throw 'Invalid product identity.' }
 if ($DisplayVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version.' }
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
-Assert-PlainPath $InstallRoot
+Assert-ProductDirectory $InstallRoot
 if ($InstallRoot -eq [IO.Path]::GetPathRoot($InstallRoot).TrimEnd('\')) { throw 'Cannot install at a volume root.' }
 $Registry = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductKey"
 Assert-PlainPath (Join-Path $InstallRoot 'Uninstall.exe')
@@ -18,13 +18,18 @@ $Programs = [Environment]::GetFolderPath('Programs')
 $Shortcut = Join-Path $Programs "$ProductName\$ProductName.lnk"
 Assert-PlainPath $Shortcut
 $Shell = New-Object -ComObject WScript.Shell
+$Previous = $null
 if (Test-Path -LiteralPath $Shortcut) {
-    $PreviousTarget = $Shell.CreateShortcut($Shortcut).TargetPath
-    if (-not $PreviousTarget.StartsWith($InstallRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Start Menu shortcut belongs to another installation.' }
+    $Previous = $Shell.CreateShortcut($Shortcut)
+    if (-not (Test-Path -LiteralPath (Join-Path $InstallRoot '.tangerine-install.json'))) { throw 'Start Menu shortcut belongs to another installation.' }
+    $Before = Read-Installation $InstallRoot
+    $Owned = @($Before.releases | ForEach-Object { Get-ChildPath $InstallRoot ($_ + '/TangerinePhotoAssistant.exe') })
+    if ($Previous.TargetPath -notin $Owned) { throw 'Start Menu shortcut target is not a registered program.' }
 }
 if (Test-Path -LiteralPath $Registry) {
     $Registration = Get-ItemProperty -LiteralPath $Registry
     if ($Registration.InstallLocation -ne $InstallRoot -or $Registration.TangerineProduct -ne $ProductName) { throw 'This installation identity belongs to another directory.' }
+    [void](Read-Installation $InstallRoot)
     if ($Action -eq 'Install' -and [version]$DisplayVersion -lt [version]$Registration.DisplayVersion) { throw 'Installing an older Setup version is not supported.' }
 }
 Assert-NoProgramProcess $InstallRoot
@@ -35,8 +40,10 @@ if ($Action -eq 'Install') {
     New-Item -ItemType Directory -Path (Split-Path $Shortcut -Parent) -Force | Out-Null
     $Link = $Shell.CreateShortcut($Shortcut)
     $Link.TargetPath = $Executable
-    $Link.WorkingDirectory = Split-Path -Parent $Executable
-    $Link.Arguments = if ($State.config) { '--config "' + $State.config + '"' } else { '' }
+    $Link.WorkingDirectory = if ($Previous -and $Previous.WorkingDirectory -ne (Split-Path -Parent $Previous.TargetPath)) {
+        $Previous.WorkingDirectory
+    } else { Split-Path -Parent $Executable }
+    $Link.Arguments = if ($Previous) { $Previous.Arguments } elseif ($State.config) { '--config "' + $State.config + '"' } else { '' }
     $Link.IconLocation = "$Executable,0"
     $Link.Save()
     New-Item -Path $Registry -Force | Out-Null

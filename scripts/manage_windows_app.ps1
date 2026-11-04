@@ -4,9 +4,10 @@ param([string]$InstallRoot = '', [ValidateSet('Status','Activate','Uninstall')][
 if (-not $InstallRoot) {
     $Parent = Split-Path -Parent $PSScriptRoot
     $InstallRoot = if (Test-Path -LiteralPath (Join-Path $Parent '.tangerine-install.json')) { $Parent }
-        else { Join-Path $env:LOCALAPPDATA 'Programs\TangerinePhotoAssistant' }
+        else { Get-DefaultProgramRoot }
 }
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+Assert-ProductDirectory $InstallRoot
 $State = Read-Installation $InstallRoot
 if ($Interactive) {
     Write-Host "Program directory: $InstallRoot"

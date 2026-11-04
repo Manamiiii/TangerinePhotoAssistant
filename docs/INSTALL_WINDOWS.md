@@ -12,7 +12,7 @@ WebView2 Runtime 不等同于 Edge 浏览器；.NET Framework 不等同于现代
 缺失时窗口启动会点名提示所缺组件，官方获取方式见 [运行环境说明](WINDOWS_APP.md#安装版运行环境与缺失提示)。
 
 首次启动只建立空配置，在“导入新照片”检查来源并确认复制，不会自动扫描硬盘。
-程序位于当前用户 `LocalAppData/Programs/TangerinePhotoAssistant`，默认数据位于独立的
+程序位于当前用户 `LocalAppData/Programs/Tangerine/TangerinePhotoAssistant`，默认数据位于独立的
 `LocalAppData/TangerinePhotoAssistant`。Windows“已安装的应用”可卸载；卸载保留配置、数据库、照片、缓存与备份。
 更新采用手动下载新 Setup 并确认安装，没有自动更新后台服务。维护前在应用菜单安全停止空闲后台并关闭窗口；
 运行中的窗口或后台会阻止安装、升级和卸载，不会被强制终止。
@@ -94,3 +94,5 @@ npm.cmd run build --prefix web
 数据库如需升级，应用会先创建自动备份；不要删除升级备份。安装包用户不能靠拉取源码更新已安装的 EXE。
 
 遇到命令不存在、端口占用、目录选择或导入失败，见 [常见问题与恢复](GETTING_STARTED.md#失败时怎么做)。
+
+新装默认位于当前用户的 `Programs/Tangerine/TangerinePhotoAssistant`。升级使用原登记目录，传统 `Programs/TangerinePhotoAssistant` 中经核验的安装凭据可原位继续使用。共享的 `Programs/Tangerine` 只用于容纳各自的程序目录。卸载按本项目清单逐文件校验，保留共享目录、其他工具、用户资料和既有安装凭据。

@@ -13,15 +13,15 @@ SetCompressor /SOLID lzma
 !endif
 Name "${PRODUCT_NAME}"
 OutFile "${SETUP_OUTPUT}"
-InstallDir "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
+InstallDir "$LOCALAPPDATA\Programs\Tangerine\${PRODUCT_NAME}"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_KEY}" "InstallLocation"
 VIProductVersion "${SETUP_VERSION}.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} per-user Setup"
 VIAddVersionKey "FileVersion" "${SETUP_VERSION}"
 VIAddVersionKey "LegalCopyright" "Copyright 2026 Manamiiii; GPL-3.0-only"
-Icon "${PROJECT_ROOT}\assets\tangerine-photo-assistant.ico"
-UninstallIcon "${PROJECT_ROOT}\assets\tangerine-photo-assistant.ico"
+!define MUI_ICON "${PROJECT_ROOT}\assets\tangerine-photo-assistant.ico"
+!define MUI_UNICON "${PROJECT_ROOT}\assets\tangerine-photo-assistant.ico"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${PROJECT_ROOT}\LICENSE"
@@ -36,6 +36,21 @@ UninstallIcon "${PROJECT_ROOT}\assets\tangerine-photo-assistant.ico"
 Function .onInit
   SetShellVarContext current
   SetRegView 64
+  ; Resolve the registered 64-bit identity after selecting its registry view.
+  ; Only choose a legacy directory when the caller used the default.
+  ${If} $INSTDIR == "$LOCALAPPDATA\Programs\Tangerine\${PRODUCT_NAME}"
+    ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_KEY}" "InstallLocation"
+    ${If} $2 != ""
+      StrCpy $INSTDIR $2
+    ${ElseIf} ${FileExists} "$LOCALAPPDATA\Programs\${PRODUCT_NAME}\.tangerine-install.json"
+      ${If} ${FileExists} "$INSTDIR\.tangerine-install.json"
+        MessageBox MB_OK|MB_ICONSTOP "Two installation receipts exist. Select the intended installation explicitly." /SD IDOK
+        SetErrorLevel 20
+        Quit
+      ${EndIf}
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
+    ${EndIf}
+  ${EndIf}
   System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\${PRODUCT_KEY}-maintenance") p .r1 ?e'
   Pop $0
   ${If} $0 = 183

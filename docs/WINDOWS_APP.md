@@ -44,8 +44,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_ap
 ## 安装与配置
 
 解压后直接运行 `TangerinePhotoAssistant.exe` 可使用便携程序；双击 `Install.cmd` 会复制程序到
-当前用户 `%LOCALAPPDATA%/Programs/TangerinePhotoAssistant/release-时间戳` 并创建快捷方式。
-也可使用 Setup 安装并获得 Windows 卸载入口。无需管理员权限，不注册开机启动。维护前须安全停止空闲后台并关闭窗口；运行中的程序会阻止维护。升级创建新版本目录；旧程序目录保留供人工回退，暂不自动清理。
+当前用户 `%LOCALAPPDATA%/Programs/Tangerine/TangerinePhotoAssistant/release-时间戳`。
+使用 Setup 安装后可从开始菜单启动，也可在 Windows 设置中卸载。无需管理员权限，不注册开机启动。维护前须安全停止空闲后台并关闭窗口；运行中的程序会阻止维护。升级创建新版本目录；旧程序目录保留供人工回退，暂不自动清理。
 
 新包携带版本号、Git 提交、构建时间、未提交修改标记和逐文件 SHA-256 清单；安装前及复制后
 都校验。只复制清单内的程序资源，不复制解压目录中额外放入的文件。校验和用于发现损坏，
@@ -180,3 +180,5 @@ Python 桌面壳不使用 Electron；自定义资源协议、Dexie、OCR/WASM、
 CI 在一次性 runner 上、确认正式 GUID 和快捷方式均不存在后，使用实际生成的正式 Setup 进行静默安装、升级、
 运行中保护、卸载和重装检查。该项与独立 fixture 分开报告，也不等于干净普通账号或原生交互向导验收。
 CI 中的 0.0.9 包仍是同业务代码的低版本 fixture，不代表真实旧库迁移。
+
+新装默认位于当前用户的 `Programs/Tangerine/TangerinePhotoAssistant`。升级使用原登记目录，传统 `Programs/TangerinePhotoAssistant` 中经核验的安装凭据可原位继续使用。共享的 `Programs/Tangerine` 只用于容纳各自的程序目录。卸载按本项目清单逐文件校验，保留共享目录、其他工具、用户资料和既有安装凭据。

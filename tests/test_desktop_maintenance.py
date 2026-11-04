@@ -173,6 +173,35 @@ class WindowsPackageTests(unittest.TestCase):
         self.run_ps("install_windows_app.ps1", "-NoShortcuts", success=False)
         self.assertEqual((self.install / "catalog.sqlite3").read_bytes(), b"synthetic database")
 
+    def test_default_root_respects_legacy_receipt_and_shared_parent(self):
+        # This PowerShell process sees only a synthetic profile and registry drive.
+        (self.root / "registry").mkdir()
+        probe = self.root / "probe.ps1"
+        probe.write_text(r"""
+$ErrorActionPreference = 'Stop'
+$env:LOCALAPPDATA = $PSScriptRoot
+Remove-PSDrive HKCU
+New-PSDrive -Name HKCU -PSProvider FileSystem -Root (Join-Path $PSScriptRoot 'registry') | Out-Null
+. (Join-Path $PSScriptRoot 'bundle/windows_package_common.ps1')
+$shared = Join-Path $PSScriptRoot 'Programs/Tangerine'
+$new = Join-Path $shared 'TangerinePhotoAssistant'
+$old = Join-Path $PSScriptRoot 'Programs/TangerinePhotoAssistant'
+if ((Get-DefaultProgramRoot) -ne $new) { throw 'Wrong default' }
+try { Assert-ProductDirectory $shared; throw 'Unexpected acceptance' }
+catch { if ($_.Exception.Message -notlike 'Choose an application directory*') { throw } }
+$state = @{app_id='tangerine-photo-assistant';format=1;active='';releases=@();schema_floor=36}
+New-Item -ItemType Directory -Path $old -Force | Out-Null
+Save-Installation $old $state
+if ((Get-DefaultProgramRoot) -ne $old) { throw 'Lost legacy root' }
+New-Item -ItemType Directory -Path $new -Force | Out-Null
+Save-Installation $new $state
+try { Get-DefaultProgramRoot; throw 'Unexpected selection' }
+catch { if ($_.Exception.Message -notlike 'Two installation receipts*') { throw } }
+""", encoding="ascii")
+        run = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                              "Bypass", "-File", str(probe)], capture_output=True, timeout=30, check=False)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 is optional")
     def test_powershell_7_json_integer_compatibility(self):
         result = subprocess.run(["pwsh", "-NoProfile", "-File", str(self.bundle / "install_windows_app.ps1"),

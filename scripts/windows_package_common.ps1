@@ -1,4 +1,31 @@
 $ErrorActionPreference = 'Stop'
+function Assert-ProductDirectory([string]$Root) {
+    Assert-PlainPath $Root
+    $Programs = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs'))
+    if ($Root -in @($Programs, (Join-Path $Programs 'Tangerine'), [IO.Path]::GetPathRoot($Root).TrimEnd('\'))) {
+        throw 'Choose an application directory inside Programs, not a shared directory or drive root.'
+    }
+}
+function Get-DefaultProgramRoot {
+    $Programs = Join-Path $env:LOCALAPPDATA 'Programs'
+    $Legacy = Join-Path $Programs 'TangerinePhotoAssistant'
+    $Default = Join-Path $Programs 'Tangerine\TangerinePhotoAssistant'
+    $Key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{551A03F7-2773-4A5E-962C-6BBDB8B28E08}'
+    if (Test-Path -LiteralPath $Key) {
+        $Entry = Get-ItemProperty -LiteralPath $Key
+        if ($Entry.TangerineProduct -ne 'TangerinePhotoAssistant' -or -not $Entry.InstallLocation) { throw 'Unrecognized installation registration.' }
+        $Root = [IO.Path]::GetFullPath($Entry.InstallLocation)
+        Assert-ProductDirectory $Root
+        [void](Read-Installation $Root)
+        return $Root
+    }
+    if (Test-Path -LiteralPath (Join-Path $Legacy '.tangerine-install.json')) {
+        if (Test-Path -LiteralPath (Join-Path $Default '.tangerine-install.json')) { throw 'Two installation receipts exist. Specify -InstallRoot.' }
+        [void](Read-Installation $Legacy)
+        return $Legacy
+    }
+    return $Default
+}
 function Get-ProgramHash([string]$Path) {
     $Stream = [IO.File]::OpenRead($Path)
     $Hasher = [Security.Cryptography.SHA256]::Create()
@@ -93,7 +120,8 @@ function Set-ProgramShortcuts([string]$Root, $State, [string]$Release) {
         }
     }
     foreach ($Path in $Paths) {
-        if (-not $Release) { if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path }; continue }
+        if (-not (Test-Path -LiteralPath $Path)) { continue }
+        if (-not $Release) { Remove-Item -LiteralPath $Path; continue }
         New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
         $Shortcut = $Shell.CreateShortcut($Path)
         $Shortcut.TargetPath = Join-Path (Join-Path $Root $Release) 'TangerinePhotoAssistant.exe'

@@ -31,7 +31,7 @@ class WindowsLauncherTests(unittest.TestCase):
             self.assertEqual(image.format, "ICO")
             self.assertTrue({(16, 16), (32, 32), (48, 48), (256, 256)}.issubset(image.info["sizes"]))
         self.assertIn("assets\\tangerine-photo-assistant.ico", controller_text)
-        self.assertIn('$shortcut.IconLocation = "$IconFile,0"', controller_text)
+        self.assertNotIn("$shortcut.Save()", controller_text)
         self.assertIn("Get-TrackedTangerineProcess", controller_text)
         self.assertIn("$attempt -lt 900", controller_text)
         self.assertIn("System.Threading.Mutex", controller_text)

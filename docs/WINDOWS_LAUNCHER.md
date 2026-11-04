@@ -4,17 +4,13 @@
 保留浏览器启动。独立窗口、内置 Python 的未签名内测包及安装说明见 [WINDOWS_APP.md](WINDOWS_APP.md)。
 以下 PID/互斥锁与 `runtime/launcher` 日志说明专指浏览器回退路径。
 
-## 一次性安装快捷方式
+## 已有入口和过渡路径
 
-确认项目已完成 `.venv` 安装、前端生产构建，并存在本机 `config.toml` 后，双击：
+已建源码快捷方式继续指向根目录 `TangerinePhotoAssistant.vbs`，宿主为系统 `wscript.exe`，参数为带引号的 VBS 绝对路径，工作目录为工程根，图标索引为 `assets/tangerine-photo-assistant.ico,0`。VBS 按自身位置解析控制器，通过隐藏的 PowerShell 以 `-Mode Start` 启动。环境来自调用用户；子进程明确使用项目工作目录、根 `config.toml` 和项目 `.venv`。
 
-```text
-install-windows-launcher.cmd
-```
+`start-photo-assistant.cmd` 进入脚本所在目录并以 `-Mode Start -Console` 启动相同控制器。`install-windows-launcher.cmd` 兼容原路径，其 `-Mode Install -Console` 现在只检查启动文件并报告现有 VBS 入口。正式安装版由 Setup 管理开始菜单。手动调用的旧 `Remove` 模式核对目标、参数及工作目录后才移除匹配的旧源码链接。
 
-脚本只在当前用户的桌面和开始菜单创建快捷方式，不复制项目、不修改配置、数据库或照片。快捷
-方式指向仓库内的 `TangerinePhotoAssistant.vbs`，图标使用
-`assets/tangerine-photo-assistant.ico`；如果以后移动项目目录，需要重新运行安装脚本。
+控制器支持 `Start/Status/Validate/Install/Remove`、`-Port`（默认 8765）、`-Console`、`-Browser` 与 `-NoBrowser`。已有显式配置的安装版快捷方式仍使用登记的 `--config`；新安装版默认使用当前用户的独立配置。浏览器回退复用服务前按窗口相同规则核对配置身份或旧版根目录，并读取当前任务；启动和重新连接保留活动任务。原生菜单执行停止或重启时另行检查服务身份、控制凭据和任务状态。
 
 ## 日常启动
 
@@ -37,4 +33,4 @@ install-windows-launcher.cmd
 
 - 仍需要项目目录、`.venv`、`web/dist` 和 `config.toml`；缺少任一项会给出明确错误。
 - `-Browser` 强制使用系统默认浏览器；独立窗口提供安全重启，关闭窗口不结束服务。
-- 内测包已有独立窗口、校验安装、离线更新比较、回退与保留数据卸载；签名、自动升级、系统卸载入口和干净机器验证仍未完成。
+- 内测包已有独立窗口、校验安装、离线更新比较、回退与保留数据卸载；Setup 已提供系统卸载入口；使用手动更新，签名和干净机器验收见安装说明。

@@ -111,3 +111,18 @@ Copyright © 2026 Manamiiii.
 应用设置的“版本与更新 → 开源许可”可离线阅读条款。用户自己的照片、数据库和其他私人资料不因使用本工具而变为 GPL 作品。
 
 内置器材照片有独立的开放许可与署名，见 [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md)。第三方依赖也继续适用各自的许可证，本项目不重新授权第三方内容。
+
+## 工程目录地图
+
+| 位置 | 用途 |
+|---|---|
+| `src/tangerine_photo_assistant/`、`web/src/` | Python 服务、SQLite 与独立窗口，React 网页 |
+| `tests/`、`web/src/**/*.test.*` | 隔离的后端、维护脚本和前端回归 |
+| `docs/`、`equipment/` | [安装与维护](docs/WINDOWS_APP.md)、[源码启动入口](docs/WINDOWS_LAUNCHER.md)、数据与验收说明，以及随程序交付的公开器材资料 |
+| `assets/` | 1024 px 图标 PNG 母图、七尺寸派生 ICO 与第三方许可 |
+| `scripts/` | `build_windows_app.ps1` 构建，`windows_app.spec` 冻结程序，`windows_setup.nsi` 配置 Setup，`setup_windows_app.ps1`、`install_windows_app.ps1`、`manage_windows_app.ps1` 维护程序 |
+| 仓库根目录 | 兼容已有入口的 VBS 与 CMD 位于原路径，由 `scripts/windows_launcher.ps1` 统一处理配置、端口与工作目录 |
+| `runtime/packages/<构建目录>/`（Git 忽略） | 正式身份候选 Setup、Portable、对应源码、散列和本机验收结果。以具体构建提交和 SHA-256 选择候选 |
+| 临时目录与日志 | 安装测试 fixture 在系统临时目录生成并按测试身份清理。源码浏览器启动日志位于忽略的 `runtime/launcher/`，构建工具缓存位于 `runtime/build-tools/`，独立窗口服务日志位于当前用户应用数据目录的 `Runtime/` |
+
+新装默认程序目录为 `%LOCALAPPDATA%\Programs\Tangerine\TangerinePhotoAssistant`。已有安装优先沿用登记位置；传统目录有有效安装凭据时原位维护。开始菜单、配置和图库身份见 [Windows 安装说明](docs/INSTALL_WINDOWS.md)。

@@ -2,15 +2,19 @@ param([string]$InstallRoot = '', [string]$ConfigFile = '', [switch]$NoShortcuts)
 . (Join-Path $PSScriptRoot 'windows_package_common.ps1')
 $Bundle = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $Package = Read-Package $Bundle -Verify
-if (-not $InstallRoot) { $InstallRoot = Join-Path $env:LOCALAPPDATA 'Programs\TangerinePhotoAssistant' }
+if (-not $InstallRoot) { $InstallRoot = Get-DefaultProgramRoot }
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
-Assert-PlainPath $InstallRoot
+Assert-ProductDirectory $InstallRoot
 if ($InstallRoot -eq $Bundle -or $InstallRoot.StartsWith($Bundle + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'InstallRoot cannot be inside the bundle.' }
 if ($ConfigFile) {
     $ConfigFile = (Resolve-Path -LiteralPath $ConfigFile).Path
     if (-not (Test-Path -LiteralPath $ConfigFile -PathType Leaf) -or $ConfigFile.StartsWith($InstallRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'User configuration must remain outside the program installation.' }
 }
-if ((Test-Path -LiteralPath $InstallRoot) -and -not (Test-Path -LiteralPath (Join-Path $InstallRoot '.tangerine-install.json')) -and @(Get-ChildItem -LiteralPath $InstallRoot -Force).Count) { throw 'Directory contains unmanaged/legacy files. Choose a new empty program directory.' }
+if (Test-Path -LiteralPath (Join-Path $InstallRoot '.tangerine-install.json')) {
+    [void](Read-Installation $InstallRoot)
+} elseif ((Test-Path -LiteralPath $InstallRoot) -and @(Get-ChildItem -LiteralPath $InstallRoot -Force).Count) {
+    throw 'Directory contains unmanaged/legacy files. Choose a new empty program directory.'
+}
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
 Assert-NoProgramProcess $InstallRoot
 $UseLease = Lock-ProgramUse $InstallRoot
@@ -24,7 +28,7 @@ try {
         if ($ConfigFile -and $ConfigFile -ne $State.config) { throw 'Upgrade must preserve the configuration; edit directories in application settings.' }
         if ($Package.schema_version -lt $State.schema_floor) { throw 'Package is older than the schema floor; database downgrade is not supported.' }
     } else {
-        $State = [pscustomobject]@{app_id='tangerine-photo-assistant'; format=1; active=''; releases=@(); config=$ConfigFile; schema_floor=$Package.schema_version; shortcuts=(-not $NoShortcuts)}
+        $State = [pscustomobject]@{app_id='tangerine-photo-assistant'; format=1; active=''; releases=@(); config=$ConfigFile; schema_floor=$Package.schema_version; shortcuts=$false}
     }
     if ($NoShortcuts) { $State.shortcuts = $false }
     Save-Installation $InstallRoot $State

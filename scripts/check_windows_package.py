@@ -12,6 +12,7 @@ from contextlib import closing
 from pathlib import Path
 from urllib.request import ProxyHandler, Request, build_opener
 
+from check_windows_icons import verify_icons
 from compile_windows_setup import compile_setup
 from PIL import Image
 
@@ -60,6 +61,18 @@ def check_formal_conflict(setup, report):
 def run(command, **kwargs):
     return subprocess.run([str(x) for x in command], capture_output=True, timeout=300, check=False,
                           creationflags=subprocess.CREATE_NO_WINDOW, **kwargs)
+
+
+def inspect_shortcut(link, executable, working_directory=None, arguments=''):
+    command = ("[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TEST_LINK); "
+               "@($s.TargetPath,$s.WorkingDirectory,$s.IconLocation,$s.Arguments) | ConvertTo-Json -Compress")
+    result = run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
+                 env={**os.environ, 'TEST_LINK': str(link)})
+    assert result.returncode == 0
+    target, cwd, icon, args = json.loads(result.stdout)
+    image, index = icon.rsplit(',', 1)
+    assert Path(target).samefile(executable) and Path(cwd).samefile(working_directory or executable.parent)
+    assert Path(image).samefile(executable) and index.strip() == '0' and args == arguments
 
 
 class Backend:
@@ -148,6 +161,10 @@ def check(bundle, report, formal_setup=None):
             raise RuntimeError('Full formal-identity lifecycle is restricted to an ephemeral CI runner')
         if registration_exists(registry) or link.exists():
             raise RuntimeError('Formal identity already exists; no existing registration/shortcut is touched')
+        standard = Path(os.environ['LOCALAPPDATA']) / 'Programs'
+        expected_default = standard / 'Tangerine' / FORMAL_NAME
+        if expected_default.exists() or (standard / FORMAL_NAME).exists():
+            raise RuntimeError('CI program directory already exists; refusing formal default path test')
     with tempfile.TemporaryDirectory(prefix='tangerine-installer-') as temporary:
         root = Path(temporary)
         previous = os.environ.get('LOCALAPPDATA')
@@ -175,7 +192,7 @@ def check(bundle, report, formal_setup=None):
             finally:
                 backend.close()
             results.append('packaged import, JPG thumbnail, video/sidecar archive, JSON export/restore')
-            install = root / 'Program'
+            install = root / 'Programs' / name
             older, current = root / 'old.exe', root / 'current.exe'
             compile_setup(bundle, older, '0.0.9', name, key)
             if formal_setup:
@@ -187,9 +204,9 @@ def check(bundle, report, formal_setup=None):
                 state = json.loads((install / '.tangerine-install.json').read_text())
                 return install / state['active'] / 'TangerinePhotoAssistant.exe'
 
-            def setup(path, success=True):
+            def setup(path, success=True, *, default=False):
                 nonlocal owned_link
-                result = run([path, '/S', f'/D={install}'])
+                result = run([path, '/S'] if default else [path, '/S', f'/D={install}'])
                 assert (result.returncode == 0) == success, (result.returncode, result.stdout, result.stderr)
                 if success:
                     owned_link = link.read_bytes()
@@ -227,7 +244,17 @@ def check(bundle, report, formal_setup=None):
             finally:
                 backend.close()
             results.append('running backend blocks Setup and uninstall without termination')
-            setup(current)
+            prior = active()
+            launch_args = f'--config "{config}" --port 18765'
+            custom = run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+                          ('$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TEST_LINK); '
+                           '$s.Arguments=$env:TEST_ARGS; $s.WorkingDirectory=$env:TEST_CWD; $s.Save()')],
+                         env={**os.environ, 'TEST_LINK': str(link), 'TEST_ARGS': launch_args, 'TEST_CWD': str(root)})
+            assert custom.returncode == 0
+            owned_link = link.read_bytes()
+            setup(current, default=True)
+            assert active().is_file() and active() != prior, 'Legacy root was not upgraded in place'
+            inspect_shortcut(link, active(), root, launch_args)
             setup(older, False)
             backend = Backend(active(), config)
             try:
@@ -247,13 +274,23 @@ def check(bundle, report, formal_setup=None):
                 raise AssertionError('Uninstall registration was not removed')
             assert hashlib.sha256(data.read_bytes()).hexdigest() == digest
             assert sentinel.read_text() == 'preserve me'
-            setup(current)
+            install = expected_default if formal_setup else root / 'Programs/Tangerine' / name
+            sibling = install.parent / ('sibling-' + uuid.uuid4().hex)
+            sibling.mkdir(parents=True)
+            marker = sibling / 'keep.txt'
+            marker.write_bytes(b'other tool')
+            setup(current, default=bool(formal_setup))
+            inspect_shortcut(link, active())
+            verify_icons(bundle, current, active(), install / 'Uninstall.exe')
             backend = Backend(active(), config)
             try:
                 assert backend.get('/api/library/captures')['items'][0]['id'] == capture_id
             finally:
                 backend.close()
             uninstall(normal=True)
+            assert marker.read_bytes() == b'other tool'
+            marker.unlink()
+            sibling.rmdir()
             with closing(connect_readonly(data)) as connection:
                 assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
                 assert not connection.execute('PRAGMA foreign_key_check').fetchall()
@@ -267,7 +304,7 @@ def check(bundle, report, formal_setup=None):
                 programs.rmdir()
             try:
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as reg:
-                    owned = Path(winreg.QueryValueEx(reg, 'InstallLocation')[0]).resolve() == (root / 'Program').resolve()
+                    owned = Path(winreg.QueryValueEx(reg, 'InstallLocation')[0]).resolve() == install.resolve()
                 if owned:
                     winreg.DeleteKeyEx(winreg.HKEY_CURRENT_USER, registry, winreg.KEY_WOW64_64KEY)
             except FileNotFoundError:
