@@ -41,9 +41,9 @@ class AppPathsTests(unittest.TestCase):
         root = self.profile / 'Tangerine/Data/TangerinePhotoAssistant'
         self.assertEqual(config, root / 'Config/config.toml')
         settings = Settings.load(config)
-        self.assertEqual(settings.workspace, root / 'Storage/Workspace')
-        self.assertEqual(settings.originals, root / 'Storage/PhotoInbox')
-        self.assertEqual(settings.cache_root, root / 'Cache')
+        self.assertEqual(settings.workspace, (root / 'Storage/Workspace').resolve())
+        self.assertEqual(settings.originals, (root / 'Storage/PhotoInbox').resolve())
+        self.assertEqual(settings.cache_root, (root / 'Cache').resolve())
         before = config.read_bytes()
         self.assertEqual(prepare_default_config(), config)
         self.assertEqual(config.read_bytes(), before)
