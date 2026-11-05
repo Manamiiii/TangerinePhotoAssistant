@@ -84,5 +84,5 @@ jobs:
       - name: Packaged backend and isolated installer lifecycle
         run: .venv/Scripts/python.exe scripts/check_windows_package.py --bundle runtime/packages/ci/dist/TangerinePhotoAssistant --report runtime/packages/ci/verification.json
       - name: Shipped formal identity silent lifecycle on disposable runner
-        run: .venv/Scripts/python.exe scripts/check_windows_package.py --bundle runtime/packages/ci/dist/TangerinePhotoAssistant --formal-setup runtime/packages/ci/TangerinePhotoAssistant-0.1.0-Windows-x64-Setup.exe --report runtime/packages/ci/formal-verification.json
+        run: .venv/Scripts/python.exe scripts/check_windows_package.py --bundle runtime/packages/ci/dist/TangerinePhotoAssistant --formal-setup runtime/packages/ci/TangerinePhotoAssistant-0.1.1-Windows-x64-Setup.exe --report runtime/packages/ci/formal-verification.json
       # No Release creation or binary upload. Native UI and clean-machine acceptance remain manual.

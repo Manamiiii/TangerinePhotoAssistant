@@ -44,7 +44,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_ap
 ## 安装与配置
 
 解压后直接运行 `TangerinePhotoAssistant.exe` 可使用便携程序；双击 `Install.cmd` 会复制程序到
-当前用户 `%LOCALAPPDATA%/Programs/Tangerine/TangerinePhotoAssistant/release-时间戳`。
+当前用户 `%LOCALAPPDATA%/Tangerine/Apps/TangerinePhotoAssistant/release-时间戳`。
 使用 Setup 安装后可从开始菜单启动，也可在 Windows 设置中卸载。无需管理员权限，不注册开机启动。维护前须安全停止空闲后台并关闭窗口；运行中的程序会阻止维护。升级创建新版本目录；旧程序目录保留供人工回退，暂不自动清理。
 
 新包携带版本号、Git 提交、构建时间、未提交修改标记和逐文件 SHA-256 清单；安装前及复制后
@@ -60,8 +60,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_ap
 目录，使用应用设置。已有的源码快捷方式或其他安装目录的同名快捷方式不会被覆盖；冲突时用
 `-NoShortcuts` 安装，并从明确的程序目录打开。无清单的早期内测目录不自动接管，选新空目录安装。
 
-新用户默认配置位于 `%LOCALAPPDATA%/TangerinePhotoAssistant/config.toml`。首次启动只创建空的
-PhotoInbox、默认工作区与缓存；随后通过首页向导或设置选择真实目录，绝不自动扫描或导入。
+新用户默认配置位于 `%LOCALAPPDATA%/Tangerine/Data/TangerinePhotoAssistant/Config/config.toml`。首次启动只创建配置和空的
+Storage/PhotoInbox；工作区与缓存在使用时创建；随后通过首页向导或设置选择真实目录，绝不自动扫描或导入。
 程序目录、配置和工作区分开，升级程序不意味着升级或移动用户数据；数据库迁移仍先备份。
 
 已有资料库应显式复用原配置，不复制照片或数据库：
@@ -72,8 +72,7 @@ PhotoInbox、默认工作区与缓存；随后通过首页向导或设置选择�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File install_windows_app.ps1 -ConfigFile "D:\YourProject\config.toml"
 ```
 
-启动日志、服务凭据和窗口浏览缓存按配置身份存放在当前用户的 `TangerinePhotoAssistant/Runtime`
-目录。不要分享其中的 `service.json`；使用应用内脱敏诊断包。浏览器与独立窗口的主题/常用视图
+新的启动日志、服务凭据和窗口 profile 分别按配置身份与端口存于应用数据根的 `Logs/`、`Runtime/`、`Storage/WebView2/`；已有旧 Runtime 原位兼容。不要分享其中的 `service.json`；使用应用内脱敏诊断包。浏览器与独立窗口的主题/常用视图
 等浏览器本地偏好暂不迁移；数据库中的评分、分组、标签等仍是同一份数据。
 
 新版服务日志固定为 `service.log` 与最多 4 个轮转文件，每份约 2 MiB，总量约 10 MiB/配置端口。
@@ -181,4 +180,4 @@ CI 在一次性 runner 上、确认正式 GUID 和快捷方式均不存在后，
 运行中保护、卸载和重装检查。该项与独立 fixture 分开报告，也不等于干净普通账号或原生交互向导验收。
 CI 中的 0.0.9 包仍是同业务代码的低版本 fixture，不代表真实旧库迁移。
 
-新装默认位于当前用户的 `Programs/Tangerine/TangerinePhotoAssistant`。升级使用原登记目录，传统 `Programs/TangerinePhotoAssistant` 中经核验的安装凭据可原位继续使用。共享的 `Programs/Tangerine` 只用于容纳各自的程序目录。卸载按本项目清单逐文件校验，保留共享目录、其他工具、用户资料和既有安装凭据。
+0.1.1 新装默认位于 `%LOCALAPPDATA%/Tangerine/Apps/TangerinePhotoAssistant`。升级沿用原登记目录；无登记时核对 `Programs/TangerinePhotoAssistant`、`Programs/Tangerine/TangerinePhotoAssistant` 和新目录中的安装凭据，多份或不明目录拒绝自动选择。卸载逐文件校验，保留共享父目录、兄弟应用和全部用户数据。[完整目录与旧版兼容](WINDOWS_DATA_LAYOUT.md)。

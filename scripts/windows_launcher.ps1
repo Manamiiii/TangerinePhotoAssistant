@@ -19,6 +19,22 @@ $SilentEntry = Join-Path $ProjectRoot "TangerinePhotoAssistant.vbs"
 $IconFile = Join-Path $ProjectRoot "assets\tangerine-photo-assistant.ico"
 $RuntimeRoot = Join-Path $ProjectRoot "runtime\launcher"
 $PidFile = Join-Path $RuntimeRoot "server.pid"
+$LogRoot = $RuntimeRoot
+
+function Resolve-LauncherPaths {
+    $python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { return }
+    $paths = & $python -I -c "import json,sys; from pathlib import Path; from tangerine_photo_assistant.app_paths import default_config_path,service_runtime_directory,service_logs_directory; from tangerine_photo_assistant.desktop import prepare_default_config; p=Path(sys.argv[1]); p=p if p.exists() else (prepare_default_config() if sys.argv[3]=='Start' else default_config_path()); print(json.dumps([str(p),str(service_runtime_directory(p,int(sys.argv[2]))/'Launcher'),str(service_logs_directory(p,int(sys.argv[2]))/'Launcher')]))" $ConfigFile $Port $Mode
+    if ($LASTEXITCODE -ne 0) { throw 'Data location could not be resolved. Check existing configuration and runtime directories; no service started.' }
+    $resolved = $paths | ConvertFrom-Json
+    $script:ConfigFile = $resolved[0]
+    # Existing tracked source launches keep their PID/log namespace. No movement.
+    if (-not (Test-Path -LiteralPath $RuntimeRoot)) {
+        $script:RuntimeRoot = $resolved[1]
+        $script:PidFile = Join-Path $script:RuntimeRoot 'server.pid'
+        $script:LogRoot = $resolved[2]
+    }
+}
 
 function Show-LauncherMessage([string]$Message, [bool]$IsError = $false) {
     if ($Console) {
@@ -128,6 +144,7 @@ function Remove-TangerineShortcuts {
 }
 
 try {
+    Resolve-LauncherPaths
     switch ($Mode) {
         "Validate" {
             Assert-LauncherFiles
@@ -171,6 +188,7 @@ try {
         exit 0
     }
     New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
     $mutexSuffix = ($ProjectRoot -replace '[^A-Za-z0-9]', '_')
     $launchMutex = New-Object System.Threading.Mutex(
         $false, "Local\TangerinePhotoAssistant_$mutexSuffix"
@@ -193,8 +211,8 @@ try {
                     throw "Port $Port is used by another local application. No process was stopped."
                 }
                 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-                $stdoutLog = Join-Path $RuntimeRoot "server-$timestamp.log"
-                $stderrLog = Join-Path $RuntimeRoot "server-$timestamp-error.log"
+                $stdoutLog = Join-Path $LogRoot "server-$timestamp.log"
+                $stderrLog = Join-Path $LogRoot "server-$timestamp-error.log"
                 # Start-Process joins ArgumentList values with spaces. Keep the config
                 # path quoted so installations under a directory with spaces work.
                 $arguments = "serve --config `"$ConfigFile`" --host 127.0.0.1 --port $Port --no-open"
@@ -218,7 +236,7 @@ try {
         $process.Refresh()
         if ($process.HasExited) {
             Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
-            throw "The local service stopped during startup. See runtime\launcher for its log."
+            throw "The local service stopped during startup. See $LogRoot for its log."
         }
         $health = Get-TangerineHealth
         if ($null -ne $health) {
@@ -226,7 +244,7 @@ try {
             exit 0
         }
     }
-    throw "The local service did not become ready within 15 minutes. See runtime\launcher for its log."
+    throw "The local service did not become ready within 15 minutes. See $LogRoot for its log."
 } catch {
     Show-LauncherMessage $_.Exception.Message $true
     exit 1

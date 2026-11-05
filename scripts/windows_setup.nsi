@@ -13,7 +13,7 @@ SetCompressor /SOLID lzma
 !endif
 Name "${PRODUCT_NAME}"
 OutFile "${SETUP_OUTPUT}"
-InstallDir "$LOCALAPPDATA\Programs\Tangerine\${PRODUCT_NAME}"
+InstallDir "$LOCALAPPDATA\Tangerine\Apps\${PRODUCT_NAME}"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_KEY}" "InstallLocation"
 VIProductVersion "${SETUP_VERSION}.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
@@ -33,22 +33,38 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 Manamiiii; GPL-3.0-only"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
 
+!macro CheckLegacyRoot ROOT
+  ${If} ${FileExists} "${ROOT}\.tangerine-install.json"
+    ${If} $3 != ""
+      MessageBox MB_OK|MB_ICONSTOP "Multiple installation receipts exist. Select the intended installation explicitly." /SD IDOK
+      SetErrorLevel 20
+      Quit
+    ${EndIf}
+    StrCpy $3 "${ROOT}"
+  ${ElseIf} ${FileExists} "${ROOT}\*.*"
+    MessageBox MB_OK|MB_ICONSTOP "An unrecognized installation directory exists. Check it before selecting an explicit destination." /SD IDOK
+    SetErrorLevel 20
+    Quit
+  ${EndIf}
+!macroend
+
 Function .onInit
   SetShellVarContext current
   SetRegView 64
   ; Resolve the registered 64-bit identity after selecting its registry view.
   ; Only choose a legacy directory when the caller used the default.
-  ${If} $INSTDIR == "$LOCALAPPDATA\Programs\Tangerine\${PRODUCT_NAME}"
+  ${If} $INSTDIR == "$LOCALAPPDATA\Tangerine\Apps\${PRODUCT_NAME}"
     ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_KEY}" "InstallLocation"
     ${If} $2 != ""
       StrCpy $INSTDIR $2
-    ${ElseIf} ${FileExists} "$LOCALAPPDATA\Programs\${PRODUCT_NAME}\.tangerine-install.json"
-      ${If} ${FileExists} "$INSTDIR\.tangerine-install.json"
-        MessageBox MB_OK|MB_ICONSTOP "Two installation receipts exist. Select the intended installation explicitly." /SD IDOK
-        SetErrorLevel 20
-        Quit
+    ${Else}
+      StrCpy $3 ""
+      !insertmacro CheckLegacyRoot "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
+      !insertmacro CheckLegacyRoot "$LOCALAPPDATA\Programs\Tangerine\${PRODUCT_NAME}"
+      !insertmacro CheckLegacyRoot "$LOCALAPPDATA\Tangerine\Apps\${PRODUCT_NAME}"
+      ${If} $3 != ""
+        StrCpy $INSTDIR $3
       ${EndIf}
-      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
     ${EndIf}
   ${EndIf}
   System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\${PRODUCT_KEY}-maintenance") p .r1 ?e'

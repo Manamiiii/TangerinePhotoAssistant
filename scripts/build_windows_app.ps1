@@ -27,6 +27,7 @@ $Bundle = Join-Path $OutputDirectory "dist\TangerinePhotoAssistant"
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install_windows_app.ps1") -Destination $Bundle
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install_windows_app.cmd") -Destination (Join-Path $Bundle "Install.cmd")
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "docs\WINDOWS_APP.md") -Destination (Join-Path $Bundle "WINDOWS_APP.md")
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "docs\WINDOWS_DATA_LAYOUT.md") -Destination (Join-Path $Bundle "WINDOWS_DATA_LAYOUT.md")
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "manage_windows_app.ps1") -Destination $Bundle
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "windows_package_common.ps1") -Destination $Bundle
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "manage_windows_app.cmd") -Destination (Join-Path $Bundle "Manage.cmd")
@@ -35,7 +36,7 @@ Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination $Bundle
 & $Python (Join-Path $PSScriptRoot "package_manifest.py") manifest $Bundle
 if ($LASTEXITCODE -ne 0) { throw "Package manifest failed." }
 $Version = (Get-Content $env:TANGERINE_BUILD_INFO -Raw | ConvertFrom-Json).version
-if (-not $Version) { $Version = '0.1.0' }
+if (-not $Version) { $Version = '0.1.1' }
 $Archive = Join-Path $OutputDirectory "TangerinePhotoAssistant-$Version-Windows-x64-Portable.zip"
 & $Python (Join-Path $PSScriptRoot 'package_zip.py') $Bundle $Archive
 if ($LASTEXITCODE -ne 0) { throw 'Portable archive failed.' }

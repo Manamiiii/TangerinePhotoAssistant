@@ -16,7 +16,16 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from .app_paths import config_identity, resource_root, service_runtime_directory, user_app_directory
+from .app_paths import (
+    DataLocationError,
+    config_identity,
+    default_config_path,
+    resource_root,
+    service_logs_directory,
+    service_runtime_directory,
+    user_app_directory,
+    webview_directory,
+)
 from .build_info import build_info
 from .desktop_lock import FileLease, LeaseBusy
 from .service_runtime import APP_ID, CONTROL_HEADER, TERMINAL_TASK_STATES
@@ -35,6 +44,7 @@ class ServiceClient:
         self.port = port
         self.url = f"http://127.0.0.1:{port}"
         self.runtime = service_runtime_directory(config_path, port)
+        self.logs = service_logs_directory(config_path, port)
         self.opener = build_opener(ProxyHandler({}))
 
     def request(self, path: str, *, headers=None, post: bool = False) -> dict[str, Any]:
@@ -188,13 +198,25 @@ class ServiceClient:
 
 def prepare_default_config() -> Path:
     directory = user_app_directory()
-    config = directory / "config.toml"
-    if not config.exists():
-        directory.mkdir(parents=True, exist_ok=True)
-        inbox = directory / "PhotoInbox"
-        inbox.mkdir(exist_ok=True)
-        write_safe_config(config, inbox, directory / "Workspace", directory / "Cache")
-    return config
+    config = default_config_path()
+    if config.exists():
+        Settings.load(config)  # Invalid existing config is never replaced.
+        return config
+    with FileLease(directory / "Runtime" / "default-config.lock"):
+        config = default_config_path()
+        if config.exists():
+            Settings.load(config)
+            return config
+        storage = directory / "Storage"
+        for name in ("Workspace", "PhotoInbox"):
+            target = storage / name
+            if target.exists() and (not target.is_dir() or any(target.iterdir())):
+                raise DataLocationError("工作区或待整理目录已有资料但配置缺失；请恢复配置，未创建替代库。")
+        config.parent.mkdir(parents=True, exist_ok=True)
+        inbox = storage / "PhotoInbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        write_safe_config(config, inbox, storage / "Workspace", directory / "Cache")
+        return config
 
 
 def validate_desktop(config: Path) -> dict[str, object]:
@@ -268,7 +290,7 @@ def run_window(config: Path, port: int) -> int:
     try:
         Thread(target=controller.watch_focus, daemon=True).start()
         webview.start(controller.connect, gui="edgechromium", private_mode=False,
-                      storage_path=str(client.runtime / "WebView2"),
+                      storage_path=str(webview_directory(config, port)),
                       icon=str(resource_root() / "assets/tangerine-photo-assistant.ico"))
     finally:
         controller.cancelled.set()
@@ -315,7 +337,7 @@ def _main() -> int:
         return run_window(config, args.port)
     except Exception as exc:
         # Never dump arbitrary exception text, tokens or local paths into logs.
-        message = str(exc) if isinstance(exc, DesktopError) else f"启动未完成（{type(exc).__name__}）"
+        message = str(exc) if isinstance(exc, (DesktopError, DataLocationError)) else f"启动未完成（{type(exc).__name__}）"
         if args.backend or args.check:
             if sys.stderr is not None:
                 print(message, file=sys.stderr)

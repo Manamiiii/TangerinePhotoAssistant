@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$InstallRoot,
     [string]$ProductName = 'TangerinePhotoAssistant',
     [string]$ProductKey = '{551A03F7-2773-4A5E-962C-6BBDB8B28E08}',
-    [string]$DisplayVersion = '0.1.0'
+    [string]$DisplayVersion = '0.1.1'
 )
 . (Join-Path $PSScriptRoot 'windows_package_common.ps1')
 if ($ProductName -notmatch '^TangerinePhotoAssistant(?:Fixture-[a-zA-Z0-9-]+)?$' -or $ProductKey -notmatch '^\{[A-Fa-f0-9-]{36}\}$') { throw 'Invalid product identity.' }

@@ -16,7 +16,7 @@ from check_windows_icons import verify_icons
 from compile_windows_setup import compile_setup
 from PIL import Image
 
-from tangerine_photo_assistant.desktop import ServiceClient
+from tangerine_photo_assistant.desktop import ServiceClient, prepare_default_config
 from tangerine_photo_assistant.settings import write_safe_config
 
 OPENER = build_opener(ProxyHandler({}))
@@ -162,8 +162,8 @@ def check(bundle, report, formal_setup=None):
         if registration_exists(registry) or link.exists():
             raise RuntimeError('Formal identity already exists; no existing registration/shortcut is touched')
         standard = Path(os.environ['LOCALAPPDATA']) / 'Programs'
-        expected_default = standard / 'Tangerine' / FORMAL_NAME
-        if expected_default.exists() or (standard / FORMAL_NAME).exists():
+        expected_default = Path(os.environ['LOCALAPPDATA']) / 'Tangerine/Apps' / FORMAL_NAME
+        if any(p.exists() for p in (expected_default, standard / FORMAL_NAME, standard / 'Tangerine' / FORMAL_NAME)):
             raise RuntimeError('CI program directory already exists; refusing formal default path test')
     with tempfile.TemporaryDirectory(prefix='tangerine-installer-') as temporary:
         root = Path(temporary)
@@ -183,6 +183,18 @@ def check(bundle, report, formal_setup=None):
         owned_link = None
         try:
             executable = bundle / 'TangerinePhotoAssistant.exe'
+            default_config = prepare_default_config()
+            assert default_config == root / 'Profile/Tangerine/Data/TangerinePhotoAssistant/Config/config.toml'
+            default_backend = Backend(executable, default_config)
+            try:
+                assert default_backend.get('/api/health')['status'] == 'ok'
+                assert Settings.load(default_config).database_path.is_file()
+            finally:
+                default_backend.close()
+            data_root = default_config.parent.parent
+            assert list((data_root / 'Logs').glob('*/service.log'))
+            assert list((data_root / 'Runtime').glob('*/backend.lock'))
+            results.append('packaged centralized default workspace, runtime and logs')
             checked = run([executable, '--check', '--config', config, '--report', root / 'check.json'])
             assert checked.returncode == 0, checked.stderr
             results.append('packaged resources/config check')
@@ -198,7 +210,7 @@ def check(bundle, report, formal_setup=None):
             if formal_setup:
                 current = formal_setup
             else:
-                compile_setup(bundle, current, '0.1.0', name, key)
+                compile_setup(bundle, current, '0.1.1', name, key)
 
             def active():
                 state = json.loads((install / '.tangerine-install.json').read_text())
@@ -274,7 +286,7 @@ def check(bundle, report, formal_setup=None):
                 raise AssertionError('Uninstall registration was not removed')
             assert hashlib.sha256(data.read_bytes()).hexdigest() == digest
             assert sentinel.read_text() == 'preserve me'
-            install = expected_default if formal_setup else root / 'Programs/Tangerine' / name
+            install = expected_default if formal_setup else root / 'Tangerine/Apps' / name
             sibling = install.parent / ('sibling-' + uuid.uuid4().hex)
             sibling.mkdir(parents=True)
             marker = sibling / 'keep.txt'

@@ -25,3 +25,9 @@
 - 清理只处理已核实的测试产物，保留正式归档凭据、升级备份、安装包及正式验收记录。自动审批拒绝的永久删除不得绕过，也不得把“移出工程”报告成“已永久删除”。
 - 修改后执行 Python 测试、Ruff（src/tests/scripts）、前端测试和生产构建，检查 diff 与暂存内容后提交并推送 main；禁止 force push。
 - 完成交接包含结果、验证、未完成事项和下一步；不在普通实施步骤间等待用户重复说“继续”。
+
+## Windows 默认目录与兼容
+
+- 新装程序默认 `%LOCALAPPDATA%/Tangerine/Apps/TangerinePhotoAssistant`，新用户数据默认同一 Tangerine 根下 `Data/TangerinePhotoAssistant`；各仓库独立实现，不依赖父目录或其他工程。
+- 显式配置、已有工作区和外部图库优先；旧默认配置和 Runtime 原位兼容，不自动搬动照片、数据库或 profile。新旧冲突必须停止，不能静默择一、覆盖或创建替代库。
+- 新数据按 Config、Storage、Cache、Logs、Runtime 分类；工作区内部备份/报告等相对布局保持兼容。旧版锁目录、系统临时和用户主动选定位置等例外见 docs/WINDOWS_DATA_LAYOUT.md。卸载不清理数据或共享父目录。

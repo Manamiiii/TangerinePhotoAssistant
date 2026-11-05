@@ -67,8 +67,8 @@ class DesktopWindow:
             self.operation.release()
 
     def open_logs(self) -> None:
-        self.client.runtime.mkdir(parents=True, exist_ok=True)
-        os.startfile(self.client.runtime)
+        self.client.logs.mkdir(parents=True, exist_ok=True)
+        os.startfile(self.client.logs)
 
     def open_program(self) -> None:
         os.startfile(Path(sys.executable).parent if getattr(sys, "frozen", False) else resource_root())

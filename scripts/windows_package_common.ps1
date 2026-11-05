@@ -2,14 +2,15 @@ $ErrorActionPreference = 'Stop'
 function Assert-ProductDirectory([string]$Root) {
     Assert-PlainPath $Root
     $Programs = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs'))
-    if ($Root -in @($Programs, (Join-Path $Programs 'Tangerine'), [IO.Path]::GetPathRoot($Root).TrimEnd('\'))) {
-        throw 'Choose an application directory inside Programs, not a shared directory or drive root.'
+    $Suite = Join-Path $env:LOCALAPPDATA 'Tangerine'
+    if ($Root -in @($Programs, (Join-Path $Programs 'Tangerine'), $Suite, (Join-Path $Suite 'Apps'), (Join-Path $Suite 'Data'), [IO.Path]::GetPathRoot($Root).TrimEnd('\'))) {
+        throw 'Choose an application directory, not a shared directory or drive root.'
     }
 }
 function Get-DefaultProgramRoot {
     $Programs = Join-Path $env:LOCALAPPDATA 'Programs'
-    $Legacy = Join-Path $Programs 'TangerinePhotoAssistant'
-    $Default = Join-Path $Programs 'Tangerine\TangerinePhotoAssistant'
+    $Legacy = @((Join-Path $Programs 'TangerinePhotoAssistant'), (Join-Path $Programs 'Tangerine\TangerinePhotoAssistant'))
+    $Default = Join-Path $env:LOCALAPPDATA 'Tangerine\Apps\TangerinePhotoAssistant'
     $Key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{551A03F7-2773-4A5E-962C-6BBDB8B28E08}'
     if (Test-Path -LiteralPath $Key) {
         $Entry = Get-ItemProperty -LiteralPath $Key
@@ -19,10 +20,16 @@ function Get-DefaultProgramRoot {
         [void](Read-Installation $Root)
         return $Root
     }
-    if (Test-Path -LiteralPath (Join-Path $Legacy '.tangerine-install.json')) {
-        if (Test-Path -LiteralPath (Join-Path $Default '.tangerine-install.json')) { throw 'Two installation receipts exist. Specify -InstallRoot.' }
-        [void](Read-Installation $Legacy)
-        return $Legacy
+    $Found = @(@($Legacy) + @($Default) | Where-Object { Test-Path -LiteralPath (Join-Path $_ '.tangerine-install.json') })
+    if ($Found.Count -gt 1) { throw 'Two installation receipts exist. Specify -InstallRoot.' }
+    foreach ($Path in $Legacy) {
+        if ((Test-Path -LiteralPath $Path) -and -not (Test-Path -LiteralPath (Join-Path $Path '.tangerine-install.json'))) {
+            throw 'Unrecognized legacy directory. Specify -InstallRoot after checking its contents.'
+        }
+    }
+    if ($Found.Count -eq 1) {
+        [void](Read-Installation $Found[0])
+        return $Found[0]
     }
     return $Default
 }

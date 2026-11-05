@@ -239,7 +239,8 @@ allow_delete = false
 allow_original_metadata_write = false
 require_reviewed_manifest = true
 """
-    path.write_text(content, encoding="utf-8", newline="\n")
+    with path.open("x", encoding="utf-8", newline="\n") as output:
+        output.write(content)
     return path
 
 

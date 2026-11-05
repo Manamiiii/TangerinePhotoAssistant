@@ -1,6 +1,6 @@
 # 当前工程状态
 
-更新：2026-11-03。本文件记录可共享的实现与验证结论；个人路径、图库规模、活动和维护原文仅保存在本机。
+更新：2026-11-05。本文件记录可共享的实现与验证结论；个人路径、图库规模、活动和维护原文仅保存在本机。
 现场以代码、Git、数据库 `library_state` 和服务接口为准，不将历史验收当作当前运行状态。
 
 ## 定位与上手
@@ -84,3 +84,7 @@ try { Invoke-RestMethod http://127.0.0.1:8765/api/tasks/current } catch { "task 
 ```
 
 修改后执行 Python 测试、Ruff（src/tests/scripts）、前端测试和生产构建；核对 diff、暂存内容后按授权提交推送，禁止 force push。
+
+## 0.1.1 默认目录收纳
+
+新安装目标为 `%LOCALAPPDATA%/Tangerine/Apps/TangerinePhotoAssistant`，新数据位于对应 `Data/TangerinePhotoAssistant`。保留既有程序登记、显式配置、旧默认资料和 Runtime 原位兼容；不执行真实图库迁移。新旧冲突拒绝自动选择。具体地图和例外见 [Windows 数据目录](WINDOWS_DATA_LAYOUT.md)。此说明不代表原生向导、干净普通账号或真实数据迁移已验收。

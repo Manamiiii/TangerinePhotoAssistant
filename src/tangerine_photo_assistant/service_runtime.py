@@ -7,12 +7,19 @@ import os
 import secrets
 import sys
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
 from . import __version__
-from .app_paths import config_identity, resource_root, service_runtime_directory
+from .app_paths import (
+    config_identity,
+    legacy_app_directory,
+    resource_root,
+    service_logs_directory,
+    service_runtime_directory,
+)
 from .build_info import build_info
 from .desktop_lock import FileLease
 from .desktop_logs import LogStream, bounded_handler
@@ -43,8 +50,14 @@ class ServiceControl:
 
 def run_service(config_path: Path, host: str, port: int, open_browser: bool = False) -> int:
     directory = service_runtime_directory(config_path, port)
-    with FileLease(directory / "backend.lock"):
-        handler = bounded_handler(directory)
+    with ExitStack() as leases:
+        # Older binaries know only this lock. Retain a lock-only compatibility
+        # directory even for new defaults, so changing paths cannot bypass it.
+        legacy = legacy_app_directory() / "Runtime" / directory.name / "backend.lock"
+        leases.enter_context(FileLease(legacy))
+        if legacy != directory / "backend.lock":
+            leases.enter_context(FileLease(directory / "backend.lock"))
+        handler = bounded_handler(service_logs_directory(config_path, port))
         loggers = [logging.getLogger(name) for name in ("uvicorn", "uvicorn.error", "uvicorn.access")]
         previous = [(logger.handlers[:], logger.level, logger.propagate) for logger in loggers]
         streams = (sys.stdout, sys.stderr)

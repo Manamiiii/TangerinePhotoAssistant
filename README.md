@@ -123,6 +123,8 @@ Copyright © 2026 Manamiiii.
 | `scripts/` | `build_windows_app.ps1` 构建，`windows_app.spec` 冻结程序，`windows_setup.nsi` 配置 Setup，`setup_windows_app.ps1`、`install_windows_app.ps1`、`manage_windows_app.ps1` 维护程序 |
 | 仓库根目录 | 兼容已有入口的 VBS 与 CMD 位于原路径，由 `scripts/windows_launcher.ps1` 统一处理配置、端口与工作目录 |
 | `runtime/packages/<构建目录>/`（Git 忽略） | 正式身份候选 Setup、Portable、对应源码、散列和本机验收结果。以具体构建提交和 SHA-256 选择候选 |
-| 临时目录与日志 | 安装测试 fixture 在系统临时目录生成并按测试身份清理。源码浏览器启动日志位于忽略的 `runtime/launcher/`，构建工具缓存位于 `runtime/build-tools/`，独立窗口服务日志位于当前用户应用数据目录的 `Runtime/` |
+| 临时目录与日志 | 安装测试 fixture 在系统临时目录生成并按测试身份清理。构建工具缓存位于 `runtime/build-tools/`；新运行日志归入用户应用数据目录 `Logs/`，既有源码 `runtime/launcher/` 保留兼容 |
 
-新装默认程序目录为 `%LOCALAPPDATA%\Programs\Tangerine\TangerinePhotoAssistant`。已有安装优先沿用登记位置；传统目录有有效安装凭据时原位维护。开始菜单、配置和图库身份见 [Windows 安装说明](docs/INSTALL_WINDOWS.md)。
+新装默认程序目录为 `%LOCALAPPDATA%\Tangerine\Apps\TangerinePhotoAssistant`。已有安装优先沿用登记位置；传统目录有有效安装凭据时原位维护。开始菜单、配置和图库身份见 [Windows 安装说明](docs/INSTALL_WINDOWS.md)。
+
+0.1.1 新用户数据集中到 `%LOCALAPPDATA%\Tangerine\Data\TangerinePhotoAssistant`，配置、工作区、缓存、日志与窗口 profile 分开放置。已有配置和图库原位保留，不自动搬迁；冲突停止并提示。[数据目录、兼容例外与回退](docs/WINDOWS_DATA_LAYOUT.md)。

@@ -183,9 +183,9 @@ $env:LOCALAPPDATA = $PSScriptRoot
 Remove-PSDrive HKCU
 New-PSDrive -Name HKCU -PSProvider FileSystem -Root (Join-Path $PSScriptRoot 'registry') | Out-Null
 . (Join-Path $PSScriptRoot 'bundle/windows_package_common.ps1')
-$shared = Join-Path $PSScriptRoot 'Programs/Tangerine'
+$shared = Join-Path $PSScriptRoot 'Tangerine/Apps'
 $new = Join-Path $shared 'TangerinePhotoAssistant'
-$old = Join-Path $PSScriptRoot 'Programs/TangerinePhotoAssistant'
+$old = Join-Path $PSScriptRoot 'Programs/Tangerine/TangerinePhotoAssistant'
 if ((Get-DefaultProgramRoot) -ne $new) { throw 'Wrong default' }
 try { Assert-ProductDirectory $shared; throw 'Unexpected acceptance' }
 catch { if ($_.Exception.Message -notlike 'Choose an application directory*') { throw } }

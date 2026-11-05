@@ -12,8 +12,8 @@ WebView2 Runtime 不等同于 Edge 浏览器；.NET Framework 不等同于现代
 缺失时窗口启动会点名提示所缺组件，官方获取方式见 [运行环境说明](WINDOWS_APP.md#安装版运行环境与缺失提示)。
 
 首次启动只建立空配置，在“导入新照片”检查来源并确认复制，不会自动扫描硬盘。
-程序位于当前用户 `LocalAppData/Programs/Tangerine/TangerinePhotoAssistant`，默认数据位于独立的
-`LocalAppData/TangerinePhotoAssistant`。Windows“已安装的应用”可卸载；卸载保留配置、数据库、照片、缓存与备份。
+程序位于当前用户 `LocalAppData/Tangerine/Apps/TangerinePhotoAssistant`，默认数据位于独立的
+`LocalAppData/Tangerine/Data/TangerinePhotoAssistant`。Windows“已安装的应用”可卸载；卸载保留配置、数据库、照片、缓存与备份。
 更新采用手动下载新 Setup 并确认安装，没有自动更新后台服务。维护前在应用菜单安全停止空闲后台并关闭窗口；
 运行中的窗口或后台会阻止安装、升级和卸载，不会被强制终止。
 
@@ -40,9 +40,9 @@ npm.cmd run build --prefix web
 为应用创建自己的照片目录，避免直接把整个硬盘或唯一一份照片存储卡作为活动图库。下面的路径位于当前用户目录；可改到有足够空间的其他磁盘。
 
 ```powershell
-$libraryBase = Join-Path $env:LOCALAPPDATA "TangerinePhotoAssistant"
-$photoRoot = Join-Path $libraryBase "Photos"
-$workRoot = Join-Path $libraryBase "Workspace"
+$libraryBase = Join-Path $env:LOCALAPPDATA "Tangerine\Data\TangerinePhotoAssistant"
+$photoRoot = Join-Path $libraryBase "Storage\Photos"
+$workRoot = Join-Path $libraryBase "Storage\Workspace"
 $cacheRoot = Join-Path $libraryBase "Cache"
 New-Item -ItemType Directory -Force -Path $photoRoot | Out-Null
 
@@ -95,4 +95,4 @@ npm.cmd run build --prefix web
 
 遇到命令不存在、端口占用、目录选择或导入失败，见 [常见问题与恢复](GETTING_STARTED.md#失败时怎么做)。
 
-新装默认位于当前用户的 `Programs/Tangerine/TangerinePhotoAssistant`。升级使用原登记目录，传统 `Programs/TangerinePhotoAssistant` 中经核验的安装凭据可原位继续使用。共享的 `Programs/Tangerine` 只用于容纳各自的程序目录。卸载按本项目清单逐文件校验，保留共享目录、其他工具、用户资料和既有安装凭据。
+0.1.1 新装默认位于 `%LOCALAPPDATA%/Tangerine/Apps/TangerinePhotoAssistant`。升级沿用原登记目录；无登记时核对 `Programs/TangerinePhotoAssistant`、`Programs/Tangerine/TangerinePhotoAssistant` 和新目录中的安装凭据，多份或不明目录拒绝自动选择。卸载逐文件校验，保留共享父目录、兄弟应用和全部用户数据。[完整目录与旧版兼容](WINDOWS_DATA_LAYOUT.md)。
