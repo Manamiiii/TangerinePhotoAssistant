@@ -127,4 +127,6 @@ Copyright © 2026 Manamiiii.
 
 新装默认程序目录为 `%LOCALAPPDATA%\Tangerine\Apps\TangerinePhotoAssistant`。已有安装优先沿用登记位置；传统目录有有效安装凭据时原位维护。开始菜单、配置和图库身份见 [Windows 安装说明](docs/INSTALL_WINDOWS.md)。
 
+源码桌面入口使用本仓库的 Python 和 `web/dist`，可能复用旧后台。开发交付须独立构建、核对源码/页面/服务身份后安全切换；使用 `scripts/desktop_delivery.py` 记录和只读核对，操作步骤见 [桌面交付流程](docs/WINDOWS_LAUNCHER.md#开发完成后的桌面交付)。脚本不会启动或重启服务，也不会修改照片。
+
 0.1.1 新用户数据集中到 `%LOCALAPPDATA%\Tangerine\Data\TangerinePhotoAssistant`，配置、工作区、缓存、日志与窗口 profile 分开放置。已有配置和图库原位保留，不自动搬迁；冲突停止并提示。[数据目录、兼容例外与回退](docs/WINDOWS_DATA_LAYOUT.md)。
