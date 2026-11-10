@@ -1,9 +1,10 @@
 import json
 import os
-import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Thread
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
@@ -119,18 +120,30 @@ class QualityAndAiTests(unittest.TestCase):
             run_id = int(cursor.lastrowid)
             connection.commit()
             manager = ScanTaskManager(settings)
-            manager.attach_ai_run(run_id)
-            self.assertEqual(manager.snapshot()["status"], "running")
-            connection.execute(
-                "UPDATE ai_runs SET status='complete', completed_count=3, "
-                "finished_at=?, worker_pid=NULL WHERE id=?",
-                ("2026-08-10T00:01:00+00:00", run_id),
-            )
-            connection.commit()
-            connection.close()
-            deadline = time.monotonic() + 3
-            while manager.snapshot()["status"] == "running" and time.monotonic() < deadline:
-                time.sleep(0.05)
+            workers = []
+
+            def worker_thread(*args, **kwargs):
+                worker = Thread(*args, **kwargs)
+                workers.append(worker)
+                return worker
+
+            with patch("tangerine_photo_assistant.webapp.Thread", side_effect=worker_thread):
+                try:
+                    manager.attach_ai_run(run_id)
+                    self.assertEqual(manager.snapshot()["status"], "running")
+                finally:
+                    connection.execute(
+                        "UPDATE ai_runs SET status='complete', completed_count=3, "
+                        "finished_at=?, worker_pid=NULL WHERE id=?",
+                        ("2026-08-10T00:01:00+00:00", run_id),
+                    )
+                    connection.commit()
+                    connection.close()
+                    # Terminal status precedes final audit writes and DB close.
+                    # Wait for the real monitor before disposing its temporary DB.
+                    for worker in workers:
+                        worker.join(timeout=10)
+                        self.assertFalse(worker.is_alive(), "AI monitor did not finish")
             self.assertEqual(manager.snapshot()["status"], "complete")
 
     def test_benchmark_selection_rotates_events_and_similarity_groups(self) -> None:
